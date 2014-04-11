@@ -40,7 +40,7 @@ source $ZSH/oh-my-zsh.sh
 
 # Thankfully the path that is already present is the one that the system has set according to
 # normal practices. This inserts a few more things that I use from the shell.
-export PATH=~/bin:~/util:$PATH:/usr/local/share/npm/bin:~/.apportable/SDK/bin
+export PATH=~/bin:~/util:$PATH:/opt/local/bin:/usr/local/share/npm/bin:~/.apportable/SDK/bin
 
 # this should be allowed I think. But the system should really be configured to
 # give that path to root user.
@@ -50,7 +50,6 @@ export PATH=~/bin:~/util:$PATH:/usr/local/share/npm/bin:~/.apportable/SDK/bin
 # zmodload zsh/complist
 # bindkey -M menuselect ' ' accept-and-infer-next-history
 # bindkey -M menuselect '^?' undo
-
 
 stty -ixon
 stty -ixoff
