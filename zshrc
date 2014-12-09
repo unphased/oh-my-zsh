@@ -91,8 +91,9 @@ bindkey "^[[1;3C" forward-word
 bindkey "^[[1;3D" backward-word
 source $ZSH/plugins/history-substring-search/history-substring-search.plugin.zsh
 
-export HISTSIZE=20000
-export SAVEHIST=200000
+export HISTSIZE=5000
+export SAVEHIST=5000
+export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with INC_APPEND_HISTORY which seems set by default
 
 # This is an independent save of the history and terminal's cwd.
 # This avoids problems that crop up when I try to squish the cwd into the history entry.
