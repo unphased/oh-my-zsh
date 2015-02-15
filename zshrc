@@ -1,6 +1,25 @@
 # Path to your oh-my-zsh configuration.
 ZSH=$HOME/.oh-my-zsh
 
+# munge system git config's user name with environment git name (munge the bits 
+# inside parens, check the bit before for equality)
+GAN_PARENS=${${GIT_AUTHOR_NAME#*\(}%\)*}
+GAN_NAME=${GIT_AUTHOR_NAME%\(*}
+echo "GAN_NAME=$GAN_NAME GAN_PARENS=$GAN_PARENS"
+GN_SYS=$(git config --get user.name)
+GN_SYS_PARENS=${${GN_SYS#*\(}%\)*}
+GN_SYS_NAME=${GN_SYS%\(*}
+echo "GN_SYS_NAME=$GN_SYS_NAME GN_SYS_PARENS=$GN_SYS_PARENS"
+
+if [[ "$GAN_NAME" != "$GN_SYS_NAME" ]]; then
+  echo "Git author name mismatch with user name: $GAN_NAME vs. $GN_SYS_NAME"
+fi
+
+if [[ -n "$GAN_PARENS" ]]; then
+  export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS -> $GN_SYS_PARENS)"
+  echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME"
+fi
+
 # Set name of the theme to load.
 # Look in ~/.oh-my-zsh/themes/
 # Optionally, if you set this to "random", it'll load a random theme each
@@ -117,24 +136,5 @@ function zshaddhistory() {
 
 # maintain this manually per-system
 source ~/.keychain-setup.sh
-
-# munge system git config's user name with environment git name (munge the bits 
-# inside parens, check the bit before for equality)
-GAN_PARENS=${${GIT_AUTHOR_NAME#*\(}%\)*}
-GAN_NAME=${GIT_AUTHOR_NAME%\(*}
-echo "GAN_NAME=$GAN_NAME GAN_PARENS=$GAN_PARENS"
-GN_SYS=$(git config --get user.name)
-GN_SYS_PARENS=${${GN_SYS#*\(}%\)*}
-GN_SYS_NAME=${GN_SYS%\(*}
-echo "GN_SYS_NAME=$GN_SYS_NAME GN_SYS_PARENS=$GN_SYS_PARENS"
-
-if [[ "$GAN_NAME" != "$GN_SYS_NAME" ]]; then
-  echo "Git author name mismatch with user name: $GAN_NAME vs. $GN_SYS_NAME"
-fi
-
-if [[ -n "$GAN_PARENS" ]]; then
-  export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS -> $GN_SYS_PARENS)"
-  echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME"
-fi
 
 echo "Finished loading my .zshrc"
