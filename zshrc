@@ -129,11 +129,11 @@ GN_SYS_NAME=${GN_SYS%\(*}
 echo "GN_SYS_NAME=$GN_SYS_NAME GN_SYS_PARENS=$GN_SYS_PARENS"
 
 if [[ "$GAN_NAME" != "$GN_SYS_NAME" ]]; then
-  echo "Git author name mismatch with user name: $GAN_NAME vs. $GN_SYS_NAME. setting new GIT_AUTHOR_NAME to system/config name $GN_SYS_NAME"
+  echo "Git author name mismatch with user name: $GAN_NAME vs. $GN_SYS_NAME"
 fi
 
 if [[ -n "$GAN_PARENS" ]]; then
-  export GIT_AUTHOR_NAME="$GN_SYS_NAME ($GAN_PARENS -> $GN_SYS_PARENS)"
+  export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS -> $GN_SYS_PARENS)"
   echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME"
 fi
 
