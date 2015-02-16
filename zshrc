@@ -155,6 +155,10 @@ if [ -n "$TMUX" ]; then
   function refresh_tmux_env {
     TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
     [[ -n "$TMUX_ENV_GAN" ]] && export "$TMUX_ENV_GAN"
+    
+    # Consequences -- you actually have to enter some command from the mac in 
+    # a given terminal in order for the SSH_AUTH_SOCK to get registered into 
+    # the environment
     TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment | grep "^SSH_AUTH_SOCK")
     [[ -n "$TMUX_ENV_SSH_AUTH_SOCK" ]] && export "$TMUX_ENV_SSH_AUTH_SOCK"
   }
