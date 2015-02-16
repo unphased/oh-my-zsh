@@ -132,6 +132,8 @@ if [[ -n "$GIT_AUTHOR_NAME" && "$GAN_NAME" != "$GN_SYS_NAME" ]]; then
   echo "Git author name mismatch with user name: $GAN_NAME vs. $GN_SYS_NAME"
 fi
 
+# Be sure to update sshd_config on servers to accept the GIT_AUTHOR_NAME env to
+# be passed through SSH
 if [[ -n "$GAN_PARENS" ]]; then
   export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS -> $GN_SYS_PARENS)"
   echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME"
