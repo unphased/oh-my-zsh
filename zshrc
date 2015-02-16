@@ -122,7 +122,7 @@ source ~/.keychain-setup.sh
 # inside parens, check the bit before for equality)
 GAN_NAME=${GIT_AUTHOR_NAME%\(*}
 GAN_PARENS=${${GIT_AUTHOR_NAME#*\(}%\)*}
-GAN_PARENS_LAST=${GAN_PARENS#*-> }
+GAN_PARENS_LAST=${GAN_PARENS#*on }
 echo "GAN_NAME=$GAN_NAME GAN_PARENS=$GAN_PARENS GAN_PARENS_LAST=$GAN_PARENS_LAST"
 GN_SYS=$(git config --get user.name)
 GN_SYS_PARENS=${${GN_SYS#*\(}%\)*}
@@ -140,7 +140,7 @@ if [[ -n "$GAN_PARENS" ]]; then
     export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS)"
     echo "new shell on same system, GIT_AUTHOR_NAME remains $GIT_AUTHOR_NAME"
   else
-    export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS -> $GN_SYS_PARENS)"
+    export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS on $GN_SYS_PARENS)"
     echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME"
   fi
 else
