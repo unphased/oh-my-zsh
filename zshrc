@@ -128,6 +128,10 @@ GAN_PARENS_EXCEPT_LAST=${GAN_PARENS% on*}
   GAN_PARENS_LAST_BRACKETS=${${GAN_PARENS_LAST#*\[}%\]*} && \
   GAN_PARENS_LAST_BEFORE_BRACKETS=${GAN_PARENS_LAST%\[*}
 
+# The convention here will be [<number> tmux <number>] where numbers on each 
+# side are omitted if they are one and represents which side of tmux they are 
+# on
+
 if [[ -n "$GAN_PARENS_LAST_BRACKETS" ]]; then
   (( INC_COUNT = $GAN_PARENS_LAST_BRACKETS + 1 ))
 else
