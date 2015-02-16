@@ -120,9 +120,10 @@ source ~/.keychain-setup.sh
 
 # munge system git config's user name with environment git name (munge the bits 
 # inside parens, check the bit before for equality)
-GAN_PARENS=${${GIT_AUTHOR_NAME#*\(}%\)*}
 GAN_NAME=${GIT_AUTHOR_NAME%\(*}
-echo "GAN_NAME=$GAN_NAME GAN_PARENS=$GAN_PARENS"
+GAN_PARENS=${${GIT_AUTHOR_NAME#*\(}%\)*}
+GAN_PARENS_LAST=${GAN_PARENS#*-> }
+echo "GAN_NAME=$GAN_NAME GAN_PARENS=$GAN_PARENS GAN_PARENS_LAST=$GAN_PARENS_LAST"
 GN_SYS=$(git config --get user.name)
 GN_SYS_PARENS=${${GN_SYS#*\(}%\)*}
 GN_SYS_NAME=${GN_SYS%\(*}
@@ -135,11 +136,32 @@ fi
 # Be sure to update sshd_config on servers to accept the GIT_AUTHOR_NAME env to
 # be passed through SSH
 if [[ -n "$GAN_PARENS" ]]; then
-  export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS -> $GN_SYS_PARENS)"
-  echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME"
+  if [[ "$GAN_PARENS_LAST" == "$GN_SYS_PARENS" ]]; then
+    export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS)"
+    echo "new shell on same system, GIT_AUTHOR_NAME remains $GIT_AUTHOR_NAME"
+  else
+    export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS -> $GN_SYS_PARENS)"
+    echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME"
+  fi
 else
   export GIT_AUTHOR_NAME="$GN_SYS_NAME($GN_SYS_PARENS)"
   echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME (same as git config)"
 fi
+
+# grab tmux environment during zsh preexec. tmux show-environment actually 
+# magically does the right thing passing along the env that i want that was set 
+# by PuTTY etc.
+if [ -n "$TMUX" ]; then
+  function refresh_tmux_env {
+    TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
+    [[ -n "$TMUX_ENV_GAN" ]] && export "$TMUX_ENV_GAN"
+    TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment | grep "^SSH_AUTH_SOCK")
+    [[ -n "$TMUX_ENV_SSH_AUTH_SOCK" ]] && export "$TMUX_ENV_SSH_AUTH_SOCK"
+  }
+  function preexec {
+    refresh_tmux_env
+  }
+fi
+
 
 echo "Finished loading my .zshrc"
