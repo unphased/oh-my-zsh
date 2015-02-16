@@ -172,7 +172,9 @@ fi
 if [ -n "$TMUX" ]; then
   function refresh_tmux_env {
     TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
-    [[ -n "$TMUX_ENV_GAN" ]] && export "$TMUX_ENV_GAN"
+    # TODO: Reconcile any existing shell stack count in GAN with that of the 
+    # tmux session environment...
+    [[ -n "$TMUX_ENV_GAN" ]] && export "${TMUX_ENV_GAN%\)*} tmux)"
 
     # Consequences -- if the tmux server was not initially started by the Mac 
     # (thereby seeding the entire tmux environment with SSH_AUTH_SOCK), you 
@@ -181,7 +183,8 @@ if [ -n "$TMUX" ]; then
     # into that particular shell. This is however not strictly an improvement 
     # on previous behavior because fresh panes that are made from the terminal 
     # not posessing the SSH socket env var won't pass it in. (I might take 
-    # SSH_AUTH_SOCK out of this system to bring back old behavior)
+    # SSH_AUTH_SOCK out of this system to bring back old behavior - when I do 
+    # that, this code can stay but won't do anything)
     TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment | grep "^SSH_AUTH_SOCK")
     [[ -n "$TMUX_ENV_SSH_AUTH_SOCK" ]] && export "$TMUX_ENV_SSH_AUTH_SOCK"
   }
