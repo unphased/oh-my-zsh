@@ -106,7 +106,7 @@ function zshaddhistory() {
     # do not do anything on common commands
 
     # do the needful
-    print -r "$PWD; $COMMAND_STR; $TTY@$HOST@$(date +%s.%N)" >> ~/.zsh_enhanced_history
+    print -r "$PWD; $COMMAND_STR; $GIT_AUTHOR_NAME@$TTY@$HOST@$(date +%s.%N)" >> ~/.zsh_enhanced_history
 
     # rest is "default" zshaddhistory()
     print -Sr ${COMMAND_STR}
@@ -155,7 +155,7 @@ if [ -n "$TMUX" ]; then
   function refresh_tmux_env {
     TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
     [[ -n "$TMUX_ENV_GAN" ]] && export "$TMUX_ENV_GAN"
-    
+
     # Consequences -- if the tmux server was not initially started by the Mac 
     # (thereby seeding the entire tmux environment with SSH_AUTH_SOCK), you 
     # actually have to run some command from the Mac in a given terminal in 
