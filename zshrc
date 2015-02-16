@@ -156,9 +156,12 @@ if [ -n "$TMUX" ]; then
     TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
     [[ -n "$TMUX_ENV_GAN" ]] && export "$TMUX_ENV_GAN"
     
-    # Consequences -- you actually have to enter some command from the mac in 
-    # a given terminal in order for the SSH_AUTH_SOCK to get registered into 
-    # the environment
+    # Consequences -- if the tmux server was not initially started by the Mac 
+    # (thereby seeding the entire tmux environment with SSH_AUTH_SOCK), you 
+    # actually have to run some command from the Mac in a given terminal in 
+    # order to trigger this preexec for the SSH_AUTH_SOCK to get registered 
+    # into that particular shell. This is strictly an improvement on previous 
+    # behavior.
     TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment | grep "^SSH_AUTH_SOCK")
     [[ -n "$TMUX_ENV_SSH_AUTH_SOCK" ]] && export "$TMUX_ENV_SSH_AUTH_SOCK"
   }
