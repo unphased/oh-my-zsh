@@ -123,9 +123,10 @@ source ~/.keychain-setup.sh
 GAN_NAME=${GIT_AUTHOR_NAME%\(*}
 GAN_PARENS=${${GIT_AUTHOR_NAME#*\(}%\)*}
 GAN_PARENS_LAST=${GAN_PARENS##*on }
+GAN_PARENS_EXCEPT_LAST=${GAN_PARENS% on*}
 [[ "$GAN_PARENS_LAST" == *\[* ]] && \
-  GAN_PARENS_LAST_BRACKETS=${${GAN_PARENS#*\[}%\]*} && \
-  GAN_PARENS_LAST_BEFORE_BRACKETS=${GAN_PARENS%\[*}
+  GAN_PARENS_LAST_BRACKETS=${${GAN_PARENS_LAST#*\[}%\]*} && \
+  GAN_PARENS_LAST_BEFORE_BRACKETS=${GAN_PARENS_LAST%\[*}
 
 if [[ -n "$GAN_PARENS_LAST_BRACKETS" ]]; then
   (( INC_COUNT = $GAN_PARENS_LAST_BRACKETS + 1 ))
@@ -147,15 +148,18 @@ fi
 # be passed through SSH
 if [[ -n "$GAN_PARENS" ]]; then
   if [[ "$GAN_PARENS_LAST" == "$GN_SYS_PARENS" ]]; then
-    export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS)"
-    echo "new shell on same system, GIT_AUTHOR_NAME remains $GIT_AUTHOR_NAME"
+    export GIT_AUTHOR_NAME="$GN_SYS_NAME(${GAN_PARENS}[$INC_COUNT])" # only when $INC_COUNT == 2, really
+    echo "new shell on same system, shell count was incremented, now is $GIT_AUTHOR_NAME"
+  elif [[ "$GAN_PARENS_LAST_BEFORE_BRACKETS" == "$GN_SYS_PARENS" ]]; then
+    export GIT_AUTHOR_NAME="$GN_SYS_NAME(${GAN_PARENS_EXCEPT_LAST} on ${GAN_PARENS_LAST_BEFORE_BRACKETS}[$INC_COUNT])" # only when $INC_COUNT == 2, really
+    echo "new shell on same system, shell count was incremented, now is $GIT_AUTHOR_NAME"
   else
     export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS on $GN_SYS_PARENS)"
     echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME"
   fi
 else
   export GIT_AUTHOR_NAME="$GN_SYS_NAME($GN_SYS_PARENS)"
-  echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME (same as git config)"
+  echo "GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME (seeded from git config)"
 fi
 
 # grab tmux environment during zsh preexec. tmux show-environment actually 
@@ -170,8 +174,10 @@ if [ -n "$TMUX" ]; then
     # (thereby seeding the entire tmux environment with SSH_AUTH_SOCK), you 
     # actually have to run some command from the Mac in a given terminal in 
     # order to trigger this preexec for the SSH_AUTH_SOCK to get registered 
-    # into that particular shell. This is strictly an improvement on previous 
-    # behavior.
+    # into that particular shell. This is however not strictly an improvement 
+    # on previous behavior because fresh panes that are made from the terminal 
+    # not posessing the SSH socket env var won't pass it in. (I might take 
+    # SSH_AUTH_SOCK out of this system to bring back old behavior)
     TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment | grep "^SSH_AUTH_SOCK")
     [[ -n "$TMUX_ENV_SSH_AUTH_SOCK" ]] && export "$TMUX_ENV_SSH_AUTH_SOCK"
   }
