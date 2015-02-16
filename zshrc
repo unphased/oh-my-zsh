@@ -176,9 +176,9 @@ fi
 if [ -n "$TMUX" ]; then
   function refresh_tmux_env {
     TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
-    # TODO: Reconcile any existing shell stack count in GAN with that of the 
-    # tmux session environment...
-    [[ -n "$TMUX_ENV_GAN" ]] && export "${TMUX_ENV_GAN%\)*} tmux)"
+    # TODO: Reconcile count in GAN and indicate tmux here and design this to 
+    # transparently pass through counts (will be tricky)
+    [[ -n "$TMUX_ENV_GAN" ]] && export "${TMUX_ENV_GAN%\)*}[tmux])"
 
     # Consequences -- if the tmux server was not initially started by the Mac 
     # (thereby seeding the entire tmux environment with SSH_AUTH_SOCK), you 
