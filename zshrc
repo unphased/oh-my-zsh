@@ -122,7 +122,7 @@ source ~/.keychain-setup.sh
 # inside parens, check the bit before for equality)
 GAN_NAME=${GIT_AUTHOR_NAME%\(*}
 GAN_PARENS=${${GIT_AUTHOR_NAME#*\(}%\)*}
-GAN_PARENS_LAST=${GAN_PARENS#*on }
+GAN_PARENS_LAST=${GAN_PARENS##*on }
 echo "GAN_NAME=$GAN_NAME GAN_PARENS=$GAN_PARENS GAN_PARENS_LAST=$GAN_PARENS_LAST"
 GN_SYS=$(git config --get user.name)
 GN_SYS_PARENS=${${GN_SYS#*\(}%\)*}
@@ -169,6 +169,5 @@ if [ -n "$TMUX" ]; then
     refresh_tmux_env
   }
 fi
-
 
 echo "Finished loading my .zshrc"
