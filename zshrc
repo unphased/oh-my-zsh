@@ -115,9 +115,6 @@ function zshaddhistory() {
 
 . ~/.aliases.sh
 
-# maintain this manually per-system
-source ~/.keychain-setup.sh
-
 # munge system git config's user name with environment git name (munge the bits 
 # inside parens, check the bit before for equality)
 GAN_NAME=${GIT_AUTHOR_NAME%\(*}
