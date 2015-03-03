@@ -195,3 +195,4 @@ if [ -n "$TMUX" ]; then
 fi
 
 echo "Finished loading my .zshrc"
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
