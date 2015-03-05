@@ -42,6 +42,9 @@ plugins=(git cp osx history zsh-syntax-highlighting)
 
 source $ZSH/oh-my-zsh.sh
 
+setopt NO_NOMATCH
+# that allows carat to work for git stuff
+
 # complete words from tmux pane(s) {{{1
 # Source: http://blog.plenz.com/2012-01/zsh-complete-words-from-tmux-pane.html
 _tmux_pane_words() {
