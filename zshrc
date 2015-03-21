@@ -110,7 +110,10 @@ function zshaddhistory() {
 
   # do the needful
   REPLACE="@\\\$@"
-  CMD_DELIMITER_ESCAPED=${COMMAND_STR//@\$@/$REPLACE}
+  # I decided here to trade ease-of-copy for ease of parsing and processing
+  CMD_NEWLINE_ESCAPED=${COMMAND_STR//
+/@\\n@}
+  CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
   print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date +%s.%N)" >> ~/.zsh_enhanced_new_history
 
   # rest is "default" zshaddhistory()
