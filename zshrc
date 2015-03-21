@@ -101,19 +101,19 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 # This is an independent save of the history and terminal's cwd.
 # This avoids problems that crop up when I try to squish the cwd into the history entry.
 function zshaddhistory() {
-    COMMAND_STR=${1%%$'\n'}
-    [[ ( -z $COMMAND_STR ) || ( $COMMAND_STR =~ ^hist(ory)?$ ) || \
-        ( $COMMAND_STR =~ ^l(s\|l\|a)?$ ) || \
-        ( $COMMAND_STR =~ ^(d\|gd\|git\ diff\|glp\|gg)$ ) \
+  COMMAND_STR=${1%%$'\n'}
+  [[ ( -z $COMMAND_STR ) || ( $COMMAND_STR =~ ^hist(ory)?$ ) || \
+    ( $COMMAND_STR =~ ^l(s\|l\|a)?$ ) || \
+    ( $COMMAND_STR =~ ^(d\|gd\|git\ diff\|glp\|gg)$ ) \
     ]] && return 1
-    # do not do anything on common commands
+  # do not do anything on common commands
 
-    # do the needful
-    print -r "$PWD; $COMMAND_STR; $GIT_AUTHOR_NAME@$TTY@$HOST@$(date +%s.%N)" >> ~/.zsh_enhanced_history
+  # do the needful
+  print -r "$PWD; $COMMAND_STR; $GIT_AUTHOR_NAME@$TTY@$HOST@$(date +%s.%N)" >> ~/.zsh_enhanced_history
 
-    # rest is "default" zshaddhistory()
-    print -Sr ${COMMAND_STR}
-    fc -p
+  # rest is "default" zshaddhistory()
+  print -Sr ${COMMAND_STR}
+  fc -p
 }
 
 . ~/.aliases.sh
