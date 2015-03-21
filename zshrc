@@ -198,4 +198,10 @@ if [ -n "$TMUX" ]; then
 fi
 
 echo "Finished loading my .zshrc"
+
+# load fuzzyfind bindings etc
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+# load nvm
+export NVM_DIR=~/.nvm
+source $(brew --prefix nvm)/nvm.sh
