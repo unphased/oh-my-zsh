@@ -109,7 +109,9 @@ function zshaddhistory() {
   # do not do anything on common commands
 
   # do the needful
-  print -r "$PWD; $COMMAND_STR; $GIT_AUTHOR_NAME@$TTY@$HOST@$(date +%s.%N)" >> ~/.zsh_enhanced_history
+  REPLACE="@\\\$@"
+  CMD_DELIMITER_ESCAPED=${COMMAND_STR//@\$@/$REPLACE}
+  print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date +%s.%N)" >> ~/.zsh_enhanced_new_history
 
   # rest is "default" zshaddhistory()
   print -Sr ${COMMAND_STR}
