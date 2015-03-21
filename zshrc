@@ -66,8 +66,8 @@ _tmux_pane_words() {
  
 zle -C tmux-pane-words-prefix   complete-word _generic
 zle -C tmux-pane-words-anywhere complete-word _generic
-bindkey '^X^Tt' tmux-pane-words-prefix
-bindkey '^X^TT' tmux-pane-words-anywhere
+bindkey '^Ft' tmux-pane-words-prefix
+bindkey '^F^F' tmux-pane-words-anywhere
 zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' completer _tmux_pane_words
 zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' ignore-line current
 # display the (interactive) menu on first execution of the hotkey
