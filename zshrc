@@ -114,7 +114,7 @@ function zshaddhistory() {
   CMD_NEWLINE_ESCAPED=${COMMAND_STR//
 /@\\n@}
   CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
-  print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date +%s.%N)" >> ~/.zsh_enhanced_new_history
+  print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)" >> ~/.zsh_enhanced_new_history
 
   # rest is "default" zshaddhistory()
   print -Sr ${COMMAND_STR}
