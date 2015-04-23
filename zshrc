@@ -209,4 +209,4 @@ echo "Finished loading my .zshrc"
 
 # load nvm
 export NVM_DIR=~/.nvm
-source $(brew --prefix nvm)/nvm.sh
+[[ $(uname) == Darwin ]] && source $(brew --prefix nvm)/nvm.sh
