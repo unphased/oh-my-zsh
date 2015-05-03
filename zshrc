@@ -92,7 +92,13 @@ stty -ixon
 stty -ixoff
 bindkey "^[[1;3C" forward-word
 bindkey "^[[1;3D" backward-word
+
 source $ZSH/plugins/history-substring-search/history-substring-search.plugin.zsh
+
+# needed to unbreak substring search whenever safe-paste (or vi mode) are also 
+# enabled
+bindkey '^[[A' history-substring-search-up
+bindkey '^[[B' history-substring-search-down
 
 export HISTSIZE=5000
 export SAVEHIST=5000
