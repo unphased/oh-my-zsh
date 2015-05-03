@@ -38,7 +38,7 @@ alias mmv='noglob zmv -W'
 # Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
-plugins=(git cp osx history zsh-syntax-highlighting)
+plugins=(git cp osx history zsh-syntax-highlighting safe-paste)
 
 source $ZSH/oh-my-zsh.sh
 
@@ -199,6 +199,12 @@ if [ -n "$TMUX" ]; then
   }
   function preexec {
     refresh_tmux_env
+    
+    # assumes using screen-* TERM (for some reason tmux seems to not require 
+    # this when in xterm-* TERM -- it still sends the title)
+    # this sets the title for tmux to use. this is important for context 
+    # sensitive tmux hotkey integration/delegation
+    printf "\x1b]2;$3\x1b\\"
   }
 fi
 
