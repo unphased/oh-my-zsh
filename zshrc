@@ -38,7 +38,7 @@ alias mmv='noglob zmv -W'
 # Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
-plugins=(git cp osx history zsh-syntax-highlighting safe-paste)
+plugins=(git cp osx history zsh-syntax-highlighting history-substring-search)
 
 source $ZSH/oh-my-zsh.sh
 
@@ -93,12 +93,17 @@ stty -ixoff
 bindkey "^[[1;3C" forward-word
 bindkey "^[[1;3D" backward-word
 
-source $ZSH/plugins/history-substring-search/history-substring-search.plugin.zsh
+# source $ZSH/plugins/history-substring-search/history-substring-search.plugin.zsh
 
-# needed to unbreak substring search whenever safe-paste (or vi mode) are also 
-# enabled
-bindkey '^[[A' history-substring-search-up
-bindkey '^[[B' history-substring-search-down
+# a bind seems to be needed to unbreak substring search whenever safe-paste (or 
+# vi mode) are also enabled. But, there is yet another layer of weirdness with 
+# this plugin, where if i use the arrow keys (like I had been for at least two 
+# years) the behavior is inconsistent w.r.t. queued up keystrokes entered 
+# during a longrunning process. But if I bind it to pgup/pgdn it does not 
+# exhibit this problem. So I am switching the bind to pgup/pgdn in order to 
+# make the behavior unambiguous
+bindkey '^[[5~' history-substring-search-up
+bindkey '^[[6~' history-substring-search-down
 
 export HISTSIZE=5000
 export SAVEHIST=5000
