@@ -1,6 +1,16 @@
 # Path to your oh-my-zsh configuration.
 ZSH=$HOME/.oh-my-zsh
 
+# debug logging, remove me to not waste disk
+# set the trace prompt to include seconds, nanoseconds, script name and line number
+# This is GNU date syntax; by default Macs ship with the BSD date program, which isn't compatible
+PS4='+$(date "+%s:%N") %N:%i> '
+# # save file stderr to file descriptor 3 and redirect stderr (including trace 
+# # output) to a file with the script's PID as an extension
+# exec 3>&2 2>/tmp/zshlog.$$
+# # set options to turn on tracing and expansion of commands contained in the prompt
+# setopt XTRACE VERBOSE
+
 # Set name of the theme to load.
 # Look in ~/.oh-my-zsh/themes/
 # Optionally, if you set this to "random", it'll load a random theme each

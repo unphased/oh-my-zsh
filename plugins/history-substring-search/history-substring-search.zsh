@@ -136,6 +136,20 @@ HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_FOUND='bg=cyan,fg=black'
 HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_NOT_FOUND='bg=magenta,fg=black'
 HISTORY_SUBSTRING_SEARCH_GLOBBING_FLAGS='i'
 
+#----------------------
+# A debug widget thing
+#----------------------
+
+# Use me like this: 
+# zle -N history-substring-search-up _debug_widget
+_debug_widget() {
+  {
+    PS4='+$(date "+%s:%N") %N:%i> '
+    setopt localoptions xtrace
+    $WIDGET "$@"
+  } 2>>| /tmp/zsh-${WIDGET}-$$
+}
+
 #-----------------------------------------------------------------------------
 # the main ZLE widgets
 #-----------------------------------------------------------------------------
