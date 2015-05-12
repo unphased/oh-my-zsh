@@ -225,7 +225,7 @@ if [ -n "$TMUX" ]; then
     # this when in xterm-* TERM -- it still sends the title)
     # this sets the title for tmux to use. this is important for context 
     # sensitive tmux hotkey integration/delegation
-    printf "\x1b]2;$3\x1b\\"
+    printf "\x1b]2;${3//\%/%%}\x1b\\"
   }
 fi
 
