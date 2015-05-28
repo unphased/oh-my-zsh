@@ -222,6 +222,9 @@ if [ -n "$TMUX" ]; then
     # equals in it (but even still it only replaces the first)
   }
   function preexec {
+    # TODO: make this only attempt when on a terminal that supports ecapes that
+    # set title (e.g. MTerminal doesnt support it)
+
     # assumes using screen-* TERM (for some reason tmux seems to not require 
     # this when in xterm-* TERM -- it still sends the title) this sets the 
     # title for tmux to use. this is important for context sensitive tmux 
