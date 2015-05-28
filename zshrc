@@ -123,12 +123,7 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 # This avoids problems that crop up when I try to squish the cwd into the history entry.
 function zshaddhistory()
 {
-    COMMAND_STR=${2%%$'\n'}
-    [[ ( -z $COMMAND_STR ) || ( $COMMAND_STR =~ ^hist(ory)?$ ) || \
-      ( $COMMAND_STR =~ ^l(s\|l\|a)?$ ) || \
-      ( $COMMAND_STR =~ ^(d\|gd\|git\ diff\|glp\|gg)$ ) \
-      ]] && return 1
-    # do not add zsh history on common commands
+  COMMAND_STR=${1%%$'\n'}
   # rest is "default" zshaddhistory()
   print -Sr ${COMMAND_STR}
   fc -p
@@ -245,6 +240,17 @@ if [ -n "$TMUX" ]; then
     print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
   }
   refresh_tmux_env
+else
+  function preexec ()
+  {
+    COMMAND_START_TIME=$(date +%s%3N)
+    COMMAND_EXECUTION_STRING=$2
+    REPLACE="@\\\$@"
+    CMD_NEWLINE_ESCAPED=${COMMAND_EXECUTION_STRING//
+/@\\n@}
+    CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
+    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
+  }
 fi
 
 # NOTE (no good place to put this) -- consider Antigen (move away from 
