@@ -215,18 +215,20 @@ if [ -n "$TMUX" ]; then
     # not posessing the SSH socket env var won't pass it in. (I might take 
     # SSH_AUTH_SOCK out of this system to bring back old behavior - when I do 
     # that, this code can stay but won't do anything)
+    TMUX_ENV_G_SSH_AUTH_SOCK=$(tmux show-environment -g | grep "^SSH_AUTH_SOCK")
     TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment | grep "^SSH_AUTH_SOCK")
-    [[ -n "$TMUX_ENV_SSH_AUTH_SOCK" ]] && export "$TMUX_ENV_SSH_AUTH_SOCK"
+    [[ -z "$TMUX_ENV_SSH_AUTH_SOCK" ]] && tmux setenv ${(z)TMUX_ENV_G_SSH_AUTH_SOCK/=/ } && echo "Extended SSH_AUTH_SOCK to this session"
+    # this expansion replacement is safe because the auth sock path has no 
+    # equals in it (but even still it only replaces the first)
   }
   function preexec {
-    refresh_tmux_env
-    
     # assumes using screen-* TERM (for some reason tmux seems to not require 
-    # this when in xterm-* TERM -- it still sends the title)
-    # this sets the title for tmux to use. this is important for context 
-    # sensitive tmux hotkey integration/delegation
+    # this when in xterm-* TERM -- it still sends the title) this sets the 
+    # title for tmux to use. this is important for context sensitive tmux 
+    # hotkey integration/delegation
     printf "\x1b]2;${3//\%/%%}\x1b\\"
   }
+  refresh_tmux_env
 fi
 
 echo "Finished loading my .zshrc"
@@ -234,6 +236,9 @@ echo "Finished loading my .zshrc"
 # load fuzzyfind bindings etc
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
+
 # load nvm
 export NVM_DIR=~/.nvm
 [[ $(uname) == Darwin ]] && source $(brew --prefix nvm)/nvm.sh
+
+# vim: ts=2 sw=2 et :
