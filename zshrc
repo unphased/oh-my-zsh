@@ -121,7 +121,8 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 
 # This is an independent save of the history and terminal's cwd.
 # This avoids problems that crop up when I try to squish the cwd into the history entry.
-function zshaddhistory() {
+function zshaddhistory()
+{
   COMMAND_STR=${1%%$'\n'}
   [[ ( -z $COMMAND_STR ) || ( $COMMAND_STR =~ ^hist(ory)?$ ) || \
     ( $COMMAND_STR =~ ^l(s\|l\|a)?$ ) || \
@@ -200,7 +201,8 @@ fi
 # magically does the right thing passing along the env that i want that was set 
 # by PuTTY etc.
 if [ -n "$TMUX" ]; then
-  function refresh_tmux_env {
+  function refresh_tmux_env()
+  {
     TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
     # TODO: Reconcile count in GAN and indicate tmux here and design this to 
     # transparently pass through counts (will be tricky)
@@ -221,7 +223,8 @@ if [ -n "$TMUX" ]; then
     # this expansion replacement is safe because the auth sock path has no 
     # equals in it (but even still it only replaces the first)
   }
-  function preexec {
+  function preexec ()
+  {
     # TODO: make this only attempt when on a terminal that supports ecapes that
     # set title (e.g. MTerminal doesnt support it)
 
@@ -233,6 +236,12 @@ if [ -n "$TMUX" ]; then
   }
   refresh_tmux_env
 fi
+
+function precmd ()
+{
+  # catch the time of the last command termination (which ordinarily prompts 
+  # a s)
+}
 
 echo "Finished loading my .zshrc"
 
