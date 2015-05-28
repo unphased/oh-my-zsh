@@ -123,21 +123,12 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 # This avoids problems that crop up when I try to squish the cwd into the history entry.
 function zshaddhistory()
 {
-  COMMAND_STR=${1%%$'\n'}
-  [[ ( -z $COMMAND_STR ) || ( $COMMAND_STR =~ ^hist(ory)?$ ) || \
-    ( $COMMAND_STR =~ ^l(s\|l\|a)?$ ) || \
-    ( $COMMAND_STR =~ ^(d\|gd\|git\ diff\|glp\|gg)$ ) \
-    ]] && return 1
-  # do not do anything on common commands
-
-  # do the needful
-  REPLACE="@\\\$@"
-  # I decided here to trade ease-of-copy for ease of parsing and processing
-  CMD_NEWLINE_ESCAPED=${COMMAND_STR//
-/@\\n@}
-  CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
-  print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)" >> ~/.zsh_enhanced_new_history
-
+    COMMAND_STR=${2%%$'\n'}
+    [[ ( -z $COMMAND_STR ) || ( $COMMAND_STR =~ ^hist(ory)?$ ) || \
+      ( $COMMAND_STR =~ ^l(s\|l\|a)?$ ) || \
+      ( $COMMAND_STR =~ ^(d\|gd\|git\ diff\|glp\|gg)$ ) \
+      ]] && return 1
+    # do not add zsh history on common commands
   # rest is "default" zshaddhistory()
   print -Sr ${COMMAND_STR}
   fc -p
@@ -231,16 +222,44 @@ if [ -n "$TMUX" ]; then
     # assumes using screen-* TERM (for some reason tmux seems to not require 
     # this when in xterm-* TERM -- it still sends the title) this sets the 
     # title for tmux to use. this is important for context sensitive tmux 
-    # hotkey integration/delegation
-    printf "\x1b]2;${3//\%/%%}\x1b\\"
+    # hotkey integration/delegation to work properly in Linux in particcular 
+    printf "\x1b]2;${2//\%/%%}\x1b\\"
+
+    # this does timing. For whatever reason, i can't do it in zshaddhistory 
+    # (the env vars don't live beyond it), that's fine. (TODO consider moving 
+    # the zsh_enhanced_new_history write operation to happen in here, this one 
+    # can get the aliases and even full shell functions expanded out)
+    COMMAND_START_TIME=$(date +%s%3N)
+    # the start time can be used as a unique ID to locate the command, because 
+    # the shell is pretty slow. We can always upgrade the timestamp to ns also.
+    COMMAND_EXECUTION_STRING=$2
+    # echo "command ($2) about to start at $COMMAND_START_TIME"
+    # I think $2 already has no newline in it
+
+    # defines escaped newline sentinel
+    REPLACE="@\\\$@"
+    # I decided here to trade ease-of-copy for ease of parsing and processing
+    CMD_NEWLINE_ESCAPED=${COMMAND_EXECUTION_STRING//
+/@\\n@}
+    CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
+    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
   }
   refresh_tmux_env
 fi
 
+# NOTE (no good place to put this) -- consider Antigen (move away from 
+# oh-my-zsh)
+
 function precmd ()
 {
-  # catch the time of the last command termination (which ordinarily prompts 
-  # a s)
+  # catch the time of the last command termination (which ordinarily will 
+  # prompt the prompt to be run and therefore this func to run)
+  COMMAND_END_TIME=$(date +%s%3N)
+  if [[ -z $COMMAND_START_TIME ]]; then
+    echo "Shell is new, initialized at $COMMAND_END_TIME"
+  else
+    echo "command ($COMMAND_EXECUTION_STRING) started at $COMMAND_START_TIME took $((COMMAND_END_TIME - COMMAND_START_TIME)) ms" >> ~/.zsh_enhanced_new_history
+  fi
 }
 
 echo "Finished loading my .zshrc"
