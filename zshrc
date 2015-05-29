@@ -187,6 +187,14 @@ fi
 # magically does the right thing passing along the env that i want that was set 
 # by PuTTY etc.
 if [ -n "$TMUX" ]; then
+  function tmux_env_per_cmd()
+  {
+    # this is the one that is run every command and implemments the updating of
+    # the shell's GIT_AUTHOR_NAME
+    TMUX_ENV_GAN=$(tmux show-environment GIT_AUTHOR_NAME)
+    [[ $TMUX_ENV_GAN[1] == 'G' ]] && export "${TMUX_ENV_GAN%\)*}[tmux])"
+    # if starts with '-' it means it was disabled by tmux
+  }
   function refresh_tmux_env()
   {
     TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
@@ -211,6 +219,7 @@ if [ -n "$TMUX" ]; then
   }
   function preexec ()
   {
+    tmux_env_per_cmd
     # TODO: make this only attempt when on a terminal that supports ecapes that
     # set title (e.g. MTerminal doesnt support it)
 
