@@ -236,7 +236,7 @@ if [ -n "$TMUX" ]; then
     COMMAND_START_TIME=$(date +%s%3N)
     # the start time can be used as a unique ID to locate the command, because 
     # the shell is pretty slow. We can always upgrade the timestamp to ns also.
-    COMMAND_EXECUTION_STRING=$2
+    COMMAND_EXECUTION_STRING=$1
     # echo "command ($2) about to start at $COMMAND_START_TIME"
     # I think $2 already has no newline in it
 
@@ -273,7 +273,7 @@ function precmd ()
   if [[ -z $COMMAND_START_TIME ]]; then
     echo "Shell is new, initialized at $COMMAND_END_TIME"
   else
-    echo "command ($COMMAND_EXECUTION_STRING) started at $COMMAND_START_TIME took $((COMMAND_END_TIME - COMMAND_START_TIME)) ms" >> ~/.zsh_enhanced_new_history
+    print -r "command ($CMD_DELIMITER_ESCAPED) started at $COMMAND_START_TIME took $((COMMAND_END_TIME - COMMAND_START_TIME)) ms" >> ~/.zsh_enhanced_new_history
   fi
 }
 
