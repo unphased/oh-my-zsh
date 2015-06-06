@@ -236,7 +236,7 @@ if [ -n "$TMUX" ]; then
     COMMAND_START_TIME=$(date +%s%3N)
     # the start time can be used as a unique ID to locate the command, because 
     # the shell is pretty slow. We can always upgrade the timestamp to ns also.
-    COMMAND_EXECUTION_STRING=$1
+    COMMAND_EXECUTION_STRING=$3
     # echo "command ($2) about to start at $COMMAND_START_TIME"
     # I think $2 already has no newline in it
 
@@ -253,7 +253,7 @@ else
   function preexec ()
   {
     COMMAND_START_TIME=$(date +%s%3N)
-    COMMAND_EXECUTION_STRING=$2
+    COMMAND_EXECUTION_STRING=$3
     REPLACE="@\\\$@"
     CMD_NEWLINE_ESCAPED=${COMMAND_EXECUTION_STRING//
 /@\\n@}
