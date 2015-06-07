@@ -198,10 +198,10 @@ if [ -n "$TMUX" ]; then
   }
   function refresh_tmux_env()
   {
-    TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
+    # TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
     # TODO: Reconcile count in GAN and indicate tmux here and design this to 
     # transparently pass through counts (will be tricky)
-    [[ -n "$TMUX_ENV_GAN" ]] && export "${TMUX_ENV_GAN%\)*}[tmux])"
+    # [[ -n "$TMUX_ENV_GAN" ]] && export "${TMUX_ENV_GAN%\)*}[tmux])"
 
     # infectiously grab SSH_AUTH_SOCK if defined and spread it round into all 
     # the envs
