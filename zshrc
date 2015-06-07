@@ -203,30 +203,33 @@ if [ -n "$TMUX" ]; then
     # transparently pass through counts (will be tricky)
     [[ -n "$TMUX_ENV_GAN" ]] && export "${TMUX_ENV_GAN%\)*}[tmux])"
 
-    TMUX_ENV_G_SSH_AUTH_SOCK=$(tmux show-environment -g | grep "^SSH_AUTH_SOCK")
-    TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment | grep "^SSH_AUTH_SOCK")
     # infectiously grab SSH_AUTH_SOCK if defined and spread it round into all 
     # the envs
     if [[ -n "$SSH_AUTH_SOCK" ]]; then
-      tmux setenv -g SSH_AUTH_SOCK $SSH_AUTH_SOCK
-      echo "set \$SSH_AUTH_SOCK into global tmux env"
       tmux ls -F '#S' | while read sess; do
-        tmux setenv -t $sess SSH_AUTH_SOCK $SSH_AUTH_SOCK
-        echo "set \$SSH_AUTH_SOCK into tmux session env $sess"
+        TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment -t $sess | grep "^SSH_AUTH_SOCK")
+        if [[ -z $TMUX_ENV_SSH_AUTH_SOCK ]]; then
+          tmux setenv -t $sess SSH_AUTH_SOCK $SSH_AUTH_SOCK
+          echo "set \$SSH_AUTH_SOCK into tmux session env $sess"
+        fi
       done
-    elif [[ -n "$TMUX_ENV_SSH_AUTH_SOCK" ]]; then
-      export $TMUX_ENV_SSH_AUTH_SOCK
-      echo "brought \$SSH_AUTH_SOCK into shell from tmux session"
-    elif [[ -n "$TMUX_ENV_G_SSH_AUTH_SOCK" ]]; then
-      export $TMUX_ENV_G_SSH_AUTH_SOCK
-      echo "brought \$SSH_AUTH_SOCK into shell from tmux global session"
+    else
+      # if this is not a "seeded" session/env then we check all the other 
+      # sessions and pull it in
+      tmux ls -F '#S' | while read sess; do
+        TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment -t $sess | grep "^SSH_AUTH_SOCK")
+        if [[ -n $TMUX_ENV_SSH_AUTH_SOCK ]]; then
+          export $TMUX_ENV_SSH_AUTH_SOCK
+          echo "set \$SSH_AUTH_SOCK from tmux session env $sess"
+        fi
+      done
     fi
 
-    # TMUX_ENV_G_SSH_AUTH_SOCK=$(tmux show-environment -g | grep "^SSH_AUTH_SOCK")
-    # TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment | grep "^SSH_AUTH_SOCK")
-    # [[ -z "$TMUX_ENV_SSH_AUTH_SOCK" && -n "$TMUX_ENV_G_SSH_AUTH_SOCK" ]] && tmux setenv ${(z)TMUX_ENV_G_SSH_AUTH_SOCK/=/ } && echo "Extended SSH_AUTH_SOCK to this session"
-    # # this expansion replacement is safe because the auth sock path has no 
-    # # equals in it (but even still it only replaces the first)
+    TMUX_ENV_G_SSH_AUTH_SOCK=$(tmux show-environment -g | grep "^SSH_AUTH_SOCK")
+    if [[ -z "$TMUX_ENV_G_SSH_AUTH_SOCK" ]]; then
+      tmux setenv -g SSH_AUTH_SOCK $SSH_AUTH_SOCK
+      echo "set \$SSH_AUTH_SOCK into global tmux env"
+    fi
   }
   function preexec ()
   {
