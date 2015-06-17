@@ -202,8 +202,8 @@ if [ -n "$TMUX" ]; then
     # back into running zsh ptys
     TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment SSH_AUTH_SOCK)
     TMUX_ENV_SSH_AUTH_SOCK_VALUE=${TMUX_ENV_SSH_AUTH_SOCK#*=}
-    if [[ $TMUX_ENV_SSH_AUTH_SOCK_VALUE != $SSH_AUTH_SOCK ]]; then
-      echo "Updated \$SSH_AUTH_SOCK from tmux env, was $SSH_AUTH_SOCK, now $TMUX_ENV_SSH_AUTH_SOCK_VALUE"
+    if [[ $TMUX_ENV_SSH_AUTH_SOCK_VALUE[1] != '-' && $TMUX_ENV_SSH_AUTH_SOCK_VALUE != $SSH_AUTH_SOCK ]]; then
+      echo "Updated \$SSH_AUTH_SOCK from current tmux env, shell's env was $SSH_AUTH_SOCK, now $TMUX_ENV_SSH_AUTH_SOCK_VALUE"
       export SSH_AUTH_SOCK=$TMUX_ENV_SSH_AUTH_SOCK_VALUE
     fi
   }
@@ -229,9 +229,10 @@ if [ -n "$TMUX" ]; then
       # sessions and pull it in
       tmux ls -F '#S' | while read sess; do
         TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment -t $sess SSH_AUTH_SOCK)
-        if [[ -n $TMUX_ENV_SSH_AUTH_SOCK ]]; then
+        if [[ -n $TMUX_ENV_SSH_AUTH_SOCK && $TMUX_ENV_SSH_AUTH_SOCK[1] != '-' ]]; then
           export $TMUX_ENV_SSH_AUTH_SOCK
-          echo "set \$SSH_AUTH_SOCK from tmux session env $sess"
+          echo "Set \$SSH_AUTH_SOCK from tmux session env $sess: $TMUX_ENV_SSH_AUTH_SOCK"
+          break
         fi
       done
     fi
