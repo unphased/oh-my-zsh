@@ -115,6 +115,9 @@ bindkey "^[[1;3D" backward-word
 bindkey '^[[5~' history-substring-search-up
 bindkey '^[[6~' history-substring-search-down
 
+# for enter working from numpad for easy right hand mouse reaching
+bindkey -s "^[OM" "^M"
+
 export HISTSIZE=5000
 export SAVEHIST=5000
 export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with INC_APPEND_HISTORY which seems set by default
