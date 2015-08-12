@@ -28,6 +28,9 @@ export LANG=en_US.UTF-8
 # Comment this out to disable bi-weekly auto-update checks
 DISABLE_AUTO_UPDATE="true"
 
+# soooooo i put this back on, and it basically still sucks because its too dumb
+# setopt correct
+
 # Uncomment to change how many often would you like to wait before auto-updates occur? (in days)
 # export UPDATE_ZSH_DAYS=13
 
