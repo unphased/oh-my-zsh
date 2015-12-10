@@ -95,7 +95,7 @@ zstyle ':completion:tmux-pane-words-anywhere:*' matcher-list 'b:=* m:{A-Za-z}={a
 
 # Thankfully the path that is already present is the one that the system has set according to
 # normal practices. This inserts a few more things that I use from the shell.
-export PATH=~/bin:~/util:$PATH:/opt/local/bin:/usr/local/share/npm/bin
+export PATH=~/bin:~/util:$PATH:/opt/local/bin:/usr/local/share/npm/bin:~/.linuxbrew/bin
 
 # this should be allowed I think. But the system should really be configured to
 # give that path to root user.
