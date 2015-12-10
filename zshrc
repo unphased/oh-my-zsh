@@ -1,6 +1,11 @@
 # Path to your oh-my-zsh configuration.
 ZSH=$HOME/.oh-my-zsh
 
+# for linuxbrew (no need to detect linux)
+export PATH="$HOME/.linuxbrew/bin:$PATH"
+export MANPATH="$HOME/.linuxbrew/share/man:$MANPATH"
+export INFOPATH="$HOME/.linuxbrew/share/info:$INFOPATH"
+
 # debug logging, remove me to not waste disk
 # set the trace prompt to include seconds, nanoseconds, script name and line number
 # This is GNU date syntax; by default Macs ship with the BSD date program, which isn't compatible
