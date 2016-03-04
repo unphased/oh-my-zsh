@@ -7,7 +7,7 @@ GREP_OPTIONS=""
 
 # color grep results
 if grep-flag-available --color=auto; then
-    GREP_OPTIONS+=" --color=auto"
+    GREP_OPTIONS+=" --color=always"
 fi
 
 # ignore VCS folders (if the necessary grep flags are available)
