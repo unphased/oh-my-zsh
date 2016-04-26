@@ -102,6 +102,9 @@ export PATH=~/bin:~/util:$PATH:/opt/local/bin:/usr/local/share/npm/bin
 [[ $(id -u) == 0 ]] && export PATH=/usr/local/bin:$PATH
 # export PAGER=vimpager
 
+zmodload zsh/datetime
+# this is for the $EPOCHREALTIME
+
 # zmodload zsh/complist
 # bindkey -M menuselect ' ' accept-and-infer-next-history
 # bindkey -M menuselect '^?' undo
@@ -272,7 +275,7 @@ if [ -n "$TMUX" ]; then
     # (the env vars don't live beyond it), that's fine. (TODO consider moving 
     # the zsh_enhanced_new_history write operation to happen in here, this one 
     # can get the aliases and even full shell functions expanded out)
-    COMMAND_START_TIME=$(date +%s%3N)
+    COMMAND_START_TIME=$EPOCHREALTIME
     # the start time can be used as a unique ID to locate the command, because 
     # the shell is pretty slow. We can always upgrade the timestamp to ns also.
     COMMAND_EXECUTION_STRING=$3
