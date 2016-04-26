@@ -8,8 +8,7 @@ export INFOPATH="$HOME/.linuxbrew/share/info:$INFOPATH"
 
 # debug logging, remove me to not waste disk
 # set the trace prompt to include seconds, nanoseconds, script name and line number
-# This is GNU date syntax; by default Macs ship with the BSD date program, which isn't compatible
-PS4='+$(date "+%s:%N") %N:%i> '
+PS4='+$(EPOCHREALTIME) %N:%i> '
 # # save file stderr to file descriptor 3 and redirect stderr (including trace 
 # # output) to a file with the script's PID as an extension
 # exec 3>&2 2>/tmp/zshlog.$$
@@ -288,19 +287,19 @@ if [ -n "$TMUX" ]; then
     CMD_NEWLINE_ESCAPED=${COMMAND_EXECUTION_STRING//
 /@\\n@}
     CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
-    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$(tmux display -p "W #I:#W P#P")@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
+    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(EPOCHREALTIME)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$(tmux display -p "W #I:#W P#P")@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
   }
   refresh_tmux_env
 else
   function preexec ()
   {
-    COMMAND_START_TIME=$(date +%s%3N)
+    COMMAND_START_TIME=$(EPOCHREALTIME)
     COMMAND_EXECUTION_STRING=$3
     REPLACE="@\\\$@"
     CMD_NEWLINE_ESCAPED=${COMMAND_EXECUTION_STRING//
 /@\\n@}
     CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
-    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$(tmux display -p "W #I:#W P#P")@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
+    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(EPOCHREALTIME)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$(tmux display -p "W #I:#W P#P")@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
   }
 fi
 
@@ -311,7 +310,7 @@ function precmd ()
 {
   # catch the time of the last command termination (which ordinarily will 
   # prompt the prompt to be run and therefore this func to run)
-  COMMAND_END_TIME=$(date +%s%3N)
+  COMMAND_END_TIME=$(EPOCHREALTIME)
   if [[ -z $COMMAND_START_TIME ]]; then
     echo "Shell is new, initialized at $COMMAND_END_TIME"
   else
