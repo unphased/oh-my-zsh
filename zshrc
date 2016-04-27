@@ -297,7 +297,7 @@ if [ -n "$TMUX" ]; then
     CMD_NEWLINE_ESCAPED=${COMMAND_EXECUTION_STRING//
 /@\\n@}
     CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
-    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$EPOCHREALTIME@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$(tmux display -p "W #I:#W P#P")@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
+    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$(tmux display -p "W #I:#W P#P")@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
   }
   refresh_tmux_env
 else
@@ -309,7 +309,7 @@ else
     CMD_NEWLINE_ESCAPED=${COMMAND_EXECUTION_STRING//
 /@\\n@}
     CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
-    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$EPOCHREALTIME@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$(tmux display -p "W #I:#W P#P")@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
+    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$(tmux display -p "W #I:#W P#P")@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
   }
 fi
 
