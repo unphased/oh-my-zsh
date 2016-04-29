@@ -62,7 +62,7 @@ plugins=(git cp osx history zsh-syntax-highlighting history-substring-search)
 # into my oh-my-zsh branch at some point, but until then I will be able to do 
 # a quick check...
 
-if [[ ! -d $ZSH_CUSTOM/plugins/zsh-syntax-highlighting ]]; then
+if [[ ! -d $ZSH_CUSTOM/plugins/zsh-syntax-highlighting && ! -d $ZSH_CUSTOM/../plugins/zsh-syntax-highlighting ]]; then
   echo "Did not find zsh-syntax-highlighting. Please install it this way:"
   echo 'git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting'
 fi
