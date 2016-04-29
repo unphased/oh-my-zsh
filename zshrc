@@ -8,7 +8,7 @@ export INFOPATH="$HOME/.linuxbrew/share/info:$INFOPATH"
 
 # debug logging, remove me to not waste disk
 # set the trace prompt to include seconds, nanoseconds, script name and line number
-PS4='+$(EPOCHREALTIME) %N:%i> '
+PS4='+$EPOCHREALTIME> '
 # # save file stderr to file descriptor 3 and redirect stderr (including trace 
 # # output) to a file with the script's PID as an extension
 # exec 3>&2 2>/tmp/zshlog.$$
