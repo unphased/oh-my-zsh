@@ -57,6 +57,8 @@ alias mmv='noglob zmv -W'
 # Example format: plugins=(rails git textmate ruby lighthouse)
 plugins=(git cp osx history zsh-syntax-highlighting history-substring-search)
 
+source $ZSH/oh-my-zsh.sh
+
 # It's important to note that zsh-syntax-highlighting is not included within 
 # oh-my-zsh by default. Soon I expect I will cave and forcibly integrate this 
 # into my oh-my-zsh branch at some point, but until then I will be able to do 
@@ -66,8 +68,6 @@ if [[ ! -d $ZSH_CUSTOM/plugins/zsh-syntax-highlighting && ! -d $HOME/.oh-my-zsh/
   echo "Could not find zsh-syntax-highlighting. Please install it this way:"
   echo 'git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting'
 fi
-
-source $ZSH/oh-my-zsh.sh
 
 setopt NO_NOMATCH
 # that allows carat to work for git stuff
