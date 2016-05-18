@@ -154,6 +154,11 @@ function zshaddhistory()
 
 . ~/.aliases.sh
 
+# TODO: make the GAN handling abort doing the fancy shit if the local system 
+# has config that does not have parentheses (no wait thats not good, i still 
+# want to be able to specify a different name per machine, just want to take 
+# out the shell/ssh/tmux extraneous "integration")
+
 # munge system git config's user name with environment git name (munge the bits 
 # inside parens, check the bit before for equality)
 GAN_NAME=${GIT_AUTHOR_NAME%\(*}
