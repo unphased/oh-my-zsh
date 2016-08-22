@@ -104,10 +104,10 @@ zstyle ':completion:tmux-pane-words-anywhere:*' matcher-list 'b:=* m:{A-Za-z}={a
 
 # Thankfully the path that is already present is the one that the system has set according to
 # normal practices. This inserts a few more things that I use from the shell.
-export PATH=~/bin:~/util:$PATH:/opt/local/bin:/usr/local/share/npm/bin
+export PATH=~/bin:~/util:$PATH:/opt/local/bin:/usr/local/share/npm/bin:~/personal-utility/scripts
 
 # this should be allowed I think. But the system should really be configured to
-# give that path to root user.
+# give that path to root user. So that this works outside of zsh.
 [[ $(id -u) == 0 ]] && export PATH=/usr/local/bin:$PATH
 # export PAGER=vimpager
 
@@ -144,13 +144,13 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 
 # This is an independent save of the history and terminal's cwd.
 # This avoids problems that crop up when I try to squish the cwd into the history entry.
-function zshaddhistory()
-{
-  COMMAND_STR=${1%%$'\n'}
-  # rest is "default" zshaddhistory()
-  print -Sr ${COMMAND_STR}
-  fc -p
-}
+# function zshaddhistory()
+# {
+#   COMMAND_STR=${1%%$'\n'}
+#   # rest is "default" zshaddhistory()
+#   print -Sr ${COMMAND_STR}
+#   fc -p
+# }
 
 . ~/.aliases.sh
 
@@ -159,57 +159,57 @@ function zshaddhistory()
 # want to be able to specify a different name per machine, just want to take 
 # out the shell/ssh/tmux extraneous "integration")
 
-# munge system git config's user name with environment git name (munge the bits 
-# inside parens, check the bit before for equality)
-GAN_NAME=${GIT_AUTHOR_NAME%\(*}
-GAN_PARENS=${${GIT_AUTHOR_NAME#*\(}%\)*}
-GAN_PARENS_LAST=${GAN_PARENS##*on }
-GAN_PARENS_EXCEPT_LAST=${GAN_PARENS% on*}
-[[ "$GAN_PARENS_LAST" == *\[* ]] && \
-  GAN_PARENS_LAST_BRACKETS=${${GAN_PARENS_LAST#*\[}%\]*} && \
-  GAN_PARENS_LAST_BEFORE_BRACKETS=${GAN_PARENS_LAST%\[*}
+# # munge system git config's user name with environment git name (munge the bits 
+# # inside parens, check the bit before for equality)
+# GAN_NAME=${GIT_AUTHOR_NAME%\(*}
+# GAN_PARENS=${${GIT_AUTHOR_NAME#*\(}%\)*}
+# GAN_PARENS_LAST=${GAN_PARENS##*on }
+# GAN_PARENS_EXCEPT_LAST=${GAN_PARENS% on*}
+# [[ "$GAN_PARENS_LAST" == *\[* ]] && \
+#   GAN_PARENS_LAST_BRACKETS=${${GAN_PARENS_LAST#*\[}%\]*} && \
+#   GAN_PARENS_LAST_BEFORE_BRACKETS=${GAN_PARENS_LAST%\[*}
 
-# The convention here will be [<number> tmux <number>] where numbers on each 
-# side are omitted if they are one and represents which side of tmux they are 
-# on
+# # The convention here will be [<number> tmux <number>] where numbers on each 
+# # side are omitted if they are one and represents which side of tmux they are 
+# # on
 
-if [[ -n "$GAN_PARENS_LAST_BRACKETS" ]]; then
-  (( INC_COUNT = $GAN_PARENS_LAST_BRACKETS + 1 ))
-else
-  INC_COUNT=2
-fi
+# if [[ -n "$GAN_PARENS_LAST_BRACKETS" ]]; then
+#   (( INC_COUNT = $GAN_PARENS_LAST_BRACKETS + 1 ))
+# else
+#   INC_COUNT=2
+# fi
 
-#echo "GAN_NAME=$GAN_NAME GAN_PARENS=$GAN_PARENS 
-#GAN_PARENS_LAST=$GAN_PARENS_LAST 
-#GAN_PARENS_LAST_BRACKETS=$GAN_PARENS_LAST_BRACKETS 
-#GAN_PARENS_LAST_BEFORE_BRACKETS=$GAN_PARENS_LAST_BEFORE_BRACKETS 
-#COUNT=$(($INC_COUNT - 1))"
-GN_SYS=$(git config --get user.name)
-GN_SYS_PARENS=${${GN_SYS#*\(}%\)*}
-GN_SYS_NAME=${GN_SYS%\(*}
-#echo "GN_SYS_NAME=$GN_SYS_NAME GN_SYS_PARENS=$GN_SYS_PARENS"
+# #echo "GAN_NAME=$GAN_NAME GAN_PARENS=$GAN_PARENS 
+# #GAN_PARENS_LAST=$GAN_PARENS_LAST 
+# #GAN_PARENS_LAST_BRACKETS=$GAN_PARENS_LAST_BRACKETS 
+# #GAN_PARENS_LAST_BEFORE_BRACKETS=$GAN_PARENS_LAST_BEFORE_BRACKETS 
+# #COUNT=$(($INC_COUNT - 1))"
+# GN_SYS=$(git config --get user.name)
+# GN_SYS_PARENS=${${GN_SYS#*\(}%\)*}
+# GN_SYS_NAME=${GN_SYS%\(*}
+# #echo "GN_SYS_NAME=$GN_SYS_NAME GN_SYS_PARENS=$GN_SYS_PARENS"
 
-if [[ -n "$GIT_AUTHOR_NAME" && "$GAN_NAME" != "$GN_SYS_NAME" ]]; then
-  echo "Git author name mismatch with user name: $GAN_NAME vs. $GN_SYS_NAME"
-fi
+# if [[ -n "$GIT_AUTHOR_NAME" && "$GAN_NAME" != "$GN_SYS_NAME" ]]; then
+#   echo "Git author name mismatch with user name: $GAN_NAME vs. $GN_SYS_NAME"
+# fi
 
-# Be sure to update sshd_config on servers to accept the GIT_AUTHOR_NAME env to
-# be passed through SSH
-if [[ -n "$GAN_PARENS" ]]; then
-  if [[ "$GAN_PARENS_LAST" == "$GN_SYS_PARENS" ]]; then
-    export GIT_AUTHOR_NAME="$GN_SYS_NAME(${GAN_PARENS}[$INC_COUNT])" # only when $INC_COUNT == 2, really
-    echo "new shell on same system, shell count was incremented, now is $GIT_AUTHOR_NAME"
-  elif [[ "$GAN_PARENS_LAST_BEFORE_BRACKETS" == "$GN_SYS_PARENS" ]]; then
-    export GIT_AUTHOR_NAME="$GN_SYS_NAME(${GAN_PARENS_EXCEPT_LAST} on ${GAN_PARENS_LAST_BEFORE_BRACKETS}[$INC_COUNT])" # only when $INC_COUNT == 2, really
-    echo "new shell on same system, shell count was incremented, now is $GIT_AUTHOR_NAME"
-  else
-    export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS on $GN_SYS_PARENS)"
-    echo "\$GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME"
-  fi
-else
-  export GIT_AUTHOR_NAME="$GN_SYS_NAME($GN_SYS_PARENS)"
-  echo "\$GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME (seeded from git config)"
-fi
+# # Be sure to update sshd_config on servers to accept the GIT_AUTHOR_NAME env to
+# # be passed through SSH
+# if [[ -n "$GAN_PARENS" ]]; then
+#   if [[ "$GAN_PARENS_LAST" == "$GN_SYS_PARENS" ]]; then
+#     export GIT_AUTHOR_NAME="$GN_SYS_NAME(${GAN_PARENS}[$INC_COUNT])" # only when $INC_COUNT == 2, really
+#     echo "new shell on same system, shell count was incremented, now is $GIT_AUTHOR_NAME"
+#   elif [[ "$GAN_PARENS_LAST_BEFORE_BRACKETS" == "$GN_SYS_PARENS" ]]; then
+#     export GIT_AUTHOR_NAME="$GN_SYS_NAME(${GAN_PARENS_EXCEPT_LAST} on ${GAN_PARENS_LAST_BEFORE_BRACKETS}[$INC_COUNT])" # only when $INC_COUNT == 2, really
+#     echo "new shell on same system, shell count was incremented, now is $GIT_AUTHOR_NAME"
+#   else
+#     export GIT_AUTHOR_NAME="$GN_SYS_NAME($GAN_PARENS on $GN_SYS_PARENS)"
+#     echo "\$GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME"
+#   fi
+# else
+#   export GIT_AUTHOR_NAME="$GN_SYS_NAME($GN_SYS_PARENS)"
+#   echo "\$GIT_AUTHOR_NAME is now $GIT_AUTHOR_NAME (seeded from git config)"
+# fi
 
 # grab tmux environment during zsh preexec. tmux show-environment actually 
 # magically does the right thing passing along the env that i want that was set 
@@ -217,11 +217,12 @@ fi
 if [ -n "$TMUX" ]; then
   function tmux_env_per_cmd()
   {
-    # this is the one that is run every command and implemments the updating of
-    # the shell's GIT_AUTHOR_NAME with tmux magic that pulls from current 
-    # session
-    TMUX_ENV_GAN=$(tmux show-environment GIT_AUTHOR_NAME)
-    [[ $TMUX_ENV_GAN[1] == 'G' ]] && export "${TMUX_ENV_GAN%\)*}[tmux])"
+    # # this is the one that is run every command and implemments the updating of
+    # # the shell's GIT_AUTHOR_NAME with tmux magic that pulls from current 
+    # # session
+    # TMUX_ENV_GAN=$(tmux show-environment GIT_AUTHOR_NAME)
+    # [[ $TMUX_ENV_GAN[1] == 'G' ]] && export "${TMUX_ENV_GAN%\)*}[tmux])"
+
     # the if starts with '-' it means it was disabled by tmux
     # the star is optional (usually the close paren is already last character)
 
@@ -286,9 +287,7 @@ if [ -n "$TMUX" ]; then
     printf "\x1b]2;${2//\%/%%}\x1b\\"
 
     # this does timing. For whatever reason, i can't do it in zshaddhistory 
-    # (the env vars don't live beyond it), that's fine. (TODO consider moving 
-    # the zsh_enhanced_new_history write operation to happen in here, this one 
-    # can get the aliases and even full shell functions expanded out)
+    # (the env vars don't live beyond it), that's fine.
     COMMAND_START_TIME=$EPOCHREALTIME
     # the start time can be used as a unique ID to locate the command, because 
     # the shell is pretty slow. We can always upgrade the timestamp to ns also.
