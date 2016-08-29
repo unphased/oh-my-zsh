@@ -123,6 +123,9 @@ stty -ixoff
 bindkey "^[[1;3C" forward-word
 bindkey "^[[1;3D" backward-word
 
+bindkey "^[[1~" beginning-of-line
+bindkey "^[[4~" end-of-line
+
 # source $ZSH/plugins/history-substring-search/history-substring-search.plugin.zsh
 
 # a bind seems to be needed to unbreak substring search whenever safe-paste (or 
