@@ -83,7 +83,7 @@ gdv() { git diff -w "$@" | view - }
 compdef _git gdv=git-diff
 alias gdw='git diff --word-diff'
 
-# alias gf='git fetch'
+alias gf='git fetch'
 alias gfa='git fetch --all --prune'
 function gfg() { git ls-files | grep $@ }
 compdef gfg=grep
