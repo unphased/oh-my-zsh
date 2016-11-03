@@ -91,10 +91,10 @@ alias gfo='git fetch origin'
 
 alias gg='git gui citool'
 alias gga='git gui citool --amend'
-ggf() {
-[[ "$#" != 1 ]] && local b="$(git_current_branch)"
-git push --force origin "${b:=$1}"
-}
+# ggf() {
+# [[ "$#" != 1 ]] && local b="$(git_current_branch)"
+# git push --force origin "${b:=$1}"
+# }
 compdef _git ggf=git-checkout
 ggl() {
 if [[ "$#" != 0 ]] && [[ "$#" != 1 ]]; then
