@@ -155,7 +155,7 @@ alias glo='git log --oneline --decorate'
 alias glol="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
 alias glola="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --all"
 alias glog='git log --oneline --decorate --graph'
-alias glp="_git_log_prettily"
+#alias glp="_git_log_prettily"
 compdef _git glp=git-log
 
 alias gm='git merge'
