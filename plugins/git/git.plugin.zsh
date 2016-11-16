@@ -83,7 +83,7 @@ gdv() { git diff -w "$@" | view - }
 compdef _git gdv=git-diff
 alias gdw='git diff --word-diff'
 
-# alias gf='git fetch'
+alias gf='git fetch'
 alias gfa='git fetch --all --prune'
 function gfg() { git ls-files | grep $@ }
 compdef gfg=grep
@@ -145,7 +145,7 @@ compdef _git gk='gitk'
 alias gke='\gitk --all $(git log -g --pretty=format:%h)'
 compdef _git gke='gitk'
 
-# alias gl='git pull'
+alias gl='git pull'
 alias glg='git log --stat'
 alias glgp='git log --stat -p'
 alias glgg='git log --graph'
