@@ -75,7 +75,7 @@ compdef gcount=git
 alias gcp='git cherry-pick'
 alias gcs='git commit -S'
 
-# alias gd='git diff'
+alias gd='git diff'
 alias gdca='git diff --cached'
 alias gdct='git describe --tags `git rev-list --tags --max-count=1`'
 alias gdt='git diff-tree --no-commit-id --name-only -r'
@@ -145,7 +145,7 @@ compdef _git gk='gitk'
 alias gke='\gitk --all $(git log -g --pretty=format:%h)'
 compdef _git gke='gitk'
 
-# alias gl='git pull'
+alias gl='git pull'
 alias glg='git log --stat'
 alias glgp='git log --stat -p'
 alias glgg='git log --graph'
@@ -155,7 +155,7 @@ alias glo='git log --oneline --decorate'
 alias glol="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
 alias glola="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --all"
 alias glog='git log --oneline --decorate --graph'
-#alias glp="_git_log_prettily"
+alias glp="_git_log_prettily"
 compdef _git glp=git-log
 
 alias gm='git merge'
