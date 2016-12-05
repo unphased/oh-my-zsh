@@ -332,7 +332,7 @@ function precmd ()
   if [[ -z $COMMAND_START_TIME ]]; then
     echo "Shell is new, initialized at $COMMAND_END_TIME"
   else
-    print -r "command ($CMD_DELIMITER_ESCAPED) started at $COMMAND_START_TIME took $((COMMAND_END_TIME - COMMAND_START_TIME)) ms" >> ~/.zsh_enhanced_new_history
+    print -r "command ($CMD_DELIMITER_ESCAPED) started at $COMMAND_START_TIME took $((COMMAND_END_TIME - COMMAND_START_TIME)) s" >> ~/.zsh_enhanced_new_history
   fi
 }
 
