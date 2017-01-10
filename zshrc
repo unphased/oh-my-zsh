@@ -162,8 +162,8 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 # want to be able to specify a different name per machine, just want to take 
 # out the shell/ssh/tmux extraneous "integration")
 
-# # munge system git config's user name with environment git name (munge the bits 
-# # inside parens, check the bit before for equality)
+# # munge system git config's user name with environment git name (munge the 
+# bits # inside parens, check the bit before for equality)
 # GAN_NAME=${GIT_AUTHOR_NAME%\(*}
 # GAN_PARENS=${${GIT_AUTHOR_NAME#*\(}%\)*}
 # GAN_PARENS_LAST=${GAN_PARENS##*on }
@@ -325,13 +325,15 @@ fi
 
 function precmd ()
 {
+  RETVAL=$?
   # catch the time of the last command termination (which ordinarily will 
-  # prompt the prompt to be run and therefore this func to run)
+  # prompt the prompt to be run and therefore this func to run. But wont be 
+  # good at tracking forked processes.)
   COMMAND_END_TIME=$EPOCHREALTIME
   if [[ -z $COMMAND_START_TIME ]]; then
     echo "Shell is new, initialized at $COMMAND_END_TIME"
   else
-    print -r "command ($CMD_DELIMITER_ESCAPED) started at $COMMAND_START_TIME took $((COMMAND_END_TIME - COMMAND_START_TIME)) s" >> ~/.zsh_enhanced_new_history
+    print -r "command ($CMD_DELIMITER_ESCAPED) started at $COMMAND_START_TIME took $((COMMAND_END_TIME - COMMAND_START_TIME))s with return value $RETVAL" >> ~/.zsh_enhanced_new_history
   fi
 }
 
