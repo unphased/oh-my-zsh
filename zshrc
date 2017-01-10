@@ -327,13 +327,15 @@ fi
 
 function precmd ()
 {
+  RETVAL=$?
   # catch the time of the last command termination (which ordinarily will 
-  # prompt the prompt to be run and therefore this func to run)
+  # prompt the prompt to be run and therefore this func to run. But wont be 
+  # good at tracking forked processes.)
   COMMAND_END_TIME=$EPOCHREALTIME
   if [[ -z $COMMAND_START_TIME ]]; then
     echo "Shell is new, initialized at $COMMAND_END_TIME"
   else
-    print -r "command ($CMD_DELIMITER_ESCAPED) started at $COMMAND_START_TIME took $((COMMAND_END_TIME - COMMAND_START_TIME)) s" >> ~/.zsh_enhanced_new_history
+    print -r "command ($CMD_DELIMITER_ESCAPED) started at $COMMAND_START_TIME took $((COMMAND_END_TIME - COMMAND_START_TIME))s with return value $RETVAL" >> ~/.zsh_enhanced_new_history
   fi
 }
 
