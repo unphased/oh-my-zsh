@@ -66,7 +66,7 @@ source $ZSH/oh-my-zsh.sh
 
 if [[ ! -d $ZSH_CUSTOM/plugins/zsh-syntax-highlighting && ! -d $HOME/.oh-my-zsh/plugins/zsh-syntax-highlighting ]]; then
   echo "Did not find zsh-syntax-highlighting. Please install it this way:"
-  echo "git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting"
+  echo "git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting"
 fi
 
 setopt NO_NOMATCH
