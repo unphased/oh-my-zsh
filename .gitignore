@@ -6,3 +6,7 @@ custom/
 # temp files directories
 cache/
 log/
+
+# known installed plugins
+plugins/zsh-autosuggestions/
+plugins/zsh-syntax-highlighting/
