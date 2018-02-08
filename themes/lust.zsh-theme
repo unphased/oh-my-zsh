@@ -22,7 +22,7 @@ $(myjobs)%(!.%{$fg[red]%}#.%{$fg[cyan]%}❯)%{$reset_color%} '
     ZSH_THEME_GIT_PROMPT_SHA_BEFORE="%{$fg[blue]%}"
     ZSH_THEME_GIT_PROMPT_SHA_AFTER="%{$reset_color%}"
  
-    ZSH_THEME_GIT_PROMPT_DIRTY="%{$fg[grey]%}[%{$fg[yellow]%}*%{$fg[grey]%}]%{$reset_color%}"
+    ZSH_THEME_GIT_PROMPT_DIRTY="%{$fg[grey]%}[%{$fg[yellow]%}★%{$fg[grey]%}]%{$reset_color%}"
     ZSH_THEME_GIT_PROMPT_CLEAN="%{$fg[grey]%}[%{$fg[green]%}✓%{$fg[grey]%}]%{$reset_color%}"
  
     ZSH_THEME_GIT_PROMPT_AHEAD="%{$fg[cyan]%}↑%{$reset_color%}"
