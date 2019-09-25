@@ -355,4 +355,6 @@ emscriptenv () {
   [ -f ~/emsdk/emsdk_env.sh ] && source ~/emsdk/emsdk_env.sh || echo no emsdk repo found.
 }
 
+[ -f ~/.zsh_user_profile ] && source ~/.zsh_user_profile
+
 # vim: ts=2 sw=2 et :
