@@ -2,7 +2,6 @@
 ZSH=$HOME/.oh-my-zsh
 
 # for linuxbrew (no need to detect linux)
-export PATH="$HOME/.linuxbrew/bin:$PATH"
 export MANPATH="$HOME/.linuxbrew/share/man:$MANPATH"
 export INFOPATH="$HOME/.linuxbrew/share/info:$INFOPATH"
 
@@ -101,10 +100,6 @@ zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' ignore-line current
 zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' menu yes select interactive
 zstyle ':completion:tmux-pane-words-anywhere:*' matcher-list 'b:=* m:{A-Za-z}={a-zA-Z}'
 # }}}
-
-# Thankfully the path that is already present is the one that the system has set according to
-# normal practices. This inserts a few more things that I use from the shell.
-export PATH=~/util:$PATH:/sbin:/opt/local/bin:/usr/local/share/npm/bin
 
 # this should be allowed I think. But the system should really be configured to
 # give that path to root user.
