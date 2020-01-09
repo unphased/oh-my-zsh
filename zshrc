@@ -66,7 +66,10 @@ source $ZSH/oh-my-zsh.sh
 if [[ ! -d $ZSH_CUSTOM/plugins/zsh-syntax-highlighting && ! -d $HOME/.oh-my-zsh/plugins/zsh-syntax-highlighting ]]; then
   echo "Did not find zsh-syntax-highlighting. Please install it this way:"
   echo "git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting"
+  echo "also for autosuggestions:"
+  echo "git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions"
 fi
+
 
 setopt NO_NOMATCH
 # that allows carat to work for git stuff
