@@ -63,7 +63,7 @@ source $ZSH/oh-my-zsh.sh
 # into my oh-my-zsh branch at some point, but until then I will be able to do 
 # a quick check...
 
-if [[ ! -d $ZSH_CUSTOM/plugins/zsh-syntax-highlighting && ! -d $HOME/.oh-my-zsh/plugins/zsh-syntax-highlighting ]]; then
+if [[ ! -d $ZSH_CUSTOM/plugins/zsh-syntax-highlighting || ! -d $HOME/.oh-my-zsh/plugins/zsh-syntax-highlighting ]]; then
   echo "Did not find zsh-syntax-highlighting. Please install it this way:"
   echo "git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting"
   echo "also for autosuggestions:"
