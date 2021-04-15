@@ -136,7 +136,7 @@ bindkey "\e[4~" end-of-line
 bindkey '\e[5~' history-substring-search-up
 bindkey '\e[6~' history-substring-search-down
 
-bindkey '\e[5;3~' kill-word
+bindkey '\e[3;5~' kill-word
 
 # for enter working from numpad for easy right hand mouse reaching
 bindkey -s "\eOM" "^M"
