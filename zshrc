@@ -118,11 +118,11 @@ zmodload zsh/datetime
 
 stty -ixon
 stty -ixoff
-bindkey "^[[1;3C" forward-word
-bindkey "^[[1;3D" backward-word
+bindkey "\e[1;3C" forward-word
+bindkey "\e[1;3D" backward-word
 
-bindkey "^[[1~" beginning-of-line
-bindkey "^[[4~" end-of-line
+bindkey "\e[1~" beginning-of-line
+bindkey "\e[4~" end-of-line
 
 # source $ZSH/plugins/history-substring-search/history-substring-search.plugin.zsh
 
@@ -133,11 +133,13 @@ bindkey "^[[4~" end-of-line
 # during a longrunning process. But if I bind it to pgup/pgdn it does not 
 # exhibit this problem. So I am switching the bind to pgup/pgdn in order to 
 # make the behavior unambiguous
-bindkey '^[[5~' history-substring-search-up
-bindkey '^[[6~' history-substring-search-down
+bindkey '\e[5~' history-substring-search-up
+bindkey '\e[6~' history-substring-search-down
+
+bindkey '\e[5;3~' kill-word
 
 # for enter working from numpad for easy right hand mouse reaching
-bindkey -s "^[OM" "^M"
+bindkey -s "\eOM" "^M"
 
 export HISTSIZE=5000
 export SAVEHIST=5000
