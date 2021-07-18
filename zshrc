@@ -141,8 +141,8 @@ bindkey '\e[3;5~' kill-word
 # for enter working from numpad for easy right hand mouse reaching
 bindkey -s "\eOM" "^M"
 
-export HISTSIZE=5000
-export SAVEHIST=5000
+export HISTSIZE=15000
+export SAVEHIST=15000
 export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with INC_APPEND_HISTORY which seems set by default
 
 # This is an independent save of the history and terminal's cwd.
