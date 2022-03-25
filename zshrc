@@ -54,7 +54,7 @@ alias mmv='noglob zmv -W'
 # Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
-plugins=(git cp osx history zsh-syntax-highlighting history-substring-search zsh-autosuggestions)
+plugins=(git cp osx history zsh-syntax-highlighting history-substring-search zsh-autosuggestions zsh-vi-mode)
 
 source $ZSH/oh-my-zsh.sh
 
@@ -359,3 +359,6 @@ emscriptenv () {
 [ -f ~/.zsh_user_profile ] && source ~/.zsh_user_profile
 
 # vim: ts=2 sw=2 et :
+
+# Append a command directly
+zvm_after_init_commands+=('[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh')
