@@ -54,8 +54,9 @@ alias mmv='noglob zmv -W'
 # Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
-plugins=(git cp osx history zsh-syntax-highlighting history-substring-search zsh-autosuggestions zsh-vi-mode)
+plugins=(git cp osx history fast-syntax-highlighting zsh-autosuggestions vi-mode zsh-autocomplete)
 
+export VI_MODE_SET_CURSOR=true
 source $ZSH/oh-my-zsh.sh
 
 # It's important to note that zsh-syntax-highlighting is not included within 
