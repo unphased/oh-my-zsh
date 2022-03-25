@@ -1,17 +1,16 @@
-# NPX Plugin
-> npx(1) -- execute npm package binaries. ([more info](https://github.com/zkat/npx))
+# npx plugin
 
-This plugin automatically registers npx command-not-found handler if `npx` exists in your `$PATH`.
+## Deprecation
 
-## Setup
+Since npm v7, `npx` has been moved to `npm exec`. With the move, [the `--shell-auto-fallback` argument
+for `npx` has been removed](https://github.com/npm/cli/blob/v7.0.0/docs/content/cli-commands/npm-exec.md#compatibility-with-older-npx-versions):
 
-- Add plugin to `~/.zshrc`
+> Shell fallback functionality is removed, as it is not advisable.
 
-```bash
-plugins=(.... npx)
-```
+When using npm v7, you'll get this error:
 
-- Globally install npx binary (you need node.js installed too!)
-```bash
-sudo npm install -g npx
-```
+> npx: the --shell-auto-fallback argument has been removed
+
+If you get this error, just disable the plugin by removing it from the plugins array in your zshrc file.
+This plugin will no longer be maintained and will be removed in the future, when the older `npx` versions
+are no longer available.

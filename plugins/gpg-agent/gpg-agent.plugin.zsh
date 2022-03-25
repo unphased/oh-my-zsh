@@ -1,14 +1,17 @@
-# Enable gpg-agent if it is not running
-GPG_AGENT_SOCKET="${XDG_RUNTIME_DIR}/gnupg/S.gpg-agent.ssh"
-if [ ! -S $GPG_AGENT_SOCKET ]; then
-  gpg-agent --daemon >/dev/null 2>&1
-  export GPG_TTY=$(tty)
-fi
+export GPG_TTY=$TTY
 
-# Set SSH to use gpg-agent if it is configured to do so
-GNUPGCONFIG="${GNUPGHOME:-"$HOME/.gnupg"}/gpg-agent.conf"
-if [ -r "$GNUPGCONFIG" ] && grep -q enable-ssh-support "$GNUPGCONFIG"; then
+# Fix for passphrase prompt on the correct tty
+# See https://www.gnupg.org/documentation/manuals/gnupg/Agent-Options.html#option-_002d_002denable_002dssh_002dsupport
+function _gpg-agent_update-tty_preexec {
+  gpg-connect-agent updatestartuptty /bye &>/dev/null
+}
+autoload -U add-zsh-hook
+add-zsh-hook preexec _gpg-agent_update-tty_preexec
+
+# If enable-ssh-support is set, fix ssh agent integration
+if [[ $(gpgconf --list-options gpg-agent 2>/dev/null | awk -F: '$1=="enable-ssh-support" {print $10}') = 1 ]]; then
   unset SSH_AGENT_PID
-  export SSH_AUTH_SOCK=$GPG_AGENT_SOCKET
+  if [[ "${gnupg_SSH_AUTH_SOCK_by:-0}" -ne $$ ]]; then
+    export SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket)"
+  fi
 fi
-
