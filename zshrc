@@ -56,6 +56,14 @@ alias mmv='noglob zmv -W'
 # Example format: plugins=(rails git textmate ruby lighthouse)
 plugins=(git cp macos history fast-syntax-highlighting zsh-autosuggestions vi-mode zsh-autocomplete)
 
+# autocomplete configuration reduce spasticness at least starting out
+zstyle ':autocomplete:*' min-input 3
+# completely absurd why this is not default
+zstyle ':autocomplete:*' widget-style menu-select 
+
+# not sure what this is
+# zstyle ':completion:*' tag-order '! history-words' -
+
 export VI_MODE_SET_CURSOR=true
 source $ZSH/oh-my-zsh.sh
 
