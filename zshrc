@@ -168,6 +168,13 @@ bindkey "\e\e[D" backward-word
 # for enter working from numpad for easy right hand mouse reaching
 bindkey -s "\eOM" "^M"
 
+bindkey -M vicmd '\e.' insert-last-word
+bindkey -M viins '\e.' insert-last-word
+
+# autoload -Uz copy-earlier-word
+# zle -N copy-earlier-word
+# bindkey -M viins '\e,' copy-earlier-word
+
 export HISTSIZE=15000
 export SAVEHIST=15000
 export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with INC_APPEND_HISTORY which seems set by default
