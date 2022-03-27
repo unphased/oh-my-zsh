@@ -100,6 +100,11 @@ zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' menu yes select interac
 zstyle ':completion:tmux-pane-words-anywhere:*' matcher-list 'b:=* m:{A-Za-z}={a-zA-Z}'
 # }}}
 
+bindkey '\eOA' up-line-or-beginning-search
+bindkey '\e[A' up-line-or-beginning-search
+bindkey '\eOB' down-line-or-beginning-search
+bindkey '\e[B' down-line-or-beginning-search
+
 # this should be allowed I think. But the system should really be configured to
 # give that path to root user.
 [[ $(id -u) == 0 ]] && export PATH=/usr/local/bin:$PATH
