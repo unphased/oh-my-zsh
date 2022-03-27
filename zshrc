@@ -58,6 +58,8 @@ plugins=(git cp macos history fast-syntax-highlighting zsh-autosuggestions vi-mo
 
 # autocomplete configuration reduce spasticness at least starting out
 zstyle ':autocomplete:*' min-input 3
+# Show this many history lines when pressing ↑.
+# zstyle ':autocomplete:history-search:*' list-lines 200  # int
 # completely absurd why this is not default
 zstyle ':autocomplete:*' widget-style menu-select 
 
@@ -100,11 +102,6 @@ zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' menu yes select interac
 zstyle ':completion:tmux-pane-words-anywhere:*' matcher-list 'b:=* m:{A-Za-z}={a-zA-Z}'
 # }}}
 
-bindkey '\eOA' up-line-or-beginning-search
-bindkey '\e[A' up-line-or-beginning-search
-bindkey '\eOB' down-line-or-beginning-search
-bindkey '\e[B' down-line-or-beginning-search
-
 # this should be allowed I think. But the system should really be configured to
 # give that path to root user.
 [[ $(id -u) == 0 ]] && export PATH=/usr/local/bin:$PATH
@@ -119,8 +116,6 @@ zmodload zsh/datetime
 
 stty -ixon
 stty -ixoff
-bindkey "\e[1;3C" forward-word
-bindkey "\e[1;3D" backward-word
 
 bindkey "\e[1~" beginning-of-line
 bindkey "\e[4~" end-of-line
@@ -137,7 +132,38 @@ bindkey "\e[4~" end-of-line
 bindkey '\e[5~' history-substring-search-up
 bindkey '\e[6~' history-substring-search-down
 
-bindkey '\e[3;5~' kill-word
+bindkey "\e[3~" delete-char
+bindkey "\e[3;5~" kill-word
+bindkey "\e[3;3~" kill-word
+bindkey "\e" backward-delete-word
+
+bindkey "\eOc" forward-word
+bindkey "\eOd" backward-word
+
+# ctrl left/right
+bindkey "\e[1;5C" forward-word
+bindkey "\e[1;5D" backward-word
+
+# ctrl up/down
+bindkey "\e[1;5A" beginning-of-line
+bindkey "\e[1;5B" end-of-line
+
+# alt
+bindkey "\e[1;3C" forward-word
+bindkey "\e[1;3D" backward-word
+
+# alt up/down
+bindkey "\e[1;3A" beginning-of-line
+bindkey "\e[1;3B" end-of-line
+
+# shift
+bindkey "\e[1;2C" forward-word
+bindkey "\e[1;2D" backward-word
+
+bindkey "\e[5C" forward-word
+bindkey "\e[5D" backward-word
+bindkey "\e\e[C" forward-word
+bindkey "\e\e[D" backward-word
 
 # for enter working from numpad for easy right hand mouse reaching
 bindkey -s "\eOM" "^M"
