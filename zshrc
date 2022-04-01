@@ -69,6 +69,11 @@ zstyle ':autocomplete:*' widget-style menu-select
 export VI_MODE_SET_CURSOR=true
 source $ZSH/oh-my-zsh.sh
 
+bindkey '\e[A' up-line-or-history
+bindkey '\eOA' up-line-or-history
+bindkey '\e[B' down-line-or-history
+bindkey '\eOB' down-line-or-history
+
 setopt NO_NOMATCH
 # that allows carat to work for git stuff
 
@@ -174,6 +179,7 @@ bindkey -M viins '\e.' insert-last-word
 # autoload -Uz copy-earlier-word
 # zle -N copy-earlier-word
 # bindkey -M viins '\e,' copy-earlier-word
+## see https://github.com/marlonrichert/zsh-autocomplete/issues/425 we may get this soon yet!
 
 export HISTSIZE=15000
 export SAVEHIST=15000
