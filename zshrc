@@ -54,7 +54,7 @@ alias mmv='noglob zmv -W'
 # Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
-plugins=(git cp macos history fast-syntax-highlighting zsh-autosuggestions vi-mode zsh-autocomplete)
+plugins=(git cp macos history fast-syntax-highlighting zsh-autosuggestions vi-mode)
 
 # autocomplete configuration reduce spasticness at least starting out
 zstyle ':autocomplete:*' min-input 3
@@ -69,10 +69,11 @@ zstyle ':autocomplete:*' widget-style menu-select
 export VI_MODE_SET_CURSOR=true
 source $ZSH/oh-my-zsh.sh
 
-bindkey '\e[A' up-line-or-history
-bindkey '\eOA' up-line-or-history
-bindkey '\e[B' down-line-or-history
-bindkey '\eOB' down-line-or-history
+## These are for zsh-autocomplete to remove its weird bad history menu
+# bindkey '\e[A' up-line-or-history
+# bindkey '\eOA' up-line-or-history
+# bindkey '\e[B' down-line-or-history
+# bindkey '\eOB' down-line-or-history
 
 setopt NO_NOMATCH
 # that allows carat to work for git stuff
