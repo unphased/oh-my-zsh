@@ -177,10 +177,12 @@ bindkey -s "\eOM" "^M"
 bindkey -M vicmd '\e.' insert-last-word
 bindkey -M viins '\e.' insert-last-word
 
-# autoload -Uz copy-earlier-word
-# zle -N copy-earlier-word
-# bindkey -M viins '\e,' copy-earlier-word
-## see https://github.com/marlonrichert/zsh-autocomplete/issues/425 we may get this soon yet!
+autoload -Uz copy-earlier-word
+zle -N copy-earlier-word
+bindkey -M viins '\e,' copy-earlier-word
+# Above wont work with autocomplete (its enabled since i've (temp?) given up on the latter due to 
+# bad behavior), see https://github.com/marlonrichert/zsh-autocomplete/issues/425 may get this soon 
+# yet!
 
 export HISTSIZE=15000
 export SAVEHIST=15000
@@ -279,6 +281,15 @@ if [ -n "$TMUX" ]; then
     if [[ $TMUX_ENV_SSH_AUTH_SOCK_VALUE[1] != '-' && $TMUX_ENV_SSH_AUTH_SOCK_VALUE != $SSH_AUTH_SOCK ]]; then
       echo "Updated \$SSH_AUTH_SOCK from current tmux env, shell's env was $SSH_AUTH_SOCK, now $TMUX_ENV_SSH_AUTH_SOCK_VALUE"
       export SSH_AUTH_SOCK=$TMUX_ENV_SSH_AUTH_SOCK_VALUE
+    fi
+
+    TMUX_ENV_DISPLAY="$(tmux show-environment DISPLAY)"
+    TMUX_ENV_XAUTH="$(tmux show-environment XAUTHORITY)"
+    TMUX_ENV_DISPLAY_VALUE=${TMUX_ENV_DISPLAY#*=}
+    if [[ -n $TMUX_ENV_DISPLAY && -n $TMUX_ENV_XAUTH && $TMUX_ENV_DISPLAY_VALUE != $DISPLAY ]]; then
+      echo "Updating DISPLAY and XAUTHORITY env vars from tmux since we saw DISPLAY got updated. Changing them to: $TMUX_ENV_DISPLAY $TMUX_ENV_XAUTH"
+      export $TMUX_ENV_DISPLAY
+      export $TMUX_ENV_XAUTH
     fi
   }
   function refresh_tmux_env()
