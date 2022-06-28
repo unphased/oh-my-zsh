@@ -54,7 +54,7 @@ alias mmv='noglob zmv -W'
 # Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
-plugins=(git cp macos history fast-syntax-highlighting zsh-autosuggestions vi-mode)
+plugins=(git cp macos history F-Sy-H zsh-autosuggestions vi-mode)
 
 # autocomplete configuration reduce spasticness at least starting out
 zstyle ':autocomplete:*' min-input 3
@@ -286,7 +286,7 @@ if [ -n "$TMUX" ]; then
     TMUX_ENV_DISPLAY="$(tmux show-environment DISPLAY)"
     TMUX_ENV_XAUTH="$(tmux show-environment XAUTHORITY)"
     TMUX_ENV_DISPLAY_VALUE=${TMUX_ENV_DISPLAY#*=}
-    if [[ -n $TMUX_ENV_DISPLAY && -n $TMUX_ENV_XAUTH && $TMUX_ENV_DISPLAY_VALUE != $DISPLAY ]]; then
+    if [[ -n $TMUX_ENV_DISPLAY && -n $TMUX_ENV_XAUTH && $TMUX_ENV_DISPLAY[1] != '-' && $TMUX_ENV_XAUTH[1] != '-' && $TMUX_ENV_DISPLAY_VALUE != $DISPLAY ]]; then
       echo "Updating DISPLAY and XAUTHORITY env vars from tmux since we saw DISPLAY got updated. Changing them to: $TMUX_ENV_DISPLAY $TMUX_ENV_XAUTH"
       export $TMUX_ENV_DISPLAY
       export $TMUX_ENV_XAUTH
@@ -414,3 +414,4 @@ emscriptenv () {
 
 # Append a command directly
 zvm_after_init_commands+=('[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh')
+
