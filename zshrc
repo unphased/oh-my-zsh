@@ -4,6 +4,7 @@ ZSH=$HOME/.oh-my-zsh
 # for linuxbrew (no need to detect linux)
 export MANPATH="$HOME/.linuxbrew/share/man:$MANPATH"
 export INFOPATH="$HOME/.linuxbrew/share/info:$INFOPATH"
+export COLORTERM=truecolor
 
 # debug logging, remove me to not waste disk
 # set the trace prompt to include seconds, nanoseconds, script name and line number
