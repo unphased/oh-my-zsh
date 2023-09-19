@@ -1,16 +1,41 @@
-function check_word_splitting {
+function move-current-arg-left {
   local -a args
   local buffer="${LBUFFER}${RBUFFER}"
   printf "buf: >>%q<<\n" "$buffer" >> ~/zsh_word_splitting_log.txt
   args=(${(z):-"$buffer"})
-
-  # Logging the array to a file
+  
+  # Finding the index of the current argument based on the cursor position
+  local idx
+  local length=0
   for i in {1..${#args[@]}}; do
-    printf 'arg[%d]: >>%q<<\n' $i "${args[i]}" >> ~/zsh_word_splitting_log.txt
+    length=$(( $length + ${#args[i]} + 1 ))
+    if (( length >= ${#LBUFFER} )); then
+      idx=$i
+      printf "idx is %d: >>%q<<\n" "$idx" "${args[idx]}" >> ~/zsh_word_splitting_log.txt
+      break
+    fi
   done
+
+  # Swapping the current argument with the previous one if it's not the first argument
+  if (( idx > 1 )); then
+    local temp=$args[$idx]
+    args[$idx]=$args[$((idx-1))]
+    args[$((idx-1))]=$temp
+    
+    # Finding the new cursor position
+    local new_cursor_pos=0
+    for i in {1..$((idx-1))}; do
+      new_cursor_pos=$(( $new_cursor_pos + ${#args[i]} + 1 ))
+    done
+    new_cursor_pos=$(( $new_cursor_pos + ${#LBUFFER} - $length + ${#args[idx]} + 1 ))
+    
+    # Reconstructing LBUFFER and RBUFFER
+    LBUFFER=${(j: :)args[1,idx-1]}
+    RBUFFER=${(j: :)args[idx+1,-1]}
+    LBUFFER="$LBUFFER ${args[idx]} "
+    CURSOR=$new_cursor_pos
+  fi
 }
 
-# Creating a widget from the function and binding it to a key (Ctrl+X in this case)
-zle -N check_word_splitting
-bindkey "^X" check_word_splitting
-
+zle -N move-current-arg-left
+bindkey "^X" move-current-arg-left
