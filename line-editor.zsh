@@ -1,17 +1,7 @@
 function check_word_splitting {
   local -a args
   local buffer="${LBUFFER}${RBUFFER}"
-  print "buf: >>"$buffer"<<" >> ~/zsh_word_splitting_log.txt
-  
-  # Temporarily replace escaped spaces with a unique placeholder
-  buffer="${buffer//\\ /__ESC_SPACE__}"
-  
-  buffer="${buffer//\\\\/\\\\\\\\}"
-  buffer="${buffer//\\n/\\\\n}"
-  buffer="${buffer//\\r/\\\\r}"
-  buffer="${buffer//\\t/\\\\t}"
-  
-  print "buf_after: >>"$buffer"<<" >> ~/zsh_word_splitting_log.txt
+  printf "buf: >>%q<<\n" "$buffer" >> ~/zsh_word_splitting_log.txt
   args=(${(z):-"$buffer"})
   
   # Replace the placeholders back with the original escaped spaces in each argument in the args array
