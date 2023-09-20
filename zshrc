@@ -100,7 +100,7 @@ _tmux_pane_words() {
  
 zle -C tmux-pane-words-prefix   complete-word _generic
 zle -C tmux-pane-words-anywhere complete-word _generic
-bindkey '^Ft' tmux-pane-words-prefix
+bindkey '^Ff' tmux-pane-words-prefix
 bindkey '^F^F' tmux-pane-words-anywhere
 zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' completer _tmux_pane_words
 zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' ignore-line current
@@ -171,6 +171,10 @@ bindkey "\e[5C" forward-word
 bindkey "\e[5D" backward-word
 bindkey "\e\e[C" forward-word
 bindkey "\e\e[D" backward-word
+
+# undo redo
+bindkey "^U" undo
+bindkey "^I" redo
 
 # for enter working from numpad for easy right hand mouse reaching
 bindkey -s "\eOM" "^M"
