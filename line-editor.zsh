@@ -24,15 +24,18 @@ function move-current-arg-left {
     
     # Finding the new cursor position
     local new_cursor_pos=0
-    for i in {1..$((idx-1))}; do
+    for i in {1..$((idx-2))}; do
       new_cursor_pos=$(( $new_cursor_pos + ${#args[i]} + 1 ))
     done
-    new_cursor_pos=$(( $new_cursor_pos + ${#LBUFFER} - $length + ${#args[idx]} + 1 ))
     
+    # Calculating relative cursor position within the argument
+    local cursor_pos_within_arg=$(( ${#LBUFFER} - $length + ${#args[idx]} + 2 ))
+    new_cursor_pos=$(( $new_cursor_pos + cursor_pos_within_arg ))
+
     # Reconstructing LBUFFER and RBUFFER
-    LBUFFER=${(j: :)args[1,idx-1]}
-    RBUFFER=${(j: :)args[idx+1,-1]}
-    LBUFFER="$LBUFFER ${args[idx]} "
+    LBUFFER=${(j: :)args[1,idx-2]}
+    LBUFFER="$LBUFFER ${args[idx-1]} ${args[idx]} "
+    RBUFFER=" ${(j: :)args[idx+1,-1]}"
     CURSOR=$new_cursor_pos
   fi
 }
