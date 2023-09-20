@@ -15,6 +15,9 @@ function move-current-arg-left {
       break
     fi
   done
+  
+  # Finding the relative cursor position within the current argument
+  local cursor_pos_within_arg=$(( ${#LBUFFER} - $length + ${#args[idx]} + 1 ))
 
   # Swapping the current argument with the previous one if it's not the first argument
   if (( idx > 1 )); then
@@ -28,8 +31,6 @@ function move-current-arg-left {
       new_cursor_pos=$(( $new_cursor_pos + ${#args[i]} + 1 ))
     done
     
-    # Calculating relative cursor position within the argument
-    local cursor_pos_within_arg=$(( ${#LBUFFER} - $length + ${#args[idx]} + 2 ))
     new_cursor_pos=$(( $new_cursor_pos + cursor_pos_within_arg ))
 
     # Reconstructing LBUFFER and RBUFFER
