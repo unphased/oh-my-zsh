@@ -1,7 +1,7 @@
 function move-current-arg-left {
   local -a args
   local buffer="${LBUFFER}${RBUFFER}"
-  # printf "buf: >>%q<<\n" "$buffer" >> ~/zsh_word_splitting_log.txt
+  printf "start: >>%q█%q<<\n" "$LBUFFER" "$RBUFFER" >> ~/zsh_word_splitting_log.txt
   args=(${(z):-"$buffer"})
 
   # Finding the index of the current argument based on the cursor position
@@ -9,6 +9,7 @@ function move-current-arg-left {
   local length=0
   local cursor_pos_in_arg=0
   local args_in_lbuffer=(${(z):-"$LBUFFER"})
+  printf "args_in_lbuffer: %s\n" "${args_in_lbuffer[@]}" >> ~/zsh_word_splitting_log.txt
   for arg in "${args_in_lbuffer[@]}"; do
     length=$(( length + ${#arg} + 1 ))
   done
@@ -22,9 +23,6 @@ function move-current-arg-left {
     cursor_pos_in_arg=${#LBUFFER}
     idx=$(( ${#args_in_lbuffer} + 1 ))
   fi
-
-  # Finding the relative cursor position within the current argument
-  printf "2nd State dump: cursor_pos_in_arg=%d length=%d #LBUFFER=%d #args[idx]=%d\n" "$cursor_pos_in_arg" "$length" "${#LBUFFER}" "${#args[idx]}" >> ~/zsh_word_splitting_log.txt
 
   # Swapping the current argument with the previous one if it's not the first argument
   # if (( idx > 1 )); then
