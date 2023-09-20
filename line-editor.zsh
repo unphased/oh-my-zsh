@@ -7,18 +7,24 @@ function move-current-arg-left {
   # Finding the index of the current argument based on the cursor position
   local idx
   local length=0
-  for i in {1..${#args[@]}}; do
-    length=$(( $length + ${#args[i]} + 1 ))
-    if (( length >= ${#LBUFFER} )); then
-      idx=$i
-      printf "cursor found on arg %d which is >>%q<<\n" "$idx" "${args[idx]}" >> ~/zsh_word_splitting_log.txt
-      break
-    fi
+  local cursor_pos_in_arg=0
+  local args_in_lbuffer=(${(z):-"$LBUFFER"})
+  for arg in "${args_in_lbuffer[@]}"; do
+    length=$(( length + ${#arg} + 1 ))
   done
+  length=$(( length - 1 )) # Adjusting for the extra space added in the last iteration
 
   # Finding the relative cursor position within the current argument
-  local cursor_pos_within_arg=$(( ${#LBUFFER} - $length + ${#args[idx]} + 1 ))
-  printf "State dump: cursor_pos_within_arg=%d length=%d #LBUFFER=%d #args[idx]=%d\n" "$cursor_pos_within_arg" "$length" "${#LBUFFER}" "${#args[idx]}" >> ~/zsh_word_splitting_log.txt
+  if (( length > ${#LBUFFER} )); then
+    cursor_pos_in_arg=$(( length - ${#LBUFFER} - 1 ))
+    idx=${#args_in_lbuffer}
+  else
+    cursor_pos_in_arg=${#LBUFFER}
+    idx=$(( ${#args_in_lbuffer} + 1 ))
+  fi
+
+  # Finding the relative cursor position within the current argument
+  printf "2nd State dump: cursor_pos_in_arg=%d length=%d #LBUFFER=%d #args[idx]=%d\n" "$cursor_pos_in_arg" "$length" "${#LBUFFER}" "${#args[idx]}" >> ~/zsh_word_splitting_log.txt
 
   # Swapping the current argument with the previous one if it's not the first argument
   # if (( idx > 1 )); then
