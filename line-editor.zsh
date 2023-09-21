@@ -2,6 +2,7 @@ function move-current-arg-left {
   local -a args
   local buffer="${LBUFFER}${RBUFFER}"
   printf "start: >>%s█%s<<\n" "$LBUFFER" "$RBUFFER" >> ~/zsh_word_splitting_log.txt
+  printf "cursor: $CURSOR ${#LBUFFER}\n" >> ~/zsh_word_splitting_log.txt
   args=(${(z):-"$buffer"})
   local -a separators
   local last_idx=$(( ${#args[1]} + 1 ))
@@ -14,9 +15,14 @@ function move-current-arg-left {
     separators+="${buffer[last_idx,start_idx-1]}"
     printf "Adding separator in spot %d built from idxs %d to %d: >>%q<<\n" "${#separators}" "$last_idx" "$start_idx" "${buffer[last_idx,start_idx-1]}" >> ~/zsh_word_splitting_log.txt
     
+    if (( CURSOR >= last_idx && CURSOR < ( start_idx + ${#arg} ) )); then
+      printf "##### Cursor ($CURSOR) is associated with this arg (range $last_idx ~ $(( start_idx + ${#arg} ))) (no. %d): >>%s<<\n" "$(( ${#separators} + 1 ))" "$arg" >> ~/zsh_word_splitting_log.txt
+    fi
+
     # Setting the last index to after the end of the current argument
     last_idx=$(( start_idx+${#arg} ))
     printf "last_idx set now to %d after incrementing startidx=%d by %d >>%s<<\n" "$last_idx" "$start_idx" ${#arg} "$arg" >> ~/zsh_word_splitting_log.txt
+
   done
 
   # Assert len of separators is one less than len of args
