@@ -9,14 +9,14 @@ function move-current-arg-left {
 
   for arg in "${args[@]:1}"; do
     # Finding the start index of the current argument in the buffer
-    printf "Scanning this region now: >>%s<<\n" "${buffer[last_idx,-1]}" >> ~/zsh_word_splitting_log.txt
+    # printf "Scanning this region now: >>%s<<\n" "${buffer[last_idx,-1]}" >> ~/zsh_word_splitting_log.txt
     local start_idx=$(( ${buffer[last_idx,-1][(i)$arg]} + last_idx - 1 ))
     
     separators+="${buffer[last_idx,start_idx-1]}"
-    printf "Adding separator in spot %d built from idxs %d to %d: >>%q<<\n" "${#separators}" "$last_idx" "$start_idx" "${buffer[last_idx,start_idx-1]}" >> ~/zsh_word_splitting_log.txt
+    # printf "Adding separator in spot %d built from idxs %d to %d: >>%q<<\n" "${#separators}" "$last_idx" "$start_idx" "${buffer[last_idx,start_idx-1]}" >> ~/zsh_word_splitting_log.txt
     
-    if (( CURSOR >= last_idx && CURSOR < ( start_idx + ${#arg} ) )); then
-      printf "##### Cursor ($CURSOR) is associated with this arg (range $last_idx ~ $(( start_idx + ${#arg} ))) (no. %d): >>%s<<\n" "$(( ${#separators} + 1 ))" "$arg" >> ~/zsh_word_splitting_log.txt
+    if (( CURSOR >= $(( start_idx - 1)) && CURSOR < ( start_idx + ${#arg} ) )); then
+      printf "##### Cursor ($CURSOR) is associated with this arg (range $start_idx ~ $(( start_idx + ${#arg} ))) (no. %d): >>%s<<, the index within the arg is %d\n" "$(( ${#separators} + 1 ))" "$arg" "$(( $CURSOR - $start_idx + 1 ))" >> ~/zsh_word_splitting_log.txt
     fi
 
     # Setting the last index to after the end of the current argument
