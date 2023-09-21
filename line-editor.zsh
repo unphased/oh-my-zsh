@@ -8,7 +8,8 @@ function move-current-arg-left {
 
   for arg in "${args[@]:1}"; do
     # Finding the start index of the current argument in the buffer
-    local start_idx=${buffer[(i)$arg]}
+    printf "Scanning this region now: >>%s<<\n" "${buffer[last_idx,-1]}" >> ~/zsh_word_splitting_log.txt
+    local start_idx=$(( ${buffer[last_idx,-1][(i)$arg]} + last_idx - 1 ))
     
     separators+="${buffer[last_idx,start_idx-1]}"
     printf "Adding separator in spot %d built from idxs %d to %d: >>%q<<\n" "${#separators}" "$last_idx" "$start_idx" "${buffer[last_idx,start_idx-1]}" >> ~/zsh_word_splitting_log.txt
