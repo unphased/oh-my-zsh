@@ -3,33 +3,41 @@ function move-current-arg-left {
   local buffer="${LBUFFER}${RBUFFER}"
   printf "start: >>%s█%s<<\n" "$LBUFFER" "$RBUFFER" >> ~/zsh_word_splitting_log.txt
   args=(${(z):-"$buffer"})
+  local -a separators
+  local last_idx=1
 
-  # for arg in "${args[@]}"; do
-  #   echo "arg: >>%s<<" "$arg" >> ~/zsh_word_splitting_log.txt
-  # done
-
-  # Finding the index of the current argument based on the cursor position
-  local idx
-  local length=0
-  local cursor_pos_in_arg=0
-  local args_in_lbuffer=(${(z):-"$LBUFFER"})
-  local args_in_rbuffer=(${(z):-"$RBUFFER"})
-  printf "number args in l/r buffers: %d %d tot args: %d last char lbuf: %s\n" "${#args_in_lbuffer}" "${#args_in_rbuffer}" "${#args}" "${LBUFFER: -1}" >> ~/zsh_word_splitting_log.txt
-
-  # if lbuf_len + rbuf_len == args_len, then we're in a gap. Otherwise, it should be one greater, and we're in the
-  # middle of an arg and the arg index would be lbuf_len + 1.
-
-  if (( ${#args_in_lbuffer} + ${#args_in_rbuffer} == ${#args} )); then
-    # When in a gap, if the last char of LBUFFER is a whitespace
-    if [[ "${LBUFFER: -1}" == " " ]]; then
-      idx=$(( ${#args_in_lbuffer} + 1 ))
+  for arg in "${args[@]}"; do
+    # Finding the start index of the current argument in the buffer
+    local start_idx=${buffer[(i)$arg]}
+    
+    # Storing the separator (if any)
+    if (( last_idx < start_idx )); then
+      separators+="${buffer[last_idx,start_idx-1]}"
     else
-      idx=${#args_in_lbuffer}
+      separators+=" "
     fi
+    
+    # Setting the last index to after the end of the current argument
+    last_idx=start_idx+${#arg}
+  done
+
+  # Adding the final separator (if any)
+  if (( last_idx <= ${#buffer} )); then
+    separators+="${buffer[last_idx,-1]}"
   else
-    idx=${#args_in_lbuffer}
+    separators+=" "
   fi
-  printf "idx: %d\n" "$idx" >> ~/zsh_word_splitting_log.txt
+
+  # Assert len of separators is one less than len of args
+  if (( ${#separators} != ${#args} - 1 )); then
+    printf "Error: separators and args are not the same length\n" >> ~/zsh_word_splitting_log.txt
+  fi
+
+  # Printing the args and separators zipped up for debugging
+  for i in {1..$(( ${#args} - 1 ))}; do
+    printf "Arg: >>%q<< Separator: >>%q<<\n" "${args[i]}" "${separators[i]}"
+  done >> ~/zsh_word_splitting_log.txt
+  printf "Last Arg: >>%q<<" "$args[-1]" >> ~/zsh_word_splitting_log.txt
 
   # Swapping the current argument with the previous one if it's not the first argument
   # if (( idx > 1 )); then
@@ -54,3 +62,5 @@ function move-current-arg-left {
 
 zle -N move-current-arg-left
 bindkey "^B" move-current-arg-left
+bindkey "\e[" move-current-arg-left
+bindkey "\e]" move-current-arg-right
