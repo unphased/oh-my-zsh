@@ -174,9 +174,21 @@ bindkey "\e\e[D" backward-word
 
 # undo redo
 bindkey "^U" undo
-bindkey "^I" redo
+bindkey "^Y" redo
 
-# for enter working from numpad for easy right hand mouse reaching
+# submit a raw newline without triggering command. note will be like a semicolon and initiate a new command
+function insert-newline() {
+  LBUFFER+=$'\n'
+}
+
+# Create a widget from the function
+zle -N insert-newline
+
+# Bind the widget to a key sequence, in this case, \x1b\x0a
+bindkey "\e^J" insert-newline
+
+# for numpad enter key to work as enter, for easy right hand mouse reaching on full keyboards (I dont use those
+# anymore though)
 bindkey -s "\eOM" "^M"
 
 bindkey -M vicmd '\e.' insert-last-word

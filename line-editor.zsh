@@ -4,18 +4,17 @@ function move-current-arg-left {
   printf "start: >>%s█%s<<\n" "$LBUFFER" "$RBUFFER" >> ~/zsh_word_splitting_log.txt
   args=(${(z):-"$buffer"})
   local -a separators
-  local last_idx=$(( ${#args[1]} + 1))
+  local last_idx=$(( ${#args[1]} + 1 ))
 
   for arg in "${args[@]:1}"; do
     # Finding the start index of the current argument in the buffer
     local start_idx=${buffer[(i)$arg]}
-    printf "wtf start, last: %d, %d\n" "$start_idx" "$last_idx" >> ~/zsh_word_splitting_log.txt
     
     separators+="${buffer[last_idx,start_idx-1]}"
     printf "Adding separator in spot %d built from idxs %d to %d: >>%q<<\n" "${#separators}" "$last_idx" "$start_idx" "${buffer[last_idx,start_idx-1]}" >> ~/zsh_word_splitting_log.txt
     
     # Setting the last index to after the end of the current argument
-    last_idx=$(( ${start_idx} + ${#arg} ))
+    last_idx=$(( start_idx+${#arg} ))
     printf "last_idx set now to %d after incrementing startidx=%d by %d >>%s<<\n" "$last_idx" "$start_idx" ${#arg} "$arg" >> ~/zsh_word_splitting_log.txt
   done
 
