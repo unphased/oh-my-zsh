@@ -6,23 +6,25 @@ function move-current-arg-left {
   args=(${(z):-"$buffer"})
   local -a separators
   local last_idx=$(( ${#args[1]} + 1 ))
+  unset CURSORIDX
 
   for arg in "${args[@]:1}"; do
     # Finding the start index of the current argument in the buffer
     # printf "Scanning this region now: >>%s<<\n" "${buffer[last_idx,-1]}" >> ~/zsh_word_splitting_log.txt
     local start_idx=$(( ${buffer[last_idx,-1][(i)$arg]} + last_idx - 1 ))
-    
+
     separators+="${buffer[last_idx,start_idx-1]}"
     # printf "Adding separator in spot %d built from idxs %d to %d: >>%q<<\n" "${#separators}" "$last_idx" "$start_idx" "${buffer[last_idx,start_idx-1]}" >> ~/zsh_word_splitting_log.txt
-    
+
     if (( CURSOR >= $(( start_idx - 1)) && CURSOR < ( start_idx + ${#arg} ) )); then
-      printf "##### Cursor ($CURSOR) is associated with this arg (range $start_idx ~ $(( start_idx + ${#arg} ))) (no. %d): >>%s<<, the index within the arg is %d\n" "$(( ${#separators} + 1 ))" "$arg" "$(( $CURSOR - $start_idx + 1 ))" >> ~/zsh_word_splitting_log.txt
+      CURSORIDX=$(( ${#separators} + 1 ))
+      CURSOROFFSET=$(( $CURSOR - $start_idx + 1 ))
+      printf "##### Cursor ($CURSOR) is associated with this arg (range $start_idx ~ $(( start_idx + ${#arg} ))) (no. %d): >>%s<<, the offset within the arg is %d\n" "$CURSORIDX" "$arg" "$CURSOROFFSET" >> ~/zsh_word_splitting_log.txt
     fi
 
     # Setting the last index to after the end of the current argument
     last_idx=$(( start_idx+${#arg} ))
     printf "last_idx set now to %d after incrementing startidx=%d by %d >>%s<<\n" "$last_idx" "$start_idx" ${#arg} "$arg" >> ~/zsh_word_splitting_log.txt
-
   done
 
   # Assert len of separators is one less than len of args
@@ -35,11 +37,16 @@ function move-current-arg-left {
 
   # Printing the args and separators zipped up for debugging
   for i in {1..$(( ${#args} - 1 ))}; do
-    printf "Arg: >>%s<< Separator (escaped dump): >>%q<<\n" "${args[i]}" "${separators[i]}"
+    printf "Arg ($i): >>%s<< Separator (escaped dump): >>%q<<\n" "${args[i]}" "${separators[i]}"
   done >> ~/zsh_word_splitting_log.txt
-  printf "Last Arg: >>%s<<\n\n" "$args[-1]" >> ~/zsh_word_splitting_log.txt
+  printf "Last Arg (${#args}): >>%s<<\n\n" "$args[-1]" >> ~/zsh_word_splitting_log.txt
 
   # Swapping the current argument with the previous one if it's not the first argument
+  if (( ${+CURSORIDX} )); then
+    printf "Cursor was determined to be on arg number %d at position %d\n" "$CURSORIDX" "$CURSOROFFSET" >> ~/zsh_word_splitting_log.txt
+  else
+    printf "Cursor not on an arg, aborting." >> ~/zsh_word_splitting_log.txt
+  fi
   # if (( idx > 1 )); then
   #   local temp=$args[$idx]
   #   args[$idx]=$args[$((idx-1))]
