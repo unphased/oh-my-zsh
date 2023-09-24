@@ -18,7 +18,7 @@ function move-current-arg-left {
 
     if (( CURSOR >= $(( start_idx - 1)) && CURSOR < ( start_idx + ${#arg} ) )); then
       CURSORIDX=$(( ${#separators} + 1 ))
-      CURSOROFFSET=$(( $CURSOR - $start_idx + 1 ))
+      CURSOROFFSET=$(( $CURSOR - $start_idx + 2 ))
       printf "##### Cursor ($CURSOR) is associated with this arg (range $start_idx ~ $(( start_idx + ${#arg} ))) (no. %d): >>%s<<, the offset within the arg is %d\n" "$CURSORIDX" "$arg" "$CURSOROFFSET" >> ~/zsh_word_splitting_log.txt
     fi
 
@@ -44,6 +44,29 @@ function move-current-arg-left {
   # Swapping the current argument with the previous one if it's not the first argument
   if (( ${+CURSORIDX} )); then
     printf "Cursor was determined to be on arg number %d at position %d\n" "$CURSORIDX" "$CURSOROFFSET" >> ~/zsh_word_splitting_log.txt
+    # Perform an array element swap
+    local tmp=$args[$CURSORIDX]
+    args[$CURSORIDX]=$args[$((CURSORIDX-1))]
+    args[$((CURSORIDX-1))]=$tmp
+    # build the buffers again
+    LBUFFER=""
+    RBUFFER=""
+    for i in {1..$(( ${#args} - 1 ))}; do
+      if (( i < CURSORIDX-1 )); then
+        LBUFFER="$LBUFFER${args[i]}${separators[i]}"
+        printf "i=$i Appending L >>%q<<\n" "${args[i]}${separators[i]}">> ~/zsh_word_splitting_log.txt
+      elif (( i == CURSORIDX-1 )); then
+        LBUFFER="$LBUFFER${args[i][1,CURSOROFFSET-1]}"
+        RBUFFER="${args[i][CURSOROFFSET,-1]}${separators[i]}"
+        printf "i=$i Appending L >>%q<< and initiating R >>%q<<\n" "${args[i][1,CURSOROFFSET-1]}" "${args[i][CURSOROFFSET,-1]}${separators[i]}">> ~/zsh_word_splitting_log.txt
+      else
+        RBUFFER="$RBUFFER${args[i]}${separators[i]}"
+        printf "i=$i Appending R >>%q<<\n" "${args[i]}${separators[i]}">> ~/zsh_word_splitting_log.txt
+      fi
+    done
+    RBUFFER="$RBUFFER${args[-1]}"
+    printf "i=$i Appending R >>%q<<\n" "${args[-1]}">> ~/zsh_word_splitting_log.txt
+
   else
     printf "Cursor not on an arg, aborting." >> ~/zsh_word_splitting_log.txt
   fi
