@@ -181,6 +181,9 @@ function insert-newline() {
   LBUFFER+=$'\n'
 }
 
+# TODO Turn into a real plugin which should be trivial
+source $ZSH/line-editor.zsh
+
 # Create a widget from the function
 zle -N insert-newline
 

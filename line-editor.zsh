@@ -1,6 +1,14 @@
 function move-current-arg-left {
+  move-current-arg-direction left
+}
+function move-current-arg-right {
+  move-current-arg-direction right
+}
+
+function move-current-arg-direction {
   local -a args
   local buffer="${LBUFFER}${RBUFFER}"
+  echo ====== >> ~/zsh_word_splitting_log.txt
   printf "start: >>%s█%s<<\n" "$LBUFFER" "$RBUFFER" >> ~/zsh_word_splitting_log.txt
   printf "cursor: $CURSOR ${#LBUFFER}\n" >> ~/zsh_word_splitting_log.txt
   args=(${(z):-"$buffer"})
@@ -45,17 +53,22 @@ function move-current-arg-left {
   if (( ${+CURSORIDX} )); then
     printf "Cursor was determined to be on arg number %d at position %d\n" "$CURSORIDX" "$CURSOROFFSET" >> ~/zsh_word_splitting_log.txt
     # Perform an array element swap
+    if [ $1 == 'left' ]; then
+      TARGETIDX=$(( CURSORIDX - 1 ))
+    else
+      TARGETIDX=$(( CURSORIDX + 1 ))
+    fi
     local tmp=$args[$CURSORIDX]
-    args[$CURSORIDX]=$args[$((CURSORIDX-1))]
-    args[$((CURSORIDX-1))]=$tmp
+    args[$CURSORIDX]=$args[$TARGETIDX]
+    args[$TARGETIDX]=$tmp
     # build the buffers again
     LBUFFER=""
     RBUFFER=""
     for i in {1..$(( ${#args} - 1 ))}; do
-      if (( i < CURSORIDX-1 )); then
+      if (( i < TARGETIDX )); then
         LBUFFER="$LBUFFER${args[i]}${separators[i]}"
         printf "i=$i Appending L >>%q<<\n" "${args[i]}${separators[i]}">> ~/zsh_word_splitting_log.txt
-      elif (( i == CURSORIDX-1 )); then
+      elif (( i == TARGETIDX )); then
         LBUFFER="$LBUFFER${args[i][1,CURSOROFFSET-1]}"
         RBUFFER="${args[i][CURSOROFFSET,-1]}${separators[i]}"
         printf "i=$i Appending L >>%q<< and initiating R >>%q<<\n" "${args[i][1,CURSOROFFSET-1]}" "${args[i][CURSOROFFSET,-1]}${separators[i]}">> ~/zsh_word_splitting_log.txt
@@ -70,27 +83,11 @@ function move-current-arg-left {
   else
     printf "Cursor not on an arg, aborting." >> ~/zsh_word_splitting_log.txt
   fi
-  # if (( idx > 1 )); then
-  #   local temp=$args[$idx]
-  #   args[$idx]=$args[$((idx-1))]
-  #   args[$((idx-1))]=$temp
-  #
-  #   # Finding the new cursor position
-  #   local new_cursor_pos=0
-  #   for i in {1..$((idx-2))}; do
-  #     new_cursor_pos=$(( $new_cursor_pos + ${#args[i]} + 1 ))
-  #   done
-  #   new_cursor_pos=$(( $new_cursor_pos + cursor_pos_within_arg ))
-  #
-  #   # Reconstructing LBUFFER and RBUFFER
-  #   LBUFFER=${(j: :)args[1,idx-2]}
-  #   LBUFFER="$LBUFFER ${args[idx-1]} ${args[idx]} "
-  #   RBUFFER=" ${(j: :)args[idx+1,-1]}"
-  #   CURSOR=$new_cursor_pos
-  # fi
 }
 
 zle -N move-current-arg-left
+zle -N move-current-arg-right
 bindkey "^B" move-current-arg-left
-bindkey "\e[" move-current-arg-left
-bindkey "\e]" move-current-arg-right
+bindkey "^N" move-current-arg-right
+# bindkey "\e>" move-current-arg-left
+# bindkey "\e<" move-current-arg-right
