@@ -55,7 +55,7 @@ alias mmv='noglob zmv -W'
 # Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
-plugins=(git cp macos history F-Sy-H zsh-autosuggestions vi-mode lf)
+plugins=(cp macos history F-Sy-H zsh-autosuggestions vi-mode lf)
 
 # autocomplete configuration reduce spasticness at least starting out
 zstyle ':autocomplete:*' min-input 3
