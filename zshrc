@@ -410,7 +410,18 @@ function precmd ()
   else
     delta=$((COMMAND_END_TIME - COMMAND_START_TIME))
     print -r "command ($CMD_DELIMITER_ESCAPED) started at $COMMAND_START_TIME took ${delta}s with return value $RETVAL" >> ~/.zsh_enhanced_new_history
-    if [ ${delta%%.*} -gt 10 ]; then
+    if [ ${delta%%.*} -gt 7200 ]; then
+      hours=$((${delta%%.*} / 3600))
+      minutes=$(((${delta%%.*} % 3600) / 60))
+      seconds=$((${delta%%.*} % 60))
+      printf "\x1b[33m==> Took %d hours %d minutes %d seconds\x1b[m\n" "$hours" "$minutes" "$seconds"
+    elif [ ${delta%%.*} -gt 600 ]; then
+      # Convert to minutes and keep fractional seconds
+      minutes=$((${delta%%.*} / 60))
+      fractional_seconds=$((${delta} - $minutes * 60))
+      printf "\x1b[33m==> Took %d minutes %.3f seconds\x1b[m\n" "$minutes" "$fractional_seconds"
+    else
+      # Display in seconds
       printf "\x1b[33m==> Took %.3f sec\x1b[m\n" "$delta"
     fi
     COMMAND_START_TIME=
