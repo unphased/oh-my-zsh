@@ -414,12 +414,12 @@ function precmd ()
       hours=$((${delta%%.*} / 3600))
       minutes=$(((${delta%%.*} % 3600) / 60))
       seconds=$((${delta%%.*} % 60))
-      printf "\x1b[33m==> Took %d hours %d minutes %d seconds\x1b[m\n" "$hours" "$minutes" "$seconds"
+      printf "\x1b[33m==> Took %d hr %d min %d sec\x1b[m\n" "$hours" "$minutes" "$seconds"
     elif [ ${delta%%.*} -gt 600 ]; then
       # Convert to minutes and keep fractional seconds
       minutes=$((${delta%%.*} / 60))
       fractional_seconds=$((${delta} - $minutes * 60))
-      printf "\x1b[33m==> Took %d minutes %.3f seconds\x1b[m\n" "$minutes" "$fractional_seconds"
+      printf "\x1b[33m==> Took %d min %.3f sec\x1b[m\n" "$minutes" "$fractional_seconds"
     else
       # Display in seconds
       printf "\x1b[33m==> Took %.3f sec\x1b[m\n" "$delta"
