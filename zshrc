@@ -420,7 +420,7 @@ function precmd ()
       minutes=$((${delta%%.*} / 60))
       fractional_seconds=$((${delta} - $minutes * 60))
       printf "\x1b[33m==> Took %d min %.3f sec\x1b[m\n" "$minutes" "$fractional_seconds"
-    else
+    elif [ ${delta%%.*} -gt 10 ]; then
       # Display in seconds
       printf "\x1b[33m==> Took %.3f sec\x1b[m\n" "$delta"
     fi
