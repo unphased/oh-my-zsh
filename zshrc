@@ -204,8 +204,8 @@ bindkey -M viins '\e,' copy-earlier-word
 # bad behavior), see https://github.com/marlonrichert/zsh-autocomplete/issues/425 may get this soon 
 # yet!
 
-export HISTSIZE=15000
-export SAVEHIST=15000
+export HISTSIZE=95000
+export SAVEHIST=95000
 export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with INC_APPEND_HISTORY which seems set by default
 
 # This is an independent save of the history and terminal's cwd.
@@ -452,3 +452,10 @@ zvm_after_init_commands+=('[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh')
 
 
 test -e "$HOME/.shellfishrc" && source "$HOME/.shellfishrc"
+
+# bun completions
+[ -s "/Users/slu/.bun/_bun" ] && source "/Users/slu/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
