@@ -459,3 +459,6 @@ test -e "$HOME/.shellfishrc" && source "$HOME/.shellfishrc"
 # bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
+
+bindkey '^e' atuin-up-search
+eval "$(atuin init zsh --disable-up-arrow)"
