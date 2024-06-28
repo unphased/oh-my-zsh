@@ -462,3 +462,13 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 
 bindkey '^e' atuin-up-search
 eval "$(atuin init zsh --disable-up-arrow)"
+
+# for poetry
+fpath+=~/.zfunc
+autoload -Uz compinit && compinit
+
+# for pyenv
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init --path)"
+eval "$(pyenv init -)"
