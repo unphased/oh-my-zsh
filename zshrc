@@ -231,121 +231,43 @@ else
   export GIT_AUTHOR_NAME="Steven Lu"
 fi
 
-# grab tmux environment during zsh preexec. tmux show-environment actually 
-# magically does the right thing passing along the env that i want that was set 
-# by PuTTY etc.
-if [ -n "$TMUX" ]; then
-  function tmux_env_per_cmd()
-  {
-    # this is the one that is run every command and implemments the updating of
-    # the shell's GIT_AUTHOR_NAME with tmux magic that pulls from current 
-    # session
-    TMUX_ENV_GAN=$(tmux show-environment GIT_AUTHOR_NAME)
-    [[ $TMUX_ENV_GAN[1] == 'G' ]] && export "${TMUX_ENV_GAN%\)*}[tmux])"
-    # the if starts with '-' it means it was disabled by tmux
-    # the star is optional (usually the close paren is already last character)
-
-    # needed for smoothly transitioning past OS X WindowServer restarts (can we 
-    # fucking fix this please, Apple) to smoothly export an updated SSH sock 
-    # back into running zsh ptys
-    TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment SSH_AUTH_SOCK)
-    TMUX_ENV_SSH_AUTH_SOCK_VALUE=${TMUX_ENV_SSH_AUTH_SOCK#*=}
-    if [[ $TMUX_ENV_SSH_AUTH_SOCK_VALUE[1] != '-' && $TMUX_ENV_SSH_AUTH_SOCK_VALUE != $SSH_AUTH_SOCK ]]; then
-      echo "Updated \$SSH_AUTH_SOCK from current tmux env, shell's env was $SSH_AUTH_SOCK, now $TMUX_ENV_SSH_AUTH_SOCK_VALUE"
-      export SSH_AUTH_SOCK=$TMUX_ENV_SSH_AUTH_SOCK_VALUE
+# Function to update SSH_AUTH_SOCK, DISPLAY, and XAUTHORITY from tmux
+update_env_from_tmux() {
+  if [ -n "$TMUX" ]; then
+    # Update SSH_AUTH_SOCK
+    local tmux_ssh_auth_sock=$(tmux show-environment | grep "^SSH_AUTH_SOCK")
+    if [[ -n "$tmux_ssh_auth_sock" ]]; then
+      export $tmux_ssh_auth_sock
     fi
 
-    TMUX_ENV_DISPLAY="$(tmux show-environment DISPLAY)"
-    TMUX_ENV_XAUTH="$(tmux show-environment XAUTHORITY)"
-    TMUX_ENV_DISPLAY_VALUE=${TMUX_ENV_DISPLAY#*=}
-    if [[ -n $TMUX_ENV_DISPLAY && -n $TMUX_ENV_XAUTH && $TMUX_ENV_DISPLAY[1] != '-' && $TMUX_ENV_XAUTH[1] != '-' && $TMUX_ENV_DISPLAY_VALUE != $DISPLAY ]]; then
-      echo "Updating DISPLAY and XAUTHORITY env vars from tmux since we saw DISPLAY got updated. Changing them to: $TMUX_ENV_DISPLAY $TMUX_ENV_XAUTH"
-      export $TMUX_ENV_DISPLAY
-      export $TMUX_ENV_XAUTH
+    # Update DISPLAY and XAUTHORITY
+    local tmux_display=$(tmux show-environment | grep "^DISPLAY")
+    local tmux_xauth=$(tmux show-environment | grep "^XAUTHORITY")
+    if [[ -n "$tmux_display" && -n "$tmux_xauth" ]]; then
+      export $tmux_display
+      export $tmux_xauth
     fi
-  }
-  function refresh_tmux_env()
-  {
-    # TMUX_ENV_GAN=$(tmux show-environment | grep "^GIT_AUTHOR_NAME")
-    # TODO: Reconcile count in GAN and indicate tmux here and design this to 
-    # transparently pass through counts (will be tricky)
-    # [[ -n "$TMUX_ENV_GAN" ]] && export "${TMUX_ENV_GAN%\)*}[tmux])"
+  fi
+}
 
-    # infectiously grab SSH_AUTH_SOCK if defined and spread it round into all 
-    # the envs -- even if they already have it set.
-    if [[ -n $SSH_AUTH_SOCK ]]; then
-      tmux ls -F '#S' | while read sess; do
-        TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment -t $sess SSH_AUTH_SOCK)
-        if [[ ${TMUX_ENV_SSH_AUTH_SOCK#*=} != $SSH_AUTH_SOCK ]]; then
-          echo "Updating \$SSH_AUTH_SOCK, tmux sess $sess env had: $TMUX_ENV_SSH_AUTH_SOCK, setting to $SSH_AUTH_SOCK"
-          tmux setenv -t $sess SSH_AUTH_SOCK $SSH_AUTH_SOCK
-        fi
-      done
-    else
-      # if this is not a "seeded" session/env then we check all the other 
-      # sessions and pull it in
-      tmux ls -F '#S' | while read sess; do
-        TMUX_ENV_SSH_AUTH_SOCK=$(tmux show-environment -t $sess SSH_AUTH_SOCK)
-        if [[ -n $TMUX_ENV_SSH_AUTH_SOCK && $TMUX_ENV_SSH_AUTH_SOCK[1] != '-' ]]; then
-          export $TMUX_ENV_SSH_AUTH_SOCK
-          echo "Set \$SSH_AUTH_SOCK from tmux session env $sess: $TMUX_ENV_SSH_AUTH_SOCK"
-          break
-        fi
-      done
-    fi
+# Call update_env_from_tmux before each command
+preexec_functions+=(update_env_from_tmux)
 
-    # manipulating global tmux env is of questionable necessity (btw it should 
-    # overwrite if different for parity with the recent change above)
-    # TMUX_ENV_G_SSH_AUTH_SOCK=$(tmux show-environment -g | grep "^SSH_AUTH_SOCK")
-    # if [[ -z "$TMUX_ENV_G_SSH_AUTH_SOCK" && -n $SSH_AUTH_SOCK ]]; then
-    #   tmux setenv -g SSH_AUTH_SOCK $SSH_AUTH_SOCK
-    #   echo "set \$SSH_AUTH_SOCK into global tmux env"
-    # fi
-  }
-  function preexec ()
-  {
-    tmux_env_per_cmd
-    # TODO: make this only attempt when on a terminal that supports ecapes that
-    # set title (e.g. MTerminal doesnt support it)
-
-    # assumes using screen-* TERM (for some reason tmux seems to not require 
-    # this when in xterm-* TERM -- it still sends the title) this sets the 
-    # title for tmux to use. this is important for context sensitive tmux 
-    # hotkey integration/delegation to work properly in Linux in particcular 
-    printf "\x1b]2;${2//\%/%%}\x1b\\"
-
-    # this does timing. For whatever reason, i can't do it in zshaddhistory 
-    # (the env vars don't live beyond it), that's fine. (TODO consider moving 
-    # the zsh_enhanced_new_history write operation to happen in here, this one 
-    # can get the aliases and even full shell functions expanded out)
-    COMMAND_START_TIME=$EPOCHREALTIME
-    # the start time can be used as a unique ID to locate the command, because 
-    # the shell is pretty slow. We can always upgrade the timestamp to ns also.
-    COMMAND_EXECUTION_STRING=$3
-    # echo "command ($2) about to start at $COMMAND_START_TIME"
-    # I think $2 already has no newline in it
-
-    # defines escaped newline sentinel
-    REPLACE="@\\\$@"
-    # I decided here to trade ease-of-copy for ease of parsing and processing
-    CMD_NEWLINE_ESCAPED=${COMMAND_EXECUTION_STRING//
+# Function to log command execution
+log_command() {
+  local cmd_start_time=$EPOCHREALTIME
+  local cmd_string=$3
+  local replace="@\\\$@"
+  local cmd_escaped=${cmd_string//
 /@\\n@}
-    CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
-    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$(tmux display -p "W #I:#W P#P D#D")@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
-  }
-  refresh_tmux_env
-else
-  function preexec ()
-  {
-    COMMAND_START_TIME=$EPOCHREALTIME
-    COMMAND_EXECUTION_STRING=$3
-    REPLACE="@\\\$@"
-    CMD_NEWLINE_ESCAPED=${COMMAND_EXECUTION_STRING//
-/@\\n@}
-    CMD_DELIMITER_ESCAPED=${CMD_NEWLINE_ESCAPED//@\$@/$REPLACE}
-    print -r "$PWD@\$@${CMD_DELIMITER_ESCAPED}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@No Tmux@\$@$COMMAND_START_TIME" >> ~/.zsh_enhanced_new_history
-  }
-fi
+  local cmd_delimiter_escaped=${cmd_escaped//@\$@/$replace}
+  local tmux_info=$([ -n "$TMUX" ] && tmux display -p "W #I:#W P#P D#D" || echo "No Tmux")
+  
+  print -r "$PWD@\$@${cmd_delimiter_escaped}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$tmux_info@\$@$cmd_start_time" >> ~/.zsh_enhanced_new_history
+}
+
+# Add log_command to preexec functions
+preexec_functions+=(log_command)
 
 # NOTE (no good place to put this) -- consider Antigen (move away from 
 # oh-my-zsh)
