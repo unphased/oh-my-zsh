@@ -221,14 +221,16 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 . ~/.aliases.sh
 
 # Set GIT_AUTHOR_NAME based on system git config and machine-id
-MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || hostname)
+MACHINE_ID=$(cat /opt/machine-id 2>/dev/null || hostname)
 
 if [[ -n "$MACHINE_ID" ]]; then
   export GIT_AUTHOR_NAME="Steven Lu @ $MACHINE_ID"
   echo "Set GIT_AUTHOR_NAME to $GIT_AUTHOR_NAME"
 else
-  echo "Warning: Couldn't set GIT_AUTHOR_NAME. Check git config and /etc/machine-id."
-  export GIT_AUTHOR_NAME="Steven Lu"
+  echo -e "\e[1;31m\e[103m WARNING: /opt/machine-id not found! \e[0m"
+  echo -e "\e[1;31m\e[103m Please create it with: echo <unique-identifier> | sudo tee /opt/machine-id \e[0m"
+  echo -e "\e[1;31m\e[103m Using hostname as fallback. GIT_AUTHOR_NAME may not be unique. \e[0m"
+  export GIT_AUTHOR_NAME="Steven Lu @ $(hostname)"
 fi
 
 # Function to update SSH_AUTH_SOCK, DISPLAY, and XAUTHORITY from tmux
