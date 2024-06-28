@@ -10,3 +10,4 @@ log/
 # editor configs
 .vscode
 .idea
+.aider*
