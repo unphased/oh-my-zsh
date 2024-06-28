@@ -224,13 +224,13 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 MACHINE_ID=$(cat /opt/machine-id 2>/dev/null)
 
 if [[ -n "$MACHINE_ID" ]]; then
-  export GIT_AUTHOR_NAME="Steven Lu @ $MACHINE_ID"
+  export GIT_AUTHOR_NAME="@ $MACHINE_ID"
   echo "Set GIT_AUTHOR_NAME to $GIT_AUTHOR_NAME"
 else
   echo -e "\e[1;31m\e[103m WARNING: /opt/machine-id not found! \e[0m"
   echo -e "\e[1;31m\e[103m Please create it with: echo <unique-identifier> | sudo tee /opt/machine-id \e[0m"
   echo -e "\e[1;31m\e[103m Using hostname as fallback. GIT_AUTHOR_NAME may not be unique. \e[0m"
-  export GIT_AUTHOR_NAME="Steven Lu @ $(hostname)"
+  export GIT_AUTHOR_NAME="@ $(hostname)"
 fi
 
 # Function to update SSH_AUTH_SOCK, DISPLAY, and XAUTHORITY from tmux
