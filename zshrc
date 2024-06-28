@@ -221,14 +221,14 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 . ~/.aliases.sh
 
 # Set GIT_AUTHOR_NAME based on system git config and machine-id
-GIT_USER_NAME=$(git config --get user.name)
 MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || hostname)
 
-if [[ -n "$GIT_USER_NAME" && -n "$MACHINE_ID" ]]; then
-  export GIT_AUTHOR_NAME="$GIT_USER_NAME@$MACHINE_ID"
+if [[ -n "$MACHINE_ID" ]]; then
+  export GIT_AUTHOR_NAME="Steven Lu @ $MACHINE_ID"
   echo "Set GIT_AUTHOR_NAME to $GIT_AUTHOR_NAME"
 else
   echo "Warning: Couldn't set GIT_AUTHOR_NAME. Check git config and /etc/machine-id."
+  export GIT_AUTHOR_NAME="Steven Lu"
 fi
 
 # grab tmux environment during zsh preexec. tmux show-environment actually 
