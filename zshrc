@@ -221,7 +221,7 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 . ~/.aliases.sh
 
 # Set GIT_AUTHOR_NAME based on system git config and machine-id
-MACHINE_ID=$(cat /opt/machine-id 2>/dev/null || hostname)
+MACHINE_ID=$(cat /opt/machine-id 2>/dev/null)
 
 if [[ -n "$MACHINE_ID" ]]; then
   export GIT_AUTHOR_NAME="Steven Lu @ $MACHINE_ID"
