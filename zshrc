@@ -310,10 +310,6 @@ echo "Finished loading my .zshrc"
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
 
-# load nvm
-export NVM_DIR=~/.nvm
-[[ $(uname) == Darwin ]] && source $(brew --prefix nvm)/nvm.sh
-
 emscriptenv () {
   # load emsdk env if present
   [ -f ~/emsdk/emsdk_env.sh ] && source ~/emsdk/emsdk_env.sh || echo no emsdk repo found.
