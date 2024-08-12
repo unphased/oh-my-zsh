@@ -325,8 +325,8 @@ get-first-arg() {
 
     echo "Function called at $(date)" > $debug_file
 
-    # Get unique first words from history, excluding empty commands and duplicates
-    history_cmds=(${(u)${(f)"$(fc -ln -1000)"}%% *})
+    # Get unique first words from history, including current session, excluding empty commands and duplicates
+    history_cmds=(${(u)${(f)"$(history -n 1)"}%% *})
     history_cmds=(${history_cmds:#})  # Remove empty entries
     echo "Unique history commands (${#history_cmds}): ${(j:, :)history_cmds}" >> $debug_file
 
