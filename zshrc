@@ -309,7 +309,6 @@ echo "Finished loading my .zshrc"
 # load fuzzyfind bindings etc
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
-
 emscriptenv () {
   # load emsdk env if present
   [ -f ~/emsdk/emsdk_env.sh ] && source ~/emsdk/emsdk_env.sh || echo no emsdk repo found.
@@ -317,11 +316,19 @@ emscriptenv () {
 
 [ -f ~/.zsh_user_profile ] && source ~/.zsh_user_profile
 
-# vim: ts=2 sw=2 et :
+
+# ===== Below is custom zsh method to implement recall of previous cmds' cmd part, as a counterpart to venerable alt+.
+get-first-arg() {
+    local prev_cmd
+    prev_cmd=$(fc -ln -1 | awk '{print $1}')
+    LBUFFER+="$prev_cmd "
+}
+
+zle -N get-first-arg
+bindkey '\e,' get-first-arg
 
 # Append a command directly
 zvm_after_init_commands+=('[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh')
-
 
 test -e "$HOME/.shellfishrc" && source "$HOME/.shellfishrc"
 
@@ -332,12 +339,15 @@ test -e "$HOME/.shellfishrc" && source "$HOME/.shellfishrc"
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
+# set ctrl e to recall cmds made in cwd
 bindkey '^e' atuin-up-search
+
+# the atuin setup
 eval "$(atuin init zsh --disable-up-arrow)"
 
 # for poetry
-fpath+=~/.zfunc
-autoload -Uz compinit && compinit
+# fpath+=~/.zfunc
+# autoload -Uz compinit && compinit
 
 # for pyenv
 export PYENV_ROOT="$HOME/.pyenv"
