@@ -332,11 +332,19 @@ get-first-arg() {
 
     local current_cmd=${BUFFER%% *}
     local new_cmd
+    local history_cmd
 
     while true; do
-        new_cmd=$(fc -ln -1 $((--GET_FIRST_ARG_INDEX)) $GET_FIRST_ARG_INDEX | awk '{print $1}')
+        ((GET_FIRST_ARG_INDEX++))
+        history_cmd=$(fc -ln -1 -1)
+        new_cmd=$(echo $history_cmd | awk '{print $1}')
         
+        echo "Current index: $GET_FIRST_ARG_INDEX" >> $debug_file
+        echo "History command: $history_cmd" >> $debug_file
+        echo "New command: $new_cmd" >> $debug_file
+
         if [[ -z $new_cmd ]]; then
+            echo "New command is empty, resetting index" >> $debug_file
             GET_FIRST_ARG_INDEX=0
             continue
         fi
@@ -345,8 +353,11 @@ get-first-arg() {
             BUFFER="$new_cmd "
             CURSOR=$#BUFFER
             GET_FIRST_ARG_CURRENT=$BUFFER
+            echo "Found different command: $new_cmd" >> $debug_file
             break
         fi
+
+        echo "Command matches current, continuing search" >> $debug_file
     done
 
     echo "Final BUFFER: $BUFFER" >> $debug_file
