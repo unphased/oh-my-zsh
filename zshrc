@@ -321,29 +321,45 @@ emscriptenv () {
 get-first-arg() {
     local -a history_cmds
     local current_cmd
+    local debug_file="/tmp/get-first-arg-debug.log"
+
+    echo "Function called at $(date)" > $debug_file
 
     # Get unique first words from history
     history_cmds=(${(u)history%% *})
+    echo "Unique history commands: ${history_cmds[@]}" >> $debug_file
+
+    echo "Current BUFFER: $BUFFER" >> $debug_file
 
     # If there's no current command or it's different from the last command
     if [[ -z $BUFFER || $BUFFER != $history_cmds[-1]* ]]; then
         BUFFER="${history_cmds[-1]} "
         CURSOR=$#BUFFER
+        echo "Set BUFFER to last command: $BUFFER" >> $debug_file
     else
+        echo "Searching for current command in history" >> $debug_file
         # Find the current command in history
         for ((i=${#history_cmds[@]}; i>0; i--)); do
+            echo "Checking ${history_cmds[$i]}" >> $debug_file
             if [[ $BUFFER == "${history_cmds[$i]}"* ]]; then
+                echo "Match found at index $i" >> $debug_file
                 # If found, get the previous command
                 if ((i > 1)); then
                     BUFFER="${history_cmds[$((i-1))]} "
+                    echo "Set BUFFER to previous command: $BUFFER" >> $debug_file
                 else
                     BUFFER="${history_cmds[-1]} "
+                    echo "Wrapped around to last command: $BUFFER" >> $debug_file
                 fi
                 CURSOR=$#BUFFER
                 break
             fi
         done
     fi
+
+    echo "Final BUFFER: $BUFFER" >> $debug_file
+    echo "Function finished at $(date)" >> $debug_file
+    echo "-------------------" >> $debug_file
 }
 
 zle -N get-first-arg
