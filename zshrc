@@ -319,9 +319,31 @@ emscriptenv () {
 
 # ===== Below is custom zsh method to implement recall of previous cmds' cmd part, as a counterpart to venerable alt+.
 get-first-arg() {
-    local prev_cmd
-    prev_cmd=$(fc -ln -1 | awk '{print $1}')
-    LBUFFER+="$prev_cmd "
+    local -a history_cmds
+    local current_cmd
+
+    # Get unique first words from history
+    history_cmds=(${(u)history%% *})
+
+    # If there's no current command or it's different from the last command
+    if [[ -z $BUFFER || $BUFFER != $history_cmds[-1]* ]]; then
+        BUFFER="${history_cmds[-1]} "
+        CURSOR=$#BUFFER
+    else
+        # Find the current command in history
+        for ((i=${#history_cmds[@]}; i>0; i--)); do
+            if [[ $BUFFER == "${history_cmds[$i]}"* ]]; then
+                # If found, get the previous command
+                if ((i > 1)); then
+                    BUFFER="${history_cmds[$((i-1))]} "
+                else
+                    BUFFER="${history_cmds[-1]} "
+                fi
+                CURSOR=$#BUFFER
+                break
+            fi
+        done
+    fi
 }
 
 zle -N get-first-arg
