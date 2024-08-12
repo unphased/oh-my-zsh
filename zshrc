@@ -325,36 +325,41 @@ get-first-arg() {
 
     echo "Function called at $(date)" > $debug_file
 
-    # Get unique first words from history
-    history_cmds=(${(u)history%% *})
-    echo "Unique history commands: ${history_cmds[@]}" >> $debug_file
+    # Get unique first words from history, excluding empty commands and duplicates
+    history_cmds=(${(u)${(f)"$(fc -ln -1000)"}%% *})
+    history_cmds=(${history_cmds:#})  # Remove empty entries
+    echo "Unique history commands (${#history_cmds}): ${(j:, :)history_cmds}" >> $debug_file
 
     echo "Current BUFFER: $BUFFER" >> $debug_file
 
-    # If there's no current command or it's different from the last command
-    if [[ -z $BUFFER || $BUFFER != $history_cmds[-1]* ]]; then
+    # If there's no current command or it's not in the history
+    if [[ -z $BUFFER || ! " ${history_cmds[@]} " =~ " ${BUFFER%% *} " ]]; then
         BUFFER="${history_cmds[-1]} "
         CURSOR=$#BUFFER
         echo "Set BUFFER to last command: $BUFFER" >> $debug_file
     else
         echo "Searching for current command in history" >> $debug_file
-        # Find the current command in history
+        local current_index
         for ((i=${#history_cmds[@]}; i>0; i--)); do
-            echo "Checking ${history_cmds[$i]}" >> $debug_file
-            if [[ $BUFFER == "${history_cmds[$i]}"* ]]; then
-                echo "Match found at index $i" >> $debug_file
-                # If found, get the previous command
-                if ((i > 1)); then
-                    BUFFER="${history_cmds[$((i-1))]} "
-                    echo "Set BUFFER to previous command: $BUFFER" >> $debug_file
-                else
-                    BUFFER="${history_cmds[-1]} "
-                    echo "Wrapped around to last command: $BUFFER" >> $debug_file
-                fi
-                CURSOR=$#BUFFER
+            if [[ "${history_cmds[$i]}" == "${BUFFER%% *}" ]]; then
+                current_index=$i
                 break
             fi
         done
+
+        if [[ -n $current_index ]]; then
+            echo "Current command found at index $current_index" >> $debug_file
+            if ((current_index > 1)); then
+                BUFFER="${history_cmds[$((current_index-1))]} "
+                echo "Set BUFFER to previous command: $BUFFER" >> $debug_file
+            else
+                BUFFER="${history_cmds[-1]} "
+                echo "Wrapped around to last command: $BUFFER" >> $debug_file
+            fi
+            CURSOR=$#BUFFER
+        else
+            echo "Current command not found in history" >> $debug_file
+        fi
     fi
 
     echo "Final BUFFER: $BUFFER" >> $debug_file
