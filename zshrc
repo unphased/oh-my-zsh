@@ -318,51 +318,39 @@ emscriptenv () {
 
 
 # ===== Below is custom zsh method to implement recall of previous cmds' cmd part, as a counterpart to venerable alt+.
-get-first-arg() {
-    local -a history_cmds
-    local current_cmd
-    local debug_file="/tmp/get-first-arg-debug.log"
+typeset -g GET_FIRST_ARG_INDEX
+typeset -g GET_FIRST_ARG_CURRENT
 
+get-first-arg() {
+    local debug_file="/tmp/get-first-arg-debug.log"
     echo "Function called at $(date)" > $debug_file
 
-    # Get unique first words from history, including current session, excluding empty commands and duplicates
-    history_cmds=(${(u)${(f)"$(history -n 1)"}%% *})
-    history_cmds=(${history_cmds:#})  # Remove empty entries
-    echo "Unique history commands (${#history_cmds}): ${(j:, :)history_cmds}" >> $debug_file
-
-    echo "Current BUFFER: $BUFFER" >> $debug_file
-
-    # If there's no current command or it's not in the history
-    if [[ -z $BUFFER || ! " ${history_cmds[@]} " =~ " ${BUFFER%% *} " ]]; then
-        BUFFER="${history_cmds[-1]} "
-        CURSOR=$#BUFFER
-        echo "Set BUFFER to last command: $BUFFER" >> $debug_file
-    else
-        echo "Searching for current command in history" >> $debug_file
-        local current_index
-        for ((i=${#history_cmds[@]}; i>0; i--)); do
-            if [[ "${history_cmds[$i]}" == "${BUFFER%% *}" ]]; then
-                current_index=$i
-                break
-            fi
-        done
-
-        if [[ -n $current_index ]]; then
-            echo "Current command found at index $current_index" >> $debug_file
-            if ((current_index > 1)); then
-                BUFFER="${history_cmds[$((current_index-1))]} "
-                echo "Set BUFFER to previous command: $BUFFER" >> $debug_file
-            else
-                BUFFER="${history_cmds[-1]} "
-                echo "Wrapped around to last command: $BUFFER" >> $debug_file
-            fi
-            CURSOR=$#BUFFER
-        else
-            echo "Current command not found in history" >> $debug_file
-        fi
+    if [[ -z $BUFFER || $BUFFER != $GET_FIRST_ARG_CURRENT ]]; then
+        GET_FIRST_ARG_INDEX=0
+        GET_FIRST_ARG_CURRENT=$BUFFER
     fi
 
+    local current_cmd=${BUFFER%% *}
+    local new_cmd
+
+    while true; do
+        new_cmd=$(fc -ln -1 $((--GET_FIRST_ARG_INDEX)) $GET_FIRST_ARG_INDEX | awk '{print $1}')
+        
+        if [[ -z $new_cmd ]]; then
+            GET_FIRST_ARG_INDEX=0
+            continue
+        fi
+
+        if [[ $new_cmd != $current_cmd ]]; then
+            BUFFER="$new_cmd "
+            CURSOR=$#BUFFER
+            GET_FIRST_ARG_CURRENT=$BUFFER
+            break
+        fi
+    done
+
     echo "Final BUFFER: $BUFFER" >> $debug_file
+    echo "Current INDEX: $GET_FIRST_ARG_INDEX" >> $debug_file
     echo "Function finished at $(date)" >> $debug_file
     echo "-------------------" >> $debug_file
 }
