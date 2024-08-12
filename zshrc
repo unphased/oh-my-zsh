@@ -322,8 +322,8 @@ typeset -g GET_FIRST_ARG_INDEX
 typeset -g GET_FIRST_ARG_CURRENT
 
 get-first-arg() {
-    local debug_file="/tmp/get-first-arg-debug.log"
-    echo "Function called at $(date)" > $debug_file
+    # local debug_file="/tmp/get-first-arg-debug.log"
+    # echo "Function called at $(date)" > $debug_file
 
     if [[ -z $BUFFER || $BUFFER != $GET_FIRST_ARG_CURRENT ]]; then
         GET_FIRST_ARG_INDEX=1
@@ -337,34 +337,34 @@ get-first-arg() {
     while true; do
         history_cmd=$(fc -ln -$GET_FIRST_ARG_INDEX -$GET_FIRST_ARG_INDEX 2>/dev/null)
         
-        echo "Current index: $GET_FIRST_ARG_INDEX" >> $debug_file
-        echo "History command: $history_cmd" >> $debug_file
+        # echo "Current index: $GET_FIRST_ARG_INDEX" >> $debug_file
+        # echo "History command: $history_cmd" >> $debug_file
 
         if [[ -z $history_cmd ]]; then
-            echo "Reached beginning of history, resetting index" >> $debug_file
+            # echo "Reached beginning of history, resetting index" >> $debug_file
             GET_FIRST_ARG_INDEX=1
             continue
         fi
 
         new_cmd=$(echo $history_cmd | awk '{print $1}')
-        echo "New command: $new_cmd" >> $debug_file
+        # echo "New command: $new_cmd" >> $debug_file
 
         if [[ $new_cmd != $current_cmd ]]; then
             BUFFER="$new_cmd "
             CURSOR=$#BUFFER
             GET_FIRST_ARG_CURRENT=$BUFFER
-            echo "Found different command: $new_cmd" >> $debug_file
+            # echo "Found different command: $new_cmd" >> $debug_file
             break
         fi
 
         ((GET_FIRST_ARG_INDEX++))
-        echo "Command matches current, continuing search" >> $debug_file
+        # echo "Command matches current, continuing search" >> $debug_file
     done
 
-    echo "Final BUFFER: $BUFFER" >> $debug_file
-    echo "Current INDEX: $GET_FIRST_ARG_INDEX" >> $debug_file
-    echo "Function finished at $(date)" >> $debug_file
-    echo "-------------------" >> $debug_file
+    # echo "Final BUFFER: $BUFFER" >> $debug_file
+    # echo "Current INDEX: $GET_FIRST_ARG_INDEX" >> $debug_file
+    # echo "Function finished at $(date)" >> $debug_file
+    # echo "-------------------" >> $debug_file
 }
 
 zle -N get-first-arg
