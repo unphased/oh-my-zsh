@@ -326,7 +326,7 @@ get-first-arg() {
     echo "Function called at $(date)" > $debug_file
 
     if [[ -z $BUFFER || $BUFFER != $GET_FIRST_ARG_CURRENT ]]; then
-        GET_FIRST_ARG_INDEX=0
+        GET_FIRST_ARG_INDEX=1
         GET_FIRST_ARG_CURRENT=$BUFFER
     fi
 
@@ -335,19 +335,19 @@ get-first-arg() {
     local history_cmd
 
     while true; do
-        ((GET_FIRST_ARG_INDEX++))
-        history_cmd=$(fc -ln -1 -1)
-        new_cmd=$(echo $history_cmd | awk '{print $1}')
+        history_cmd=$(fc -ln -$GET_FIRST_ARG_INDEX -$GET_FIRST_ARG_INDEX 2>/dev/null)
         
         echo "Current index: $GET_FIRST_ARG_INDEX" >> $debug_file
         echo "History command: $history_cmd" >> $debug_file
-        echo "New command: $new_cmd" >> $debug_file
 
-        if [[ -z $new_cmd ]]; then
-            echo "New command is empty, resetting index" >> $debug_file
-            GET_FIRST_ARG_INDEX=0
+        if [[ -z $history_cmd ]]; then
+            echo "Reached beginning of history, resetting index" >> $debug_file
+            GET_FIRST_ARG_INDEX=1
             continue
         fi
+
+        new_cmd=$(echo $history_cmd | awk '{print $1}')
+        echo "New command: $new_cmd" >> $debug_file
 
         if [[ $new_cmd != $current_cmd ]]; then
             BUFFER="$new_cmd "
@@ -357,6 +357,7 @@ get-first-arg() {
             break
         fi
 
+        ((GET_FIRST_ARG_INDEX++))
         echo "Command matches current, continuing search" >> $debug_file
     done
 
