@@ -181,14 +181,14 @@ function insert-newline() {
   LBUFFER+=$'\n'
 }
 
-# TODO Turn into a real plugin which should be trivial
-source $ZSH/line-editor.zsh
-
 # Create a widget from the function
 zle -N insert-newline
 
 # Bind the widget to a key sequence, in this case, \x1b\x0a
-bindkey "\e^J" insert-newline
+bindkey "\e^M" insert-newline
+
+# TODO Turn into a real plugin which should be trivial
+source $ZSH/line-editor.zsh
 
 # for numpad enter key to work as enter, for easy right hand mouse reaching on full keyboards (I dont use those
 # anymore though)
@@ -220,18 +220,18 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 
 . ~/.aliases.sh
 
-# Set GIT_AUTHOR_NAME based on system git config and machine-id
-MACHINE_ID=$(cat /opt/machine-id 2>/dev/null)
-
-if [[ -n "$MACHINE_ID" ]]; then
-  export GIT_AUTHOR_NAME="Steven Lu @ $MACHINE_ID"
-  echo "Set GIT_AUTHOR_NAME to $GIT_AUTHOR_NAME"
-else
-  echo -e "\e[1;31m\e[103m WARNING: /opt/machine-id not found! \e[0m"
-  echo -e "\e[1;31m\e[103m Please create it with: echo <unique-identifier> | sudo tee /opt/machine-id \e[0m"
-  echo -e "\e[1;31m\e[103m Using hostname as fallback. GIT_AUTHOR_NAME may not be unique. \e[0m"
-  export GIT_AUTHOR_NAME="Steven Lu @ $(hostname)"
-fi
+# # Set GIT_AUTHOR_NAME based on system git config and machine-id
+# MACHINE_ID=$(cat /opt/machine-id 2>/dev/null)
+#
+# if [[ -n "$MACHINE_ID" ]]; then
+#   export GIT_AUTHOR_NAME="Steven Lu @ $MACHINE_ID"
+#   echo "Set GIT_AUTHOR_NAME to $GIT_AUTHOR_NAME"
+# else
+#   echo -e "\e[1;31m\e[103m WARNING: /opt/machine-id not found! \e[0m"
+#   echo -e "\e[1;31m\e[103m Please create it with: echo <unique-identifier> | sudo tee /opt/machine-id \e[0m"
+#   echo -e "\e[1;31m\e[103m Using hostname as fallback. GIT_AUTHOR_NAME may not be unique. \e[0m"
+#   export GIT_AUTHOR_NAME="Steven Lu @ $(hostname)"
+# fi
 
 # Function to update SSH_AUTH_SOCK, DISPLAY, and XAUTHORITY from tmux
 update_env_from_tmux() {
@@ -265,7 +265,7 @@ log_command() {
   local cmd_delimiter_escaped=${cmd_escaped//@\$@/$replace}
   local tmux_info=$([ -n "$TMUX" ] && tmux display -p "W #I:#W P#P D#D" || echo "No Tmux")
   
-  print -r "$PWD@\$@${cmd_delimiter_escaped}@\$@$GIT_AUTHOR_NAME@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$tmux_info@\$@$cmd_start_time" >> ~/.zsh_enhanced_new_history
+  print -r "$PWD@\$@${cmd_delimiter_escaped}@\$@GIT_AUTHOR_NAME_DEPRECATED@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$tmux_info@\$@$cmd_start_time" >> ~/.zsh_enhanced_new_history
 }
 
 # Add log_command to preexec functions
