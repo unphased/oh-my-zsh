@@ -1,20 +1,36 @@
 #include <iostream>
 #include <fstream>
-#include <string>
-#include <vector>
-#include <thread>
 #include <csignal>
 #include <cstdlib>
+#include <cstring>
 #include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 static volatile bool should_exit = false;
+static struct termios orig_termios;
+static int masterFd = -1;
 
+// Handle Ctrl+C, SIGTERM, etc.
 void signal_handler(int) {
   should_exit = true;
+}
+
+// Propagate window size changes to the child PTY
+void handle_winch(int) {
+  struct winsize ws;
+  if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == 0 && masterFd >= 0) {
+    ioctl(masterFd, TIOCSWINSZ, &ws);
+  }
+}
+
+// Restore parent terminal to original settings
+void restore_terminal() {
+  tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
 }
 
 int main(int argc, char* argv[]) {
@@ -22,10 +38,10 @@ int main(int argc, char* argv[]) {
     std::cerr << "Usage: " << argv[0] << " <log_file>\n";
     return 1;
   }
-  std::string logPath = argv[1];
+  std::string log_path = argv[1];
 
-  // 1) Open a master PTY
-  int masterFd = posix_openpt(O_RDWR | O_NOCTTY);
+  // 1) Open master PTY
+  masterFd = posix_openpt(O_RDWR | O_NOCTTY);
   if (masterFd < 0) {
     std::cerr << "Error: posix_openpt failed.\n";
     return 1;
@@ -41,7 +57,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  // 3) Fork to create a child process
+  // 3) Fork to create child
   pid_t pid = fork();
   if (pid < 0) {
     std::cerr << "Error: fork failed.\n";
@@ -50,43 +66,59 @@ int main(int argc, char* argv[]) {
   }
 
   if (pid == 0) {
-    // Child process: become session leader, attach slave as controlling terminal
+    // Child: set up slave side
     setsid(); // new session
     int slaveFd = open(slaveName, O_RDWR);
     if (slaveFd < 0) {
-      std::cerr << "Child: Failed to open slave pty.\n";
+      std::cerr << "Child: failed to open slave PTY.\n";
       _exit(1);
     }
-
-    // Make the slave PTY the controlling TTY
     ioctl(slaveFd, TIOCSCTTY, 0);
 
-    // Duplicate slaveFd onto stdin/stdout/stderr
+    // Duplicate slaveFd to stdin, stdout, stderr
     dup2(slaveFd, STDIN_FILENO);
     dup2(slaveFd, STDOUT_FILENO);
     dup2(slaveFd, STDERR_FILENO);
-
-    close(masterFd);
     close(slaveFd);
+    close(masterFd);
 
-    // Exec a shell (zsh). The shell now thinks it's running on a real TTY.
-    execlp("zsh", "zsh", nullptr);
-    _exit(1); // If exec fails
+    // Optionally set TERM for interactive programs
+    setenv("TERM", "xterm-256color", 1);
+
+    // Exec a shell
+    execlp("zsh", "zsh", (char*)nullptr);
+    _exit(1); // Exec failed
   }
 
-  // Parent process: log everything passing through masterFd
-  std::ofstream logFile(logPath, std::ios::app | std::ios::out | std::ios::binary);
+  // Parent: log everything to a file
+  std::ofstream logFile(log_path, std::ios::app | std::ios::binary);
   if (!logFile.is_open()) {
-    std::cerr << "Failed to open log file: " << logPath << "\n";
+    std::cerr << "Failed to open log file: " << log_path << "\n";
     return 1;
   }
-  std::cerr << "Capturing shell session. PID: " << pid << std::endl;
 
-  // Install signal handlers
+  // Put parent terminal in raw mode so keys flow properly
+  struct termios raw;
+  tcgetattr(STDIN_FILENO, &orig_termios);
+  raw = orig_termios;
+  cfmakeraw(&raw);
+  tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+
+  // Restore terminal on exit
+  atexit(restore_terminal);
+
+  // Handle signals
   signal(SIGINT, signal_handler);
   signal(SIGTERM, signal_handler);
+  // Forward window size changes to the child
+  signal(SIGWINCH, handle_winch);
 
-  // 4) Relay data between real terminal and the child shell via masterFd
+  // Initialize child PTY with correct window size
+  handle_winch(0);
+
+  std::cerr << "Started capturing shell (PID " << pid << "), logging to " << log_path << "\n";
+
+  // 4) Relay data between real terminal and child PTY
   while (!should_exit) {
     fd_set fds;
     FD_ZERO(&fds);
@@ -99,27 +131,27 @@ int main(int argc, char* argv[]) {
       break;
     }
 
-    // If user typed something on the real terminal (STDIN), send to child shell
+    // Data from real terminal -> child
     if (FD_ISSET(STDIN_FILENO, &fds)) {
       char buf[1024];
       ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
       if (n > 0) {
         write(masterFd, buf, n);
-        // Also log user input if desired
+        // Also log user input
         logFile << "[INPUT] ";
         logFile.write(buf, n);
         logFile << std::endl;
       }
     }
 
-    // If child shell wrote something, show it on our real terminal and log it
+    // Data from child -> real terminal
     if (FD_ISSET(masterFd, &fds)) {
       char buf[1024];
       ssize_t n = read(masterFd, buf, sizeof(buf));
       if (n > 0) {
-        // Write to real screen
+        // Print to screen
         write(STDOUT_FILENO, buf, n);
-        // Log output
+        // Log shell output
         logFile << "[OUTPUT] ";
         logFile.write(buf, n);
         logFile << std::endl;
@@ -128,8 +160,13 @@ int main(int argc, char* argv[]) {
   }
 
   // Cleanup
+  restore_terminal();
   close(masterFd);
   logFile.close();
+
+  // Optionally wait for child
+  kill(pid, SIGTERM);
+  waitpid(pid, nullptr, 0);
 
   return 0;
 }
