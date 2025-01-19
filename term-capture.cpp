@@ -14,10 +14,30 @@
 static volatile bool should_exit = false;
 static struct termios orig_termios;
 static int masterFd = -1;
+static pid_t child_pid = -1;
+
+void cleanup_and_exit() {
+  restore_terminal();
+  if (masterFd >= 0) {
+    close(masterFd);
+  }
+  if (child_pid > 0) {
+    kill(child_pid, SIGTERM);
+    waitpid(child_pid, nullptr, 0);
+  }
+  exit(0);
+}
 
 // Handle Ctrl+C, SIGTERM, etc.
-void signal_handler(int) {
+void signal_handler(int sig) {
   should_exit = true;
+  if (sig == SIGCHLD) {
+    int status;
+    pid_t pid = waitpid(-1, &status, WNOHANG);
+    if (pid == child_pid) {
+      cleanup_and_exit();
+    }
+  }
 }
 
 // Propagate window size changes to the child PTY
@@ -58,14 +78,14 @@ int main(int argc, char* argv[]) {
   }
 
   // 3) Fork to create child
-  pid_t pid = fork();
-  if (pid < 0) {
+  child_pid = fork();
+  if (child_pid < 0) {
     std::cerr << "Error: fork failed.\n";
     close(masterFd);
     return 1;
   }
 
-  if (pid == 0) {
+  if (child_pid == 0) {
     // Child: set up slave side
     setsid(); // new session
     int slaveFd = open(slaveName, O_RDWR);
@@ -110,13 +130,15 @@ int main(int argc, char* argv[]) {
   // Handle signals
   signal(SIGINT, signal_handler);
   signal(SIGTERM, signal_handler);
+  signal(SIGQUIT, signal_handler);
+  signal(SIGCHLD, signal_handler);
   // Forward window size changes to the child
   signal(SIGWINCH, handle_winch);
 
   // Initialize child PTY with correct window size
   handle_winch(0);
 
-  std::cerr << "Started capturing shell (PID " << pid << "), logging to " << log_path << "\n";
+  std::cerr << "Started capturing shell (PID " << child_pid << "), logging to " << log_path << "\n";
 
   // 4) Relay data between real terminal and child PTY
   while (!should_exit) {
@@ -159,14 +181,7 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  // Cleanup
-  restore_terminal();
-  close(masterFd);
   logFile.close();
-
-  // Optionally wait for child
-  kill(pid, SIGTERM);
-  waitpid(pid, nullptr, 0);
-
-  return 0;
+  cleanup_and_exit();
+  return 0; // Never reached
 }
