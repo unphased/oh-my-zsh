@@ -4,31 +4,35 @@ DEBUG_FLAGS = $(COMMON_FLAGS) -g -O0 -DDEBUG
 RELEASE_FLAGS = $(COMMON_FLAGS) -O2 -DNDEBUG
 
 TARGETS = term-capture hexflow
-BUILD_DIRS = debug release
 
 all: debug release
 
-debug: $(addprefix debug/, $(TARGETS))
+debug: debug/term-capture debug/hexflow
 
-release: $(addprefix release/, $(TARGETS))
+release: release/term-capture release/hexflow
 
-$(BUILD_DIRS):
-	mkdir -p $@
+debug/term-capture: debug/term-capture.o
+	$(CXX) $< -o $@
 
-debug/%.o: %.cpp | debug
+debug/hexflow: debug/hexflow.o
+	$(CXX) $< -o $@
+
+release/term-capture: release/term-capture.o
+	$(CXX) $< -o $@
+
+release/hexflow: release/hexflow.o
+	$(CXX) $< -o $@
+
+debug/%.o: %.cpp
+	@mkdir -p debug
 	$(CXX) $(DEBUG_FLAGS) -c $< -o $@
 
-release/%.o: %.cpp | release
+release/%.o: %.cpp
+	@mkdir -p release
 	$(CXX) $(RELEASE_FLAGS) -c $< -o $@
 
-debug/%: debug/%.o | debug
-	$(CXX) $< -o $@
-
-release/%: release/%.o | release
-	$(CXX) $< -o $@
-
 clean:
-	rm -rf $(BUILD_DIRS)
+	rm -rf debug release
 
 .PHONY: all debug release clean
 
