@@ -8,8 +8,11 @@ BUILD_DIRS = debug release
 
 all: debug release
 
-debug: $(addprefix debug/, $(TARGETS))
-release: $(addprefix release/, $(TARGETS))
+debug: | debug
+	$(MAKE) $(addprefix debug/, $(TARGETS))
+
+release: | release
+	$(MAKE) $(addprefix release/, $(TARGETS))
 
 $(BUILD_DIRS):
 	mkdir -p $@
