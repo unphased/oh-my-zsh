@@ -8,16 +8,22 @@ BUILD_DIRS = debug release
 
 all: debug release
 
-debug release: | %
-	$(MAKE) $(addprefix $@/, $(TARGETS))
+debug: $(addprefix debug/, $(TARGETS))
+release: $(addprefix release/, $(TARGETS))
 
 $(BUILD_DIRS):
 	mkdir -p $@
 
-%/%.o: %.cpp | %
-	$(CXX) $($(shell echo $(@D) | tr a-z A-Z)_FLAGS) -c $< -o $@
+debug/%.o: %.cpp | debug
+	$(CXX) $(DEBUG_FLAGS) -c $< -o $@
 
-%/term-capture %/hexflow: %/%.o
+release/%.o: %.cpp | release
+	$(CXX) $(RELEASE_FLAGS) -c $< -o $@
+
+debug/%: debug/%.o
+	$(CXX) $< -o $@
+
+release/%: release/%.o
 	$(CXX) $< -o $@
 
 clean:
