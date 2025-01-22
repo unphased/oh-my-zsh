@@ -11,4 +11,8 @@ log/
 .vscode
 .idea
 .aider*
-.aider*
+
+# build directories and artifacts
+debug/
+release/
+*.o
