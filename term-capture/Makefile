@@ -8,11 +8,9 @@ BUILD_DIRS = debug release
 
 all: debug release
 
-debug: | debug
-	$(MAKE) $(addprefix debug/, $(TARGETS))
+debug: $(addprefix debug/, $(TARGETS))
 
-release: | release
-	$(MAKE) $(addprefix release/, $(TARGETS))
+release: $(addprefix release/, $(TARGETS))
 
 $(BUILD_DIRS):
 	mkdir -p $@
@@ -23,10 +21,10 @@ debug/%.o: %.cpp | debug
 release/%.o: %.cpp | release
 	$(CXX) $(RELEASE_FLAGS) -c $< -o $@
 
-debug/%: debug/%.o
+debug/%: debug/%.o | debug
 	$(CXX) $< -o $@
 
-release/%: release/%.o
+release/%: release/%.o | release
 	$(CXX) $< -o $@
 
 clean:
