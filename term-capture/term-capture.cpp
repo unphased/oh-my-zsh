@@ -55,9 +55,9 @@ void handle_winch(int) {
 
 int main(int argc, char* argv[]) {
   if (argc != 2) {
-    std::cerr << "Terminal Capture - Records all terminal input and output to a log file\n\n"
-              << "Usage: " << argv[0] << " <log_file>\n"
-              << "  <log_file>  Path to the file where terminal activity will be logged\n";
+    std::cerr << "Terminal Capture - Records all terminal input and output to separate log files\n\n"
+              << "Usage: " << argv[0] << " <prefix>\n"
+              << "  <prefix>  Prefix for the log files. Will create <prefix>.input and <prefix>.output\n";
     return 1;
   }
   std::string log_path = argv[1];
@@ -112,10 +112,15 @@ int main(int argc, char* argv[]) {
     _exit(1); // Exec failed
   }
 
-  // Parent: log everything to a file
-  std::ofstream logFile(log_path, std::ios::app | std::ios::binary);
-  if (!logFile.is_open()) {
-    std::cerr << "Failed to open log file: " << log_path << "\n";
+  // Parent: open separate log files for input and output
+  std::string input_path = log_path + ".input";
+  std::string output_path = log_path + ".output";
+  
+  std::ofstream inputFile(input_path, std::ios::app | std::ios::binary);
+  std::ofstream outputFile(output_path, std::ios::app | std::ios::binary);
+  
+  if (!inputFile.is_open() || !outputFile.is_open()) {
+    std::cerr << "Failed to open log files\n";
     return 1;
   }
 
@@ -140,7 +145,9 @@ int main(int argc, char* argv[]) {
   // Initialize child PTY with correct window size
   handle_winch(0);
 
-  std::cerr << "Started capturing shell (PID " << child_pid << "), logging to " << log_path << "\n";
+  std::cerr << "Started capturing shell (PID " << child_pid << ")\n"
+            << "Logging input to: " << input_path << "\n"
+            << "Logging output to: " << output_path << "\n";
 
   // 4) Relay data between real terminal and child PTY
   while (!should_exit) {
@@ -161,10 +168,9 @@ int main(int argc, char* argv[]) {
       ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
       if (n > 0) {
         write(masterFd, buf, n);
-        // Also log user input
-        logFile << "[INPUT] ";
-        logFile.write(buf, n);
-        logFile << std::endl;
+        // Log user input
+        inputFile.write(buf, n);
+        inputFile.flush();
       }
     }
 
@@ -176,14 +182,14 @@ int main(int argc, char* argv[]) {
         // Print to screen
         write(STDOUT_FILENO, buf, n);
         // Log shell output
-        logFile << "[OUTPUT] ";
-        logFile.write(buf, n);
-        logFile << std::endl;
+        outputFile.write(buf, n);
+        outputFile.flush();
       }
     }
   }
 
-  logFile.close();
+  inputFile.close();
+  outputFile.close();
   cleanup_and_exit();
   return 0; // Never reached
 }
