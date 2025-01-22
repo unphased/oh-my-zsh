@@ -16,6 +16,11 @@ static struct termios orig_termios;
 static int masterFd = -1;
 static pid_t child_pid = -1;
 
+// Restore parent terminal to original settings
+void restore_terminal() {
+  tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
+}
+
 void cleanup_and_exit() {
   restore_terminal();
   if (masterFd >= 0) {
@@ -46,11 +51,6 @@ void handle_winch(int) {
   if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == 0 && masterFd >= 0) {
     ioctl(masterFd, TIOCSWINSZ, &ws);
   }
-}
-
-// Restore parent terminal to original settings
-void restore_terminal() {
-  tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
 }
 
 int main(int argc, char* argv[]) {
