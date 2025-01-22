@@ -1,23 +1,40 @@
 CXX = g++
-CXXFLAGS = -Wall -Wextra -O2
+COMMON_FLAGS = -Wall -Wextra
+DEBUG_FLAGS = $(COMMON_FLAGS) -g -O0 -DDEBUG
+RELEASE_FLAGS = $(COMMON_FLAGS) -O2 -DNDEBUG
+
 TARGETS = term-capture hexflow
-TERM_CAPTURE_SRCS = term-capture.cpp
-HEXFLOW_SRCS = hexflow.cpp
-TERM_CAPTURE_OBJS = $(TERM_CAPTURE_SRCS:.cpp=.o)
-HEXFLOW_OBJS = $(HEXFLOW_SRCS:.cpp=.o)
+TERM_CAPTURE_SRC = term-capture.cpp
+HEXFLOW_SRC = hexflow.cpp
 
-all: $(TARGETS)
+DEBUG_DIR = debug
+RELEASE_DIR = release
 
-term-capture: $(TERM_CAPTURE_OBJS)
-	$(CXX) $(TERM_CAPTURE_OBJS) -o $@
+all: debug release
 
-hexflow: $(HEXFLOW_OBJS)
-	$(CXX) $(HEXFLOW_OBJS) -o $@
+debug: $(DEBUG_DIR) $(addprefix $(DEBUG_DIR)/, $(TARGETS))
+    release: $(RELEASE_DIR) $(addprefix $(RELEASE_DIR)/, $(TARGETS))
 
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+$(DEBUG_DIR):
+    mkdir -p $(DEBUG_DIR)
+
+$(RELEASE_DIR):
+    mkdir -p $(RELEASE_DIR)
+
+$(DEBUG_DIR)/term-capture: $(TERM_CAPTURE_SRC)
+    $(CXX) $(DEBUG_FLAGS) $< -o $@
+
+$(DEBUG_DIR)/hexflow: $(HEXFLOW_SRC)
+    $(CXX) $(DEBUG_FLAGS) $< -o $@
+
+$(RELEASE_DIR)/term-capture: $(TERM_CAPTURE_SRC)
+    $(CXX) $(RELEASE_FLAGS) $< -o $@
+
+$(RELEASE_DIR)/hexflow: $(HEXFLOW_SRC)
+    $(CXX) $(RELEASE_FLAGS) $< -o $@
 
 clean:
-	rm -f $(TERM_CAPTURE_OBJS) $(HEXFLOW_OBJS) $(TARGETS)
+    rm -rf $(DEBUG_DIR) $(RELEASE_DIR)
 
-.PHONY: all clean
+.PHONY: all debug release clean
+
