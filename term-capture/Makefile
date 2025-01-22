@@ -13,28 +13,28 @@ RELEASE_DIR = release
 all: debug release
 
 debug: $(DEBUG_DIR) $(addprefix $(DEBUG_DIR)/, $(TARGETS))
-    release: $(RELEASE_DIR) $(addprefix $(RELEASE_DIR)/, $(TARGETS))
+release: $(RELEASE_DIR) $(addprefix $(RELEASE_DIR)/, $(TARGETS))
 
 $(DEBUG_DIR):
-    mkdir -p $(DEBUG_DIR)
+	mkdir -p $(DEBUG_DIR)
 
 $(RELEASE_DIR):
-    mkdir -p $(RELEASE_DIR)
+	mkdir -p $(RELEASE_DIR)
 
 $(DEBUG_DIR)/term-capture: $(TERM_CAPTURE_SRC)
-    $(CXX) $(DEBUG_FLAGS) $< -o $@
+	$(CXX) $(DEBUG_FLAGS) $< -o $@
 
 $(DEBUG_DIR)/hexflow: $(HEXFLOW_SRC)
-    $(CXX) $(DEBUG_FLAGS) $< -o $@
+	$(CXX) $(DEBUG_FLAGS) $< -o $@
 
 $(RELEASE_DIR)/term-capture: $(TERM_CAPTURE_SRC)
-    $(CXX) $(RELEASE_FLAGS) $< -o $@
+	$(CXX) $(RELEASE_FLAGS) $< -o $@
 
 $(RELEASE_DIR)/hexflow: $(HEXFLOW_SRC)
-    $(CXX) $(RELEASE_FLAGS) $< -o $@
+	$(CXX) $(RELEASE_FLAGS) $< -o $@
 
 clean:
-    rm -rf $(DEBUG_DIR) $(RELEASE_DIR)
+	rm -rf $(DEBUG_DIR) $(RELEASE_DIR)
 
 .PHONY: all debug release clean
 
