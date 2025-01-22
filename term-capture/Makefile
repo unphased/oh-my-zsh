@@ -10,6 +10,9 @@ HEXFLOW_SRC = hexflow.cpp
 DEBUG_DIR = debug
 RELEASE_DIR = release
 
+DEBUG_OBJS = $(DEBUG_DIR)/term-capture.o $(DEBUG_DIR)/hexflow.o
+RELEASE_OBJS = $(RELEASE_DIR)/term-capture.o $(RELEASE_DIR)/hexflow.o
+
 all: debug release
 
 debug: $(DEBUG_DIR) $(addprefix $(DEBUG_DIR)/, $(TARGETS))
@@ -21,17 +24,23 @@ $(DEBUG_DIR):
 $(RELEASE_DIR):
 	mkdir -p $(RELEASE_DIR)
 
-$(DEBUG_DIR)/term-capture: $(TERM_CAPTURE_SRC)
-	$(CXX) $(DEBUG_FLAGS) $< -o $@
+$(DEBUG_DIR)/%.o: %.cpp
+	$(CXX) $(DEBUG_FLAGS) -c $< -o $@
 
-$(DEBUG_DIR)/hexflow: $(HEXFLOW_SRC)
-	$(CXX) $(DEBUG_FLAGS) $< -o $@
+$(RELEASE_DIR)/%.o: %.cpp
+	$(CXX) $(RELEASE_FLAGS) -c $< -o $@
 
-$(RELEASE_DIR)/term-capture: $(TERM_CAPTURE_SRC)
-	$(CXX) $(RELEASE_FLAGS) $< -o $@
+$(DEBUG_DIR)/term-capture: $(DEBUG_DIR)/term-capture.o
+	$(CXX) $< -o $@
 
-$(RELEASE_DIR)/hexflow: $(HEXFLOW_SRC)
-	$(CXX) $(RELEASE_FLAGS) $< -o $@
+$(DEBUG_DIR)/hexflow: $(DEBUG_DIR)/hexflow.o
+	$(CXX) $< -o $@
+
+$(RELEASE_DIR)/term-capture: $(RELEASE_DIR)/term-capture.o
+	$(CXX) $< -o $@
+
+$(RELEASE_DIR)/hexflow: $(RELEASE_DIR)/hexflow.o
+	$(CXX) $< -o $@
 
 clean:
 	rm -rf $(DEBUG_DIR) $(RELEASE_DIR)
