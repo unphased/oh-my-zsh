@@ -55,7 +55,9 @@ void handle_winch(int) {
 
 int main(int argc, char* argv[]) {
   if (argc != 2) {
-    std::cerr << "Usage: " << argv[0] << " <log_file>\n";
+    std::cerr << "Terminal Capture - Records all terminal input and output to a log file\n\n"
+              << "Usage: " << argv[0] << " <log_file>\n"
+              << "  <log_file>  Path to the file where terminal activity will be logged\n";
     return 1;
   }
   std::string log_path = argv[1];
