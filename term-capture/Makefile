@@ -7,21 +7,15 @@ TARGETS = term-capture hexflow
 
 all: debug release
 
-debug: debug/term-capture debug/hexflow
+debug: $(patsubst %,debug/%,$(TARGETS))
 
-release: release/term-capture release/hexflow
+release: $(patsubst %,release/%,$(TARGETS))
 
-debug/term-capture: debug/term-capture.o
-	$(CXX) $< -o $@
+debug/%: debug/%.o
+	$(CXX) $(DEBUG_FLAGS) $^ -o $@
 
-debug/hexflow: debug/hexflow.o
-	$(CXX) $< -o $@
-
-release/term-capture: release/term-capture.o
-	$(CXX) $< -o $@
-
-release/hexflow: release/hexflow.o
-	$(CXX) $< -o $@
+release/%: release/%.o
+	$(CXX) $(RELEASE_FLAGS) $^ -o $@
 
 debug/%.o: %.cpp
 	@mkdir -p debug
