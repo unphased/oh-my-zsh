@@ -30,6 +30,7 @@ void cleanup_and_exit() {
     kill(child_pid, SIGTERM);
     waitpid(child_pid, nullptr, 0);
   }
+  std::cerr << "\nTerminal capture completed. Logs have been saved.\n";
   exit(0);
 }
 
