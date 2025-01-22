@@ -15,8 +15,11 @@ RELEASE_OBJS = $(RELEASE_DIR)/term-capture.o $(RELEASE_DIR)/hexflow.o
 
 all: debug release
 
-debug: $(DEBUG_DIR) $(addprefix $(DEBUG_DIR)/, $(TARGETS))
-release: $(RELEASE_DIR) $(addprefix $(RELEASE_DIR)/, $(TARGETS))
+debug: | $(DEBUG_DIR)
+	$(MAKE) $(addprefix $(DEBUG_DIR)/, $(TARGETS))
+
+release: | $(RELEASE_DIR)
+	$(MAKE) $(addprefix $(RELEASE_DIR)/, $(TARGETS))
 
 $(DEBUG_DIR):
 	mkdir -p $(DEBUG_DIR)
