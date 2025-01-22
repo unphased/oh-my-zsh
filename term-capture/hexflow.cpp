@@ -7,14 +7,14 @@ void print_byte(unsigned char c) {
     if (isprint(c)) {
         std::cout << c;
     } else if (c == '\n') {
-        std::cout << "\\n";
+        std::cout << " \\n";
     } else if (c == '\r') {
-        std::cout << "\\r";
+        std::cout << " \\r";
     } else if (c == '\t') {
-        std::cout << "\\t";
+        std::cout << " \\t";
     } else {
-        std::cout << std::hex << std::setw(2) << std::setfill('0') 
-                  << static_cast<int>(c) << ' ';
+        std::cout << ' ' << std::hex << std::setw(2) << std::setfill('0') 
+                  << static_cast<int>(c);
     }
     std::cout << std::flush;
 }
