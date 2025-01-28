@@ -55,13 +55,24 @@ void handle_winch(int) {
 }
 
 int main(int argc, char* argv[]) {
-  if (argc != 2) {
+  if (argc < 2) {
     std::cerr << "Terminal Capture - Records all terminal input and output to separate log files\n\n"
-              << "Usage: " << argv[0] << " <prefix>\n"
-              << "  <prefix>  Prefix for the log files. Will create <prefix>.input and <prefix>.output\n";
+              << "Usage: " << argv[0] << " <prefix> [command...]\n"
+              << "  <prefix>    Prefix for the log files. Will create <prefix>.input and <prefix>.output\n"
+              << "  [command]   Optional command to execute (defaults to zsh if not specified)\n";
     return 1;
   }
   std::string log_path = argv[1];
+  
+  // Store command and args if provided
+  std::vector<const char*> cmd_args;
+  if (argc > 2) {
+    // Use provided command and args
+    for (int i = 2; i < argc; i++) {
+      cmd_args.push_back(argv[i]);
+    }
+    cmd_args.push_back(nullptr);
+  }
 
   // 1) Open master PTY
   masterFd = posix_openpt(O_RDWR | O_NOCTTY);
@@ -108,8 +119,13 @@ int main(int argc, char* argv[]) {
     // Optionally set TERM for interactive programs
     setenv("TERM", "xterm-256color", 1);
 
-    // Exec a shell
-    execlp("zsh", "zsh", (char*)nullptr);
+    // Exec the command or fall back to shell
+    if (!cmd_args.empty()) {
+      execvp(cmd_args[0], const_cast<char* const*>(cmd_args.data()));
+    } else {
+      // Default to shell if no command specified
+      execlp("zsh", "zsh", (char*)nullptr);
+    }
     _exit(1); // Exec failed
   }
 
