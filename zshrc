@@ -385,9 +385,6 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 # set ctrl e to recall cmds made in cwd
 bindkey '^e' atuin-up-search
 
-# the atuin setup
-eval "$(atuin init zsh --disable-up-arrow)"
-
 # for poetry
 # fpath+=~/.zfunc
 # autoload -Uz compinit && compinit
@@ -397,3 +394,6 @@ export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
 eval "$(pyenv init --path)"
 eval "$(pyenv init -)"
+
+# the atuin setup
+eval "$(atuin init zsh --disable-up-arrow)"
