@@ -5,7 +5,7 @@
 ### Goal: Enhance `term-capture` for robust, regular use and add advanced features.
 
 **0. Test System & Coverage Establishment (Top Priority)**
-    - [X] **Set up Test Framework:** Integrated Catch2. Created `tests/main.cpp` as test runner. User to download `tests/catch.hpp`.
+    - [X] **Set up Test Framework:** Migrated to Catch2 v3 (amalgamated). User to download `catch_amalgamated.hpp` and `catch_amalgamated.cpp` to `tests/`. Removed `tests/main.cpp`. Makefile updated for C++14 and new Catch2 files.
     - [ ] **Develop Initial Test Suite:** Create basic tests covering core functionality:
         - [ ] `term-capture`: Argument parsing, log file creation, basic command execution and I/O logging, signal handling behavior.
         - [X] `hexflow`: Refactored `print_byte` for testability and added comprehensive unit tests in `tests/hexflow_tests.cpp`.

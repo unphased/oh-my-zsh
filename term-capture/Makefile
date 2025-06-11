@@ -1,5 +1,5 @@
 CXX = g++
-COMMON_FLAGS = -Wall -Wextra
+COMMON_FLAGS = -Wall -Wextra -std=c++14 # Specify C++14 standard for Catch2 v3
 DEBUG_FLAGS = $(COMMON_FLAGS) -g -O0 -DDEBUG
 RELEASE_FLAGS = $(COMMON_FLAGS) -O2 -DNDEBUG
 COVERAGE_FLAGS = $(COMMON_FLAGS) --coverage -O0 -DDEBUG # Add --coverage and keep debug-friendly flags
@@ -12,12 +12,14 @@ TEST_RUNNER_NAME = test_runner
 TEST_EXECUTABLE = coverage/$(TEST_RUNNER_NAME)
 
 # Source files for the test runner itself and specific test suites
-TEST_SRC_FILES = $(TEST_DIR)/main.cpp \
-                 $(TEST_DIR)/hexflow_tests.cpp
+# main.cpp is removed as catch_amalgamated.cpp provides main() for Catch2 v3
+TEST_SRC_FILES = $(TEST_DIR)/hexflow_tests.cpp \
+                 $(TEST_DIR)/catch_amalgamated.cpp
 # TODO: Add term_capture_tests.cpp later
 
 # Object files for the test sources
-TEST_OBJ_FILES = $(TEST_SRC_FILES:%.cpp=coverage/%.o)
+# This pattern will generate coverage/tests/hexflow_tests.o and coverage/tests/catch_amalgamated.o
+TEST_OBJ_FILES = $(patsubst $(TEST_DIR)/%.cpp,coverage/$(TEST_DIR)/%.o,$(TEST_SRC_FILES))
 
 # Application object files needed for linking tests
 APP_OBJ_FOR_TESTS = coverage/hexflow.o
@@ -73,15 +75,15 @@ coverage/%.o: %.cpp Makefile # Rule for compiling .cpp to .o with coverage
 	$(CXX) $(COVERAGE_FLAGS) -c $< -o $@
 
 
-# Rule to compile test source files
-# Example: coverage/tests/main.o from tests/main.cpp
-coverage/$(TEST_DIR)/main.o: $(TEST_DIR)/main.cpp $(TEST_DIR)/catch.hpp Makefile
-	@mkdir -p $(@D)
-	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/main.cpp -o $@
-
-coverage/$(TEST_DIR)/hexflow_tests.o: $(TEST_DIR)/hexflow_tests.cpp $(TEST_DIR)/catch.hpp $(HEXFLOW_HPP) Makefile
+# Rule to compile test source files (hexflow_tests.cpp)
+coverage/$(TEST_DIR)/hexflow_tests.o: $(TEST_DIR)/hexflow_tests.cpp $(TEST_DIR)/catch_amalgamated.hpp $(HEXFLOW_HPP) Makefile
 	@mkdir -p $(@D)
 	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/hexflow_tests.cpp -o $@
+
+# Rule to compile catch_amalgamated.cpp
+coverage/$(TEST_DIR)/catch_amalgamated.o: $(TEST_DIR)/catch_amalgamated.cpp $(TEST_DIR)/catch_amalgamated.hpp Makefile
+	@mkdir -p $(@D)
+	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/catch_amalgamated.cpp -o $@
 
 # Rule to link the test runner
 $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
