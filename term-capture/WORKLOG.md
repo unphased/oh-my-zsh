@@ -4,12 +4,21 @@
 
 ### Goal: Enhance `term-capture` for robust, regular use and add advanced features.
 
-**1. Core Robustness & Usability Enhancements:**
-    - [ ] **General Hardening:** Conduct thorough testing across various shells, commands, and edge cases (e.g., rapid window resizing, unusual signal patterns, PTY exhaustion) to identify and fix stability issues.
+**0. Test System & Coverage Establishment (Top Priority)**
+    - [ ] **Set up Test Framework:** Decide on and integrate a C++ testing framework (e.g., Google Test, Catch2) or develop a simple script-based testing approach for `term-capture` and `hexflow`.
+    - [ ] **Develop Initial Test Suite:** Create basic tests covering core functionality:
+        - [ ] `term-capture`: Argument parsing, log file creation, basic command execution and I/O logging, signal handling behavior.
+        - [ ] `hexflow`: Correct output for various known inputs (printable, non-printable, special characters).
+    - [ ] **Integrate Coverage Reporting (Makefile):** Configure the Makefile to compile with coverage flags (`g++ --coverage`).
+    - [ ] **Generate Coverage Reports (gcov/lcov):** Add Makefile targets or scripts to generate and view coverage reports (e.g., using `gcov` and `lcov` to produce HTML reports).
+    - [ ] **General Hardening (Continuous through Testing):** Conduct thorough testing across various shells, commands, and edge cases (e.g., rapid window resizing, unusual signal patterns, PTY exhaustion, different TERM values) to identify and fix stability issues. This will be driven by the test suite.
+    - [ ] **Iteratively Increase Coverage:** Continuously write and refine tests to achieve high code coverage for `term-capture.cpp` and `hexflow.cpp`.
+
+**1. Core Robustness & Usability Enhancements (Post-Test Setup):**
     - [ ] **Exit Code Propagation:** Modify `term-capture` to correctly propagate the exit status of the wrapped command/shell, instead of always exiting with 0.
     - [ ] **Configurable Logging Levels/Verbosity:**
         - [ ] Allow suppression or redirection of `term-capture`'s own startup/shutdown messages (e.g., via command-line flags or environment variables).
-    - [ ] **Improved Signal Handling:** Review and enhance signal handling for robustness, ensuring all relevant signals are managed gracefully (e.g., SIGHUP).
+    - [ ] **Improved Signal Handling:** Review and enhance signal handling for robustness, ensuring all relevant signals are managed gracefully (e.g., SIGHUP), informed by test cases.
 
 **2. Log Management & Storage:**
     - [ ] **Log Rotation & Archival:** Implement a strategy for automatic log rotation (e.g., based on size or time) and potential archival to prevent excessive disk usage.
@@ -37,7 +46,7 @@
 
 **5. Documentation & Build System:**
     - [ ] **Update README:** Keep README.md updated with new features, configuration options, and usage examples.
-    - [ ] **Makefile Enhancements:** Review Makefile for any necessary updates as new source files or dependencies are added.
+    - [ ] **Makefile Enhancements:** Review Makefile for any necessary updates as new source files or dependencies are added (e.g., for test framework, coverage report generation).
 
 ## In Progress
 
