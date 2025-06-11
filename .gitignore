@@ -13,6 +13,6 @@ log/
 .aider*
 
 # build directories and artifacts
-debug/
-release/
-*.o
+term-capture/debug/
+term-capture/release/
+term-capture/*.o
