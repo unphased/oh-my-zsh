@@ -30,6 +30,7 @@ void print_byte(unsigned char c, std::ostream& out, bool& last_was_nonprint_stat
     out << std::flush; // Flushes the output stream, consistent with original behavior
 }
 
+#ifndef BUILD_HEXFLOW_AS_LIB
 int main() {
     unsigned char buf;
     bool last_was_nonprint_main = false; // Local state for the main loop
@@ -38,3 +39,4 @@ int main() {
     }
     return 0;
 }
+#endif // BUILD_HEXFLOW_AS_LIB

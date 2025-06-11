@@ -22,8 +22,10 @@ TEST_SRC_FILES = $(TEST_DIR)/hexflow_tests.cpp \
 TEST_OBJ_FILES = $(patsubst $(TEST_DIR)/%.cpp,coverage/$(TEST_DIR)/%.o,$(TEST_SRC_FILES))
 
 # Application object files needed for linking tests
-APP_OBJ_FOR_TESTS = coverage/hexflow.o
-# TODO: Add coverage/term-capture.o when term-capture tests are added
+# We'll use a special version of hexflow.o compiled without its main()
+HEXFLOW_FOR_TEST_OBJ = coverage/hexflow_for_test.o
+APP_OBJ_FOR_TESTS = $(HEXFLOW_FOR_TEST_OBJ)
+# TODO: Add coverage/term-capture_for_test.o when term-capture tests are added
 
 # Add include path for catch.hpp and use coverage flags for tests
 TEST_COMPILE_FLAGS = $(COVERAGE_FLAGS) -I$(TEST_DIR)
