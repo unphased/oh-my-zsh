@@ -8,8 +8,8 @@
     - [X] **Set up Test Framework:** Integrated Catch2. Created `tests/main.cpp` as test runner. User to download `tests/catch.hpp`.
     - [ ] **Develop Initial Test Suite:** Create basic tests covering core functionality:
         - [ ] `term-capture`: Argument parsing, log file creation, basic command execution and I/O logging, signal handling behavior.
-        - [X] `hexflow`: Created `tests/hexflow_tests.cpp` with a placeholder test. Further tests pending.
-    - [X] **Integrate Coverage Reporting (Makefile):** Configured Makefile to compile test files with coverage flags. Added `test` target to build and run tests. Linked `hexflow.o` (compiled with coverage) into test runner.
+        - [X] `hexflow`: Refactored `print_byte` for testability and added comprehensive unit tests in `tests/hexflow_tests.cpp`.
+    - [X] **Integrate Coverage Reporting (Makefile):** Configured Makefile to compile test files with coverage flags. Added `test` target to build and run tests. Linked `hexflow.o` (compiled with coverage) into test runner. Makefile updated for `hexflow.hpp` dependencies.
     - [ ] **Generate Coverage Reports (gcov/lcov):** Add Makefile targets or scripts to generate and view coverage reports (e.g., using `gcov` and `lcov` to produce HTML reports).
     - [ ] **General Hardening (Continuous through Testing):** Conduct thorough testing across various shells, commands, and edge cases (e.g., rapid window resizing, unusual signal patterns, PTY exhaustion, different TERM values) to identify and fix stability issues. This will be driven by the test suite.
     - [ ] **Iteratively Increase Coverage:** Continuously write and refine tests to achieve high code coverage for `term-capture.cpp` and `hexflow.cpp`.

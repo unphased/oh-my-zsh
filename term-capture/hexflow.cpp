@@ -1,39 +1,40 @@
-#include <iostream>
-#include <iomanip>
-#include <cctype>
-#include <unistd.h>
+#include "hexflow.hpp" // Include the header
+#include <unistd.h>   // For read
+#include <iostream>   // For std::cout in main
 
-static bool last_was_nonprint = false;
-
-void print_byte(unsigned char c) {
+// Definition of print_byte, now taking ostream and state as parameters
+void print_byte(unsigned char c, std::ostream& out, bool& last_was_nonprint_state) {
     bool is_print = isprint(c);
     
     // Add space when transitioning from non-printable to printable
-    if (is_print && last_was_nonprint) {
-        std::cout << ' ';
+    if (is_print && last_was_nonprint_state) {
+        out << ' ';
     }
     
     if (is_print) {
-        std::cout << c;
+        out << c;
     } else if (c == '\n') {
-        std::cout << " \\n";
+        out << " \\n";
     } else if (c == '\r') {
-        std::cout << " \\r";
+        out << " \\r";
     } else if (c == '\t') {
-        std::cout << " \\t";
+        out << " \\t";
     } else {
-        std::cout << ' ' << std::hex << std::setw(2) << std::setfill('0') 
-                  << static_cast<int>(c);
+        // Ensure hex output is consistent for tests (e.g., std::hex, std::setw, std::setfill)
+        // These are now included via hexflow.hpp -> iomanip
+        out << ' ' << std::hex << std::setw(2) << std::setfill('0') 
+            << static_cast<int>(c);
     }
     
-    last_was_nonprint = !is_print;
-    std::cout << std::flush;
+    last_was_nonprint_state = !is_print; // Update the state
+    out << std::flush; // Flushes the output stream, consistent with original behavior
 }
 
 int main() {
     unsigned char buf;
+    bool last_was_nonprint_main = false; // Local state for the main loop
     while (read(STDIN_FILENO, &buf, 1) > 0) {
-        print_byte(buf);
+        print_byte(buf, std::cout, last_was_nonprint_main); // Pass std::cout and state
     }
     return 0;
 }

@@ -44,23 +44,44 @@ release/%: release/%.o
 coverage/%: coverage/%.o # Rule for linking coverage executables
 	$(CXX) $(COVERAGE_FLAGS) $^ -o $@
 
-debug/%.o: %.cpp
+# Specific rules for objects that depend on hexflow.hpp
+HEXFLOW_HPP = hexflow.hpp
+
+debug/hexflow.o: hexflow.cpp $(HEXFLOW_HPP) Makefile
+	@mkdir -p debug
+	$(CXX) $(DEBUG_FLAGS) -c hexflow.cpp -o $@
+
+release/hexflow.o: hexflow.cpp $(HEXFLOW_HPP) Makefile
+	@mkdir -p release
+	$(CXX) $(RELEASE_FLAGS) -c hexflow.cpp -o $@
+
+coverage/hexflow.o: hexflow.cpp $(HEXFLOW_HPP) Makefile
+	@mkdir -p coverage
+	$(CXX) $(COVERAGE_FLAGS) -c hexflow.cpp -o $@
+
+# Generic rules for other .o files (if any are added later that don't depend on hexflow.hpp)
+debug/%.o: %.cpp Makefile
 	@mkdir -p debug
 	$(CXX) $(DEBUG_FLAGS) -c $< -o $@
 
-release/%.o: %.cpp
+release/%.o: %.cpp Makefile
 	@mkdir -p release
 	$(CXX) $(RELEASE_FLAGS) -c $< -o $@
 
-coverage/%.o: %.cpp # Rule for compiling .cpp to .o with coverage
+coverage/%.o: %.cpp Makefile # Rule for compiling .cpp to .o with coverage
 	@mkdir -p coverage
 	$(CXX) $(COVERAGE_FLAGS) -c $< -o $@
 
+
 # Rule to compile test source files
 # Example: coverage/tests/main.o from tests/main.cpp
-coverage/$(TEST_DIR)/%.o: $(TEST_DIR)/%.cpp $(TEST_DIR)/catch.hpp Makefile
+coverage/$(TEST_DIR)/main.o: $(TEST_DIR)/main.cpp $(TEST_DIR)/catch.hpp Makefile
 	@mkdir -p $(@D)
-	$(CXX) $(TEST_COMPILE_FLAGS) -c $< -o $@
+	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/main.cpp -o $@
+
+coverage/$(TEST_DIR)/hexflow_tests.o: $(TEST_DIR)/hexflow_tests.cpp $(TEST_DIR)/catch.hpp $(HEXFLOW_HPP) Makefile
+	@mkdir -p $(@D)
+	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/hexflow_tests.cpp -o $@
 
 # Rule to link the test runner
 $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
