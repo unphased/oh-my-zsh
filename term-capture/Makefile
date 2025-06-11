@@ -76,20 +76,6 @@ coverage/term-capture.o: term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
 	@mkdir -p coverage
 	$(CXX) $(COVERAGE_FLAGS) -c term-capture.cpp -o $@
 
-# Generic rules for other .o files (if any are added later that don't depend on specific .hpp files)
-# These should ideally not be hit for our main targets if dependencies are correctly specified above.
-debug/%.o: %.cpp Makefile
-	@mkdir -p debug
-	$(CXX) $(DEBUG_FLAGS) -c $< -o $@
-
-release/%.o: %.cpp Makefile
-	@mkdir -p release
-	$(CXX) $(RELEASE_FLAGS) -c $< -o $@
-
-coverage/%.o: %.cpp Makefile # Rule for compiling .cpp to .o with coverage
-	@mkdir -p coverage
-	$(CXX) $(COVERAGE_FLAGS) -c $< -o $@
-
 
 # Rule to compile test source files (hexflow_tests.cpp)
 coverage/$(TEST_DIR)/hexflow_tests.o: $(TEST_DIR)/hexflow_tests.cpp $(TEST_DIR)/catch_amalgamated.hpp $(HEXFLOW_HPP) Makefile
