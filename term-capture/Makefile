@@ -14,18 +14,18 @@ TEST_EXECUTABLE = coverage/$(TEST_RUNNER_NAME)
 # Source files for the test runner itself and specific test suites
 # main.cpp is removed as catch_amalgamated.cpp provides main() for Catch2 v3
 TEST_SRC_FILES = $(TEST_DIR)/hexflow_tests.cpp \
+                 $(TEST_DIR)/term_capture_tests.cpp \
                  $(TEST_DIR)/catch_amalgamated.cpp
-# TODO: Add term_capture_tests.cpp later
 
 # Object files for the test sources
 # This pattern will generate coverage/tests/hexflow_tests.o and coverage/tests/catch_amalgamated.o
 TEST_OBJ_FILES = $(patsubst $(TEST_DIR)/%.cpp,coverage/$(TEST_DIR)/%.o,$(TEST_SRC_FILES))
 
 # Application object files needed for linking tests
-# We'll use a special version of hexflow.o compiled without its main()
+# We'll use special versions of .o files compiled without their main()
 HEXFLOW_FOR_TEST_OBJ = coverage/hexflow_for_test.o
-APP_OBJ_FOR_TESTS = $(HEXFLOW_FOR_TEST_OBJ)
-# TODO: Add coverage/term-capture_for_test.o when term-capture tests are added
+TERM_CAPTURE_FOR_TEST_OBJ = coverage/term_capture_for_test.o
+APP_OBJ_FOR_TESTS = $(HEXFLOW_FOR_TEST_OBJ) $(TERM_CAPTURE_FOR_TEST_OBJ)
 
 # Add include path for catch.hpp and use coverage flags for tests
 TEST_COMPILE_FLAGS = $(COVERAGE_FLAGS) -I$(TEST_DIR)
@@ -82,6 +82,11 @@ coverage/$(TEST_DIR)/hexflow_tests.o: $(TEST_DIR)/hexflow_tests.cpp $(TEST_DIR)/
 	@mkdir -p $(@D)
 	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/hexflow_tests.cpp -o $@
 
+# Rule to compile term_capture_tests.cpp
+coverage/$(TEST_DIR)/term_capture_tests.o: $(TEST_DIR)/term_capture_tests.cpp $(TEST_DIR)/catch_amalgamated.hpp Makefile # Add term_capture.hpp if created
+	@mkdir -p $(@D)
+	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/term_capture_tests.cpp -o $@
+
 # Rule to compile catch_amalgamated.cpp
 coverage/$(TEST_DIR)/catch_amalgamated.o: $(TEST_DIR)/catch_amalgamated.cpp $(TEST_DIR)/catch_amalgamated.hpp Makefile
 	@mkdir -p $(@D)
@@ -91,6 +96,11 @@ coverage/$(TEST_DIR)/catch_amalgamated.o: $(TEST_DIR)/catch_amalgamated.cpp $(TE
 $(HEXFLOW_FOR_TEST_OBJ): hexflow.cpp $(HEXFLOW_HPP) Makefile
 	@mkdir -p $(@D)
 	$(CXX) $(COVERAGE_FLAGS) -DBUILD_HEXFLOW_AS_LIB -c hexflow.cpp -o $@
+
+# Rule to compile term-capture.cpp as a library for tests (without its main function)
+$(TERM_CAPTURE_FOR_TEST_OBJ): term-capture.cpp Makefile # Add term_capture.hpp if created
+	@mkdir -p $(@D)
+	$(CXX) $(COVERAGE_FLAGS) -DBUILD_TERM_CAPTURE_AS_LIB -c term-capture.cpp -o $@
 
 # Rule to link the test runner
 $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)

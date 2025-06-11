@@ -54,6 +54,7 @@ void handle_winch(int) {
   }
 }
 
+#ifndef BUILD_TERM_CAPTURE_AS_LIB
 int main(int argc, char* argv[]) {
   if (argc < 2) {
     std::cerr << "Terminal Capture - Records all terminal input and output to separate log files\n\n"
@@ -210,3 +211,4 @@ int main(int argc, char* argv[]) {
   cleanup_and_exit();
   return 0; // Never reached
 }
+#endif // BUILD_TERM_CAPTURE_AS_LIB
