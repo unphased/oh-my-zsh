@@ -50,7 +50,7 @@ coverage/%: coverage/%.o # Rule for linking coverage executables
 
 # Specific rules for objects that depend on .hpp files
 HEXFLOW_HPP = hexflow.hpp
-TERM_CAPTURE_HPP = term_capture.hpp # Path relative to Makefile directory
+TERM_CAPTURE_HPP = term_capture.hpp
 
 debug/hexflow.o: hexflow.cpp $(HEXFLOW_HPP) Makefile
 	@mkdir -p debug
