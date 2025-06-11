@@ -87,6 +87,11 @@ coverage/$(TEST_DIR)/catch_amalgamated.o: $(TEST_DIR)/catch_amalgamated.cpp $(TE
 	@mkdir -p $(@D)
 	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/catch_amalgamated.cpp -o $@
 
+# Rule to compile hexflow.cpp as a library for tests (without its main function)
+$(HEXFLOW_FOR_TEST_OBJ): hexflow.cpp $(HEXFLOW_HPP) Makefile
+	@mkdir -p $(@D)
+	$(CXX) $(COVERAGE_FLAGS) -DBUILD_HEXFLOW_AS_LIB -c hexflow.cpp -o $@
+
 # Rule to link the test runner
 $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 	@mkdir -p $(@D)
