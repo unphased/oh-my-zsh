@@ -6,6 +6,27 @@ COVERAGE_FLAGS = $(COMMON_FLAGS) --coverage -O0 -DDEBUG # Add --coverage and kee
 
 TARGETS = term-capture hexflow
 
+# Test configuration
+TEST_DIR = tests
+TEST_RUNNER_NAME = test_runner
+TEST_EXECUTABLE = coverage/$(TEST_RUNNER_NAME)
+
+# Source files for the test runner itself and specific test suites
+TEST_SRC_FILES = $(TEST_DIR)/main.cpp \
+                 $(TEST_DIR)/hexflow_tests.cpp
+# TODO: Add term_capture_tests.cpp later
+
+# Object files for the test sources
+TEST_OBJ_FILES = $(TEST_SRC_FILES:%.cpp=coverage/%.o)
+
+# Application object files needed for linking tests
+APP_OBJ_FOR_TESTS = coverage/hexflow.o
+# TODO: Add coverage/term-capture.o when term-capture tests are added
+
+# Add include path for catch.hpp and use coverage flags for tests
+TEST_COMPILE_FLAGS = $(COVERAGE_FLAGS) -I$(TEST_DIR)
+
+
 all: debug release
 
 debug: $(patsubst %,debug/%,$(TARGETS))
@@ -35,9 +56,24 @@ coverage/%.o: %.cpp # Rule for compiling .cpp to .o with coverage
 	@mkdir -p coverage
 	$(CXX) $(COVERAGE_FLAGS) -c $< -o $@
 
-clean:
-	rm -rf debug release coverage # Add coverage directory
-	rm -f *.gcda *.gcno # Remove gcov data files from the root directory
+# Rule to compile test source files
+# Example: coverage/tests/main.o from tests/main.cpp
+coverage/$(TEST_DIR)/%.o: $(TEST_DIR)/%.cpp $(TEST_DIR)/catch.hpp Makefile
+	@mkdir -p $(@D)
+	$(CXX) $(TEST_COMPILE_FLAGS) -c $< -o $@
 
-.PHONY: all debug release coverage clean # Add coverage target
+# Rule to link the test runner
+$(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
+	@mkdir -p $(@D)
+	$(CXX) $(COVERAGE_FLAGS) $^ -o $@
+
+# Test target: build and run tests
+test: $(TEST_EXECUTABLE)
+	./$(TEST_EXECUTABLE)
+
+clean:
+	rm -rf debug release coverage # This also removes test objects and executables in coverage/
+	rm -f *.gcda *.gcno # Remove gcov data files from the root directory (if any)
+
+.PHONY: all debug release coverage clean test # Add test target
 

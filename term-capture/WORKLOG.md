@@ -5,11 +5,11 @@
 ### Goal: Enhance `term-capture` for robust, regular use and add advanced features.
 
 **0. Test System & Coverage Establishment (Top Priority)**
-    - [ ] **Set up Test Framework:** Decide on and integrate a C++ testing framework (e.g., Google Test, Catch2) or develop a simple script-based testing approach for `term-capture` and `hexflow`.
+    - [X] **Set up Test Framework:** Integrated Catch2. Created `tests/main.cpp` as test runner. User to download `tests/catch.hpp`.
     - [ ] **Develop Initial Test Suite:** Create basic tests covering core functionality:
         - [ ] `term-capture`: Argument parsing, log file creation, basic command execution and I/O logging, signal handling behavior.
-        - [ ] `hexflow`: Correct output for various known inputs (printable, non-printable, special characters).
-    - [ ] **Integrate Coverage Reporting (Makefile):** Configure the Makefile to compile with coverage flags (`g++ --coverage`).
+        - [X] `hexflow`: Created `tests/hexflow_tests.cpp` with a placeholder test. Further tests pending.
+    - [X] **Integrate Coverage Reporting (Makefile):** Configured Makefile to compile test files with coverage flags. Added `test` target to build and run tests. Linked `hexflow.o` (compiled with coverage) into test runner.
     - [ ] **Generate Coverage Reports (gcov/lcov):** Add Makefile targets or scripts to generate and view coverage reports (e.g., using `gcov` and `lcov` to produce HTML reports).
     - [ ] **General Hardening (Continuous through Testing):** Conduct thorough testing across various shells, commands, and edge cases (e.g., rapid window resizing, unusual signal patterns, PTY exhaustion, different TERM values) to identify and fix stability issues. This will be driven by the test suite.
     - [ ] **Iteratively Increase Coverage:** Continuously write and refine tests to achieve high code coverage for `term-capture.cpp` and `hexflow.cpp`.
