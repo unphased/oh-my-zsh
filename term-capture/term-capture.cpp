@@ -1,3 +1,5 @@
+#include "term_capture.hpp" // Include the new header
+
 #include <iostream>
 #include <fstream>
 #include <csignal>
@@ -54,25 +56,43 @@ void handle_winch(int) {
   }
 }
 
+Config parse_arguments(int argc, char* argv[]) {
+    Config config;
+    if (argc < 2) {
+        config.valid = false;
+        config.error_message = "Usage: " + std::string(argv[0]) + " <prefix> [command...]\n"
+                             + "  <prefix>    Prefix for the log files. Will create <prefix>.input and <prefix>.output\n"
+                             + "  [command]   Optional command to execute (defaults to zsh if not specified)\n";
+        return config;
+    }
+
+    config.log_prefix = argv[1];
+
+    if (argc > 2) {
+        for (int i = 2; i < argc; ++i) {
+            config.command_and_args.push_back(argv[i]);
+        }
+    }
+    return config;
+}
+
 #ifndef BUILD_TERM_CAPTURE_AS_LIB
 int main(int argc, char* argv[]) {
-  if (argc < 2) {
+  Config config = parse_arguments(argc, argv);
+  if (!config.valid) {
     std::cerr << "Terminal Capture - Records all terminal input and output to separate log files\n\n"
-              << "Usage: " << argv[0] << " <prefix> [command...]\n"
-              << "  <prefix>    Prefix for the log files. Will create <prefix>.input and <prefix>.output\n"
-              << "  [command]   Optional command to execute (defaults to zsh if not specified)\n";
+              << config.error_message;
     return 1;
   }
-  std::string log_path = argv[1];
+  std::string log_path = config.log_prefix;
   
-  // Store command and args if provided
-  std::vector<const char*> cmd_args;
-  if (argc > 2) {
-    // Use provided command and args
-    for (int i = 2; i < argc; i++) {
-      cmd_args.push_back(argv[i]);
+  // Convert std::vector<std::string> to std::vector<const char*> for execvp
+  std::vector<const char*> cmd_args_cstr;
+  if (!config.command_and_args.empty()) {
+    for (const auto& arg : config.command_and_args) {
+        cmd_args_cstr.push_back(arg.c_str());
     }
-    cmd_args.push_back(nullptr);
+    cmd_args_cstr.push_back(nullptr); // execvp expects a null-terminated array
   }
 
   // 1) Open master PTY
@@ -121,8 +141,8 @@ int main(int argc, char* argv[]) {
     setenv("TERM", "xterm-256color", 1);
 
     // Exec the command or fall back to shell
-    if (!cmd_args.empty()) {
-      execvp(cmd_args[0], const_cast<char* const*>(cmd_args.data()));
+    if (!cmd_args_cstr.empty()) {
+      execvp(cmd_args_cstr[0], const_cast<char* const*>(cmd_args_cstr.data()));
     } else {
       // Default to shell if no command specified
       execlp("zsh", "zsh", (char*)nullptr);

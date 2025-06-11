@@ -48,8 +48,9 @@ release/%: release/%.o
 coverage/%: coverage/%.o # Rule for linking coverage executables
 	$(CXX) $(COVERAGE_FLAGS) $^ -o $@
 
-# Specific rules for objects that depend on hexflow.hpp
+# Specific rules for objects that depend on .hpp files
 HEXFLOW_HPP = hexflow.hpp
+TERM_CAPTURE_HPP = term_capture.hpp
 
 debug/hexflow.o: hexflow.cpp $(HEXFLOW_HPP) Makefile
 	@mkdir -p debug
@@ -63,7 +64,20 @@ coverage/hexflow.o: hexflow.cpp $(HEXFLOW_HPP) Makefile
 	@mkdir -p coverage
 	$(CXX) $(COVERAGE_FLAGS) -c hexflow.cpp -o $@
 
-# Generic rules for other .o files (if any are added later that don't depend on hexflow.hpp)
+debug/term-capture.o: term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
+	@mkdir -p debug
+	$(CXX) $(DEBUG_FLAGS) -c term-capture.cpp -o $@
+
+release/term-capture.o: term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
+	@mkdir -p release
+	$(CXX) $(RELEASE_FLAGS) -c term-capture.cpp -o $@
+
+coverage/term-capture.o: term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
+	@mkdir -p coverage
+	$(CXX) $(COVERAGE_FLAGS) -c term-capture.cpp -o $@
+
+# Generic rules for other .o files (if any are added later that don't depend on specific .hpp files)
+# These should ideally not be hit for our main targets if dependencies are correctly specified above.
 debug/%.o: %.cpp Makefile
 	@mkdir -p debug
 	$(CXX) $(DEBUG_FLAGS) -c $< -o $@
@@ -83,7 +97,7 @@ coverage/$(TEST_DIR)/hexflow_tests.o: $(TEST_DIR)/hexflow_tests.cpp $(TEST_DIR)/
 	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/hexflow_tests.cpp -o $@
 
 # Rule to compile term_capture_tests.cpp
-coverage/$(TEST_DIR)/term_capture_tests.o: $(TEST_DIR)/term_capture_tests.cpp $(TEST_DIR)/catch_amalgamated.hpp Makefile # Add term_capture.hpp if created
+coverage/$(TEST_DIR)/term_capture_tests.o: $(TEST_DIR)/term_capture_tests.cpp $(TEST_DIR)/catch_amalgamated.hpp $(TERM_CAPTURE_HPP) Makefile
 	@mkdir -p $(@D)
 	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/term_capture_tests.cpp -o $@
 
@@ -98,7 +112,7 @@ $(HEXFLOW_FOR_TEST_OBJ): hexflow.cpp $(HEXFLOW_HPP) Makefile
 	$(CXX) $(COVERAGE_FLAGS) -DBUILD_HEXFLOW_AS_LIB -c hexflow.cpp -o $@
 
 # Rule to compile term-capture.cpp as a library for tests (without its main function)
-$(TERM_CAPTURE_FOR_TEST_OBJ): term-capture.cpp Makefile # Add term_capture.hpp if created
+$(TERM_CAPTURE_FOR_TEST_OBJ): term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
 	@mkdir -p $(@D)
 	$(CXX) $(COVERAGE_FLAGS) -DBUILD_TERM_CAPTURE_AS_LIB -c term-capture.cpp -o $@
 
