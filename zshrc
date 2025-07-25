@@ -306,8 +306,16 @@ handle_execution_duration() {
 color_tmux_pane() {
   # Only run in tmux, and run in the background to not delay the prompt.
   if [[ -n "$TMUX" ]]; then
+    local git_root
+    git_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    local bgcolor_file="$git_root/.tmux-bgcolor"
+
     # Make sure color-pane.sh is in your PATH and executable.
-    color-pane.sh >/dev/null 2>&1 &|
+    if [[ -f "$bgcolor_file" ]]; then
+      color-pane.sh "$(cat "$bgcolor_file")" >/dev/null 2>&1 &|
+    else
+      color-pane.sh >/dev/null 2>&1 &|
+    fi
   fi
 }
 
