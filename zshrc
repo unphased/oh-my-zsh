@@ -307,7 +307,7 @@ color_tmux_pane() {
   # Only run in tmux, and run in the background to not delay the prompt.
   if [[ -n "$TMUX" ]]; then
     # Make sure color-pane.sh is in your PATH and executable.
-    color-pane.sh >/dev/null 2>&1 &
+    color-pane.sh >/dev/null 2>&1 &|
   fi
 }
 
