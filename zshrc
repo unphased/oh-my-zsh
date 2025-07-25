@@ -312,9 +312,9 @@ color_tmux_pane() {
 
     # Make sure color-pane.sh is in your PATH and executable.
     if [[ -f "$bgcolor_file" ]]; then
-      color-pane.sh "$(cat "$bgcolor_file")" >/dev/null 2>&1 &|
+      color-pane.sh "$(cat "$bgcolor_file")" &|
     else
-      color-pane.sh >/dev/null 2>&1 &|
+      color-pane.sh &|
     fi
   fi
 }
