@@ -274,8 +274,7 @@ preexec_functions+=(log_command)
 # NOTE (no good place to put this) -- consider Antigen (move away from 
 # oh-my-zsh)
 
-function precmd ()
-{
+handle_execution_duration() {
   RETVAL=$?
   # catch the time of the last command termination (which ordinarily will 
   # prompt the prompt to be run and therefore this func to run. But wont be 
@@ -303,6 +302,19 @@ function precmd ()
     COMMAND_START_TIME=
   fi
 }
+
+color_tmux_pane() {
+  # Only run in tmux, and run in the background to not delay the prompt.
+  if [[ -n "$TMUX" ]]; then
+    # Make sure color-pane.sh is in your PATH and executable.
+    color-pane.sh >/dev/null 2>&1 &
+  fi
+}
+
+# Add it to the precmd hooks, which is a robust way to handle this.
+autoload -U add-zsh-hook
+add-zsh-hook precmd handle_execution_duration
+add-zsh-hook precmd color_tmux_pane
 
 echo "Finished loading my .zshrc"
 
