@@ -322,7 +322,12 @@ color_tmux_pane() {
 # Add it to the precmd hooks, which is a robust way to handle this.
 autoload -U add-zsh-hook
 add-zsh-hook precmd handle_execution_duration
-add-zsh-hook precmd color_tmux_pane
+# Not actually running that in precmd as it shouldnt be necessary but it does help if anything else tends to do any
+# clobbering of bgcolor.
+# add-zsh-hook precmd color_tmux_pane
+# Instead, we just call it explicitly here.
+
+color_tmux_pane
 
 echo "Finished loading my .zshrc"
 
