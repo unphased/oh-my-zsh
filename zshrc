@@ -67,6 +67,10 @@ zstyle ':autocomplete:*' widget-style menu-select
 # not sure what this is
 # zstyle ':completion:*' tag-order '! history-words' -
 
+# set the history substring search custom settings before loading it
+HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_FOUND='bg=cyan,fg=black'
+HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_NOT_FOUND='bg=magenta,fg=black'
+
 export VI_MODE_SET_CURSOR=true
 source $ZSH/oh-my-zsh.sh
 
