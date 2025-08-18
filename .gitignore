@@ -16,3 +16,6 @@ log/
 term-capture/debug/
 term-capture/release/
 term-capture/*.o
+
+# zcompile cached files
+*.zwc

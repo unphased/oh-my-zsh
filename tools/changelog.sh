@@ -221,11 +221,16 @@ supports_hyperlinks() {
 
   # If $TERM_PROGRAM is set, these terminals support hyperlinks
   case "$TERM_PROGRAM" in
-  Hyper|iTerm.app|terminology|WezTerm) return 0 ;;
+  Hyper|iTerm.app|terminology|WezTerm|vscode) return 0 ;;
   esac
 
-  # kitty supports hyperlinks
-  if [ "$TERM" = xterm-kitty ]; then
+  # These termcap entries support hyperlinks
+  case "$TERM" in
+  xterm-kitty|alacritty|alacritty-direct) return 0 ;;
+  esac
+
+  # xfce4-terminal supports hyperlinks
+  if [ "$COLORTERM" = "xfce4-terminal" ]; then
     return 0
   fi
 
@@ -292,16 +297,17 @@ function display-release {
   function fmt:hash {
     #* Uses $hash from outer scope
     local hash="${1:-$hash}"
+    local short_hash="${hash:0:7}" # 7 characters sha, top level sha is 12 characters
     case "$output" in
-    raw) printf '%s' "$hash" ;;
+    raw) printf '%s' "$short_hash" ;;
     text)
-      local text="\e[33m$hash\e[0m"; # red
+      local text="\e[33m$short_hash\e[0m"; # red
       if supports_hyperlinks; then
         printf "\e]8;;%s\a%s\e]8;;\a" "https://github.com/ohmyzsh/ohmyzsh/commit/$hash" $text;
       else
         echo $text;
       fi ;;
-    md) printf '[`%s`](https://github.com/ohmyzsh/ohmyzsh/commit/%s)' "$hash" "$hash" ;;
+    md) printf '[`%s`](https://github.com/ohmyzsh/ohmyzsh/commit/%s)' "$short_hash" "$hash" ;;
     esac
   }
 
@@ -394,6 +400,9 @@ function display-release {
   function display:breaking {
     (( $#breaking != 0 )) || return 0
 
+    # If we reach here we have shown commits, set flag
+    shown_commits=1
+
     case "$output" in
     text) printf '\e[31m'; fmt:header "BREAKING CHANGES" 3 ;;
     raw) fmt:header "BREAKING CHANGES" 3 ;;
@@ -421,6 +430,9 @@ function display-release {
     # If no commits found of type $type, go to next type
     (( $#hashes != 0 )) || return 0
 
+    # If we reach here we have shown commits, set flag
+    shown_commits=1
+
     fmt:header "${TYPES[$type]}" 3
     for hash in $hashes; do
       echo " - $(fmt:hash) $(fmt:scope)$(fmt:subject)"
@@ -437,6 +449,9 @@ function display-release {
 
     # If no commits found under "other" types, don't display anything
     (( $#changes != 0 )) || return 0
+
+    # If we reach here we have shown commits, set flag
+    shown_commits=1
 
     fmt:header "Other changes" 3
     for hash type in ${(kv)changes}; do
@@ -492,7 +507,7 @@ function main {
 
   # Commit classification arrays
   local -A types subjects scopes breaking reverts
-  local truncate=0 read_commits=0
+  local truncate=0 read_commits=0 shown_commits=0
   local version tag
   local hash refs subject body
 
@@ -512,13 +527,13 @@ function main {
   # Git log options
   # -z:             commits are delimited by null bytes
   # --format:       [7-char hash]<field sep>[ref names]<field sep>[subject]<field sep>[body]
-  # --abbrev=7:     force commit hashes to be 7 characters long
+  # --abbrev=7:     force commit hashes to be 12 characters long
   # --no-merges:    merge commits are omitted
   # --first-parent: commits from merged branches are omitted
   local SEP="0mZmAgIcSeP"
   local -a raw_commits
   raw_commits=(${(0)"$(command git -c log.showSignature=false log -z \
-    --format="%h${SEP}%D${SEP}%s${SEP}%b" --abbrev=7 \
+    --format="%h${SEP}%D${SEP}%s${SEP}%b" --abbrev=12 \
     --no-merges --first-parent $range)"})
 
   local raw_commit
@@ -562,6 +577,10 @@ function main {
   if (( truncate )); then
     echo " ...more commits omitted"
     echo
+  fi
+
+  if (( ! shown_commits )); then
+    echo "No changes to mention."
   fi
 }
 
