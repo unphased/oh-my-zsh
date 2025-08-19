@@ -214,8 +214,6 @@ bindkey -s "\eOM" "^M"
 bindkey -M vicmd '\e.' insert-last-word
 bindkey -M viins '\e.' insert-last-word
 
-: <<'END_COMMENT'_
-
 autoload -Uz copy-earlier-word
 zle -N copy-earlier-word
 bindkey -M viins '\e,' copy-earlier-word
@@ -289,6 +287,8 @@ log_command() {
 
 # Add log_command to preexec functions
 preexec_functions+=(log_command)
+
+: <<'END_COMMENT'_
 
 # NOTE (no good place to put this) -- consider Antigen (move away from 
 # oh-my-zsh)
