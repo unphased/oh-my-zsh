@@ -237,6 +237,10 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 
 . ~/.aliases.sh
 
+# The git alias in .aliases.sh can interfere with completions.
+# To fix this, we unalias it immediately after it is sourced.
+unalias git &>/dev/null
+
 # # Set GIT_AUTHOR_NAME based on system git config and machine-id
 # MACHINE_ID=$(cat /opt/machine-id 2>/dev/null)
 #
