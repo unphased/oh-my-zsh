@@ -189,8 +189,6 @@ bindkey "\e[5D" backward-word
 bindkey "\e\e[C" forward-word
 bindkey "\e\e[D" backward-word
 
-: <<'END_COMMENT'_
-
 # undo redo
 bindkey "^U" undo
 bindkey "^Y" redo
@@ -215,6 +213,8 @@ bindkey -s "\eOM" "^M"
 
 bindkey -M vicmd '\e.' insert-last-word
 bindkey -M viins '\e.' insert-last-word
+
+: <<'END_COMMENT'_
 
 autoload -Uz copy-earlier-word
 zle -N copy-earlier-word
