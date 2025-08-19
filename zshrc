@@ -85,7 +85,7 @@ source $ZSH/oh-my-zsh.sh
 # If git completion works now, the problem is in the disabled code below.
 # You can uncomment sections of it to narrow down the cause.
 # =========================
-: <<'END_COMMENT'_
+
 
 ## These are for zsh-autocomplete to remove its weird bad history menu
 # bindkey '\e[A' up-line-or-history
@@ -125,6 +125,8 @@ zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' ignore-line current
 zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' menu yes select interactive
 zstyle ':completion:tmux-pane-words-anywhere:*' matcher-list 'b:=* m:{A-Za-z}={a-zA-Z}'
 # }}}
+
+: <<'END_COMMENT'_
 
 # this should be allowed I think. But the system should really be configured to
 # give that path to root user.
