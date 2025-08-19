@@ -80,12 +80,6 @@ HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_NOT_FOUND='bg=magenta,fg=black'
 export VI_MODE_SET_CURSOR=true
 source $ZSH/oh-my-zsh.sh
 
-# ==== BEGIN DEBUGGING ====
-# The remainder of this file has been commented out for debugging.
-# If git completion works now, the problem is in the disabled code below.
-# You can uncomment sections of it to narrow down the cause.
-# =========================
-
 
 ## These are for zsh-autocomplete to remove its weird bad history menu
 # bindkey '\e[A' up-line-or-history
@@ -253,8 +247,6 @@ unalias git &>/dev/null
 #   echo -e "\e[1;31m\e[103m Using hostname as fallback. GIT_AUTHOR_NAME may not be unique. \e[0m"
 #   export GIT_AUTHOR_NAME="Steven Lu @ $(hostname)"
 # fi
-
-: <<'END_COMMENT'_
 
 # Function to update SSH_AUTH_SOCK, DISPLAY, and XAUTHORITY from tmux
 update_env_from_tmux() {
@@ -451,5 +443,3 @@ eval "$(pyenv init -)"
 
 # the atuin setup
 eval "$(atuin init zsh --disable-up-arrow)"
-
-END_COMMENT
