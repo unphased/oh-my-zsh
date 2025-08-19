@@ -141,8 +141,6 @@ zmodload zsh/datetime
 stty -ixon
 stty -ixoff
 
-: <<'END_COMMENT'_
-
 bindkey "\e[1~" beginning-of-line
 bindkey "\e[4~" end-of-line
 
@@ -162,6 +160,8 @@ bindkey "\e[3~" delete-char
 bindkey "\e[3;5~" kill-word
 bindkey "\e[3;3~" kill-word
 bindkey "\e" backward-delete-word
+
+: <<'END_COMMENT'_
 
 bindkey "\eOc" forward-word
 bindkey "\eOd" backward-word
