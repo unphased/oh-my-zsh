@@ -81,11 +81,11 @@ export VI_MODE_SET_CURSOR=true
 source $ZSH/oh-my-zsh.sh
 
 # ==== BEGIN DEBUGGING ====
-# To test if the completion issue is caused by settings below this line,
-# uncomment the `exit` command, save, and start a new shell. If git
-# completion works, the problem is somewhere in the rest of this file.
-# exit 0
-# ==== END DEBUGGING ====
+# The remainder of this file has been commented out for debugging.
+# If git completion works now, the problem is in the disabled code below.
+# You can uncomment sections of it to narrow down the cause.
+# =========================
+: <<'END_COMMENT'_
 
 ## These are for zsh-autocomplete to remove its weird bad history menu
 # bindkey '\e[A' up-line-or-history
@@ -443,3 +443,5 @@ eval "$(pyenv init -)"
 
 # the atuin setup
 eval "$(atuin init zsh --disable-up-arrow)"
+
+END_COMMENT
