@@ -126,8 +126,6 @@ zstyle ':completion:tmux-pane-words-(prefix|anywhere):*' menu yes select interac
 zstyle ':completion:tmux-pane-words-anywhere:*' matcher-list 'b:=* m:{A-Za-z}={a-zA-Z}'
 # }}}
 
-: <<'END_COMMENT'_
-
 # this should be allowed I think. But the system should really be configured to
 # give that path to root user.
 [[ $(id -u) == 0 ]] && export PATH=/usr/local/bin:$PATH
@@ -142,6 +140,8 @@ zmodload zsh/datetime
 
 stty -ixon
 stty -ixoff
+
+: <<'END_COMMENT'_
 
 bindkey "\e[1~" beginning-of-line
 bindkey "\e[4~" end-of-line
