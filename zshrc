@@ -235,6 +235,8 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 #   fc -p
 # }
 
+: <<'END_COMMENT'_
+
 . ~/.aliases.sh
 
 # # Set GIT_AUTHOR_NAME based on system git config and machine-id
@@ -287,6 +289,8 @@ log_command() {
 
 # Add log_command to preexec functions
 preexec_functions+=(log_command)
+
+END_COMMENT
 
 : <<'END_COMMENT'_
 
