@@ -67,7 +67,6 @@ plugins=(git cp macos history F-Sy-H zsh-autosuggestions vi-mode lf)
 # zstyle ':autocomplete:*' widget-style menu-select 
 
 # Debug git completion
-echo "DEBUG: Loading git completion..."
 # The autoload below was for debugging, but it can interfere with OMZ's compinit.
 # autoload -Uz _git 2>/dev/null && echo "DEBUG: _git loaded successfully" || echo "DEBUG: _git load failed"
 
@@ -80,6 +79,13 @@ HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_NOT_FOUND='bg=magenta,fg=black'
 
 export VI_MODE_SET_CURSOR=true
 source $ZSH/oh-my-zsh.sh
+
+# ==== BEGIN DEBUGGING ====
+# To test if the completion issue is caused by settings below this line,
+# uncomment the `exit` command, save, and start a new shell. If git
+# completion works, the problem is somewhere in the rest of this file.
+# exit 0
+# ==== END DEBUGGING ====
 
 ## These are for zsh-autocomplete to remove its weird bad history menu
 # bindkey '\e[A' up-line-or-history
