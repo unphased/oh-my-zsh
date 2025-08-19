@@ -235,8 +235,6 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 #   fc -p
 # }
 
-: <<'END_COMMENT'_
-
 . ~/.aliases.sh
 
 # # Set GIT_AUTHOR_NAME based on system git config and machine-id
@@ -251,6 +249,8 @@ export EXTENDED_HISTORY=1 # This appears to have no effect in conjunction with I
 #   echo -e "\e[1;31m\e[103m Using hostname as fallback. GIT_AUTHOR_NAME may not be unique. \e[0m"
 #   export GIT_AUTHOR_NAME="Steven Lu @ $(hostname)"
 # fi
+
+: <<'END_COMMENT'_
 
 # Function to update SSH_AUTH_SOCK, DISPLAY, and XAUTHORITY from tmux
 update_env_from_tmux() {
@@ -289,8 +289,6 @@ log_command() {
 
 # Add log_command to preexec functions
 preexec_functions+=(log_command)
-
-END_COMMENT
 
 : <<'END_COMMENT'_
 
