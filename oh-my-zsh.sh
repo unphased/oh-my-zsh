@@ -205,24 +205,6 @@ for plugin ($plugins); do
 done
 unset plugin
 
-# Debug: Check git completion functions after loading
-echo "DEBUG: Checking if git completion functions are available"
-if (( $+functions[_git] )); then
-  echo "DEBUG: _git function found"
-else
-  echo "DEBUG: _git function NOT found"
-fi
-
-# Check if we're on macOS
-if [[ "$OSTYPE" == darwin* ]]; then
-  echo "DEBUG: Running on macOS"
-else
-  echo "DEBUG: Running on non-macOS system"
-fi
-
-# Debug: Show current fpath
-echo "DEBUG: Current fpath:"
-echo "$fpath"
 
 # Load all of your custom configurations from custom/
 for config_file ("$ZSH_CUSTOM"/*.zsh(N)); do
@@ -249,8 +231,6 @@ if [[ -n "$ZSH_THEME" ]]; then
   fi
 fi
 
-# Final debugging output
-echo "DEBUG: OH-MY-ZSH loading complete"
 
 # set completion colors to be the same as `ls`, after theme has been loaded
 [[ -z "$LS_COLORS" ]] || zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
