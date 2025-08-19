@@ -48,7 +48,7 @@ omz_f() {
 unset -f omz_f
 
 # If ZSH is not defined, use the current script's directory.
-[ -n "$ZSH" ] || export ZSH="${ZSH:-$(cd "$(dirname "${(%):-%x}")" && pwd)}"
+[[ -n "$ZSH" ]] || export ZSH="${${(%):-%x}:a:h}"
 
 # Set ZSH_CUSTOM to the path where your custom config files
 # and plugins exists, or else we will use the default custom/
@@ -65,9 +65,7 @@ fi
 
 # Create cache and completions dir and add to $fpath
 mkdir -p "$ZSH_CACHE_DIR/completions"
-if [[ ! " ${fpath[*]} " =~ " $ZSH_CACHE_DIR/completions " ]]; then
-  fpath=("$ZSH_CACHE_DIR/completions" $fpath)
-fi
+(( ${fpath[(Ie)$ZSH_CACHE_DIR/completions]} )) || fpath=("$ZSH_CACHE_DIR/completions" $fpath)
 
 # Check for updates on initial load...
 source "$ZSH/tools/check_for_upgrade.sh"
@@ -89,7 +87,7 @@ is_plugin() {
 
 # Add all defined plugins to fpath. This must be done
 # before running compinit.
-for plugin in $plugins; do
+for plugin ($plugins); do
   if is_plugin "$ZSH_CUSTOM" "$plugin"; then
     fpath=("$ZSH_CUSTOM/plugins/$plugin" $fpath)
   elif is_plugin "$ZSH" "$plugin"; then
@@ -128,7 +126,7 @@ if [[ "$ZSH_DISABLE_COMPFIX" != true ]]; then
   # Load only from secure directories
   compinit -i -d "$ZSH_COMPDUMP"
   # If completion insecurities exist, warn the user
-  handle_completion_insecurities &
+  handle_completion_insecurities &|
 else
   # If the user wants it, load from all found directories
   compinit -u -d "$ZSH_COMPDUMP"
@@ -167,14 +165,9 @@ _omz_source() {
 
   # Back up alias names prior to sourcing
   local -A aliases_pre galiases_pre
-  if [ $disable_aliases -eq 1 ]; then
-    # Store current aliases
-    for alias_name in ${(k)aliases}; do
-      aliases_pre[$alias_name]=$aliases[$alias_name]
-    done
-    for alias_name in ${(k)galiases}; do
-      galiases_pre[$alias_name]=$galiases[$alias_name]
-    done
+  if (( disable_aliases )); then
+    aliases_pre=("${(@kv)aliases}")
+    galiases_pre=("${(@kv)galiases}")
   fi
 
   # Source file from $ZSH_CUSTOM if it exists, otherwise from $ZSH
@@ -185,38 +178,55 @@ _omz_source() {
   fi
 
   # Unset all aliases that don't appear in the backed up list of aliases
-  if [ $disable_aliases -eq 1 ]; then
-    # Restore or unset aliases
-    for alias_name in ${(k)aliases}; do
-      if [[ -z ${aliases_pre[$alias_name]} ]]; then
-        unalias $alias_name 2>/dev/null
-      fi
-    done
-    for alias_name in ${(k)galiases}; do
-      if [[ -z ${galiases_pre[$alias_name]} ]]; then
-        unalias $alias_name 2>/dev/null
-      fi
-    done
+  if (( disable_aliases )); then
+    if (( #aliases_pre )); then
+      aliases=("${(@kv)aliases_pre}")
+    else
+      (( #aliases )) && unalias "${(@k)aliases}"
+    fi
+    if (( #galiases_pre )); then
+      galiases=("${(@kv)galiases_pre}")
+    else
+      (( #galiases )) && unalias "${(@k)galiases}"
+    fi
   fi
 }
 
 # Load all of the lib files in ~/.oh-my-zsh/lib that end in .zsh
 # TIP: Add files you don't want in git to .gitignore
-for lib_file in "$ZSH"/lib/*.zsh; do
-  [ -f "$lib_file" ] && _omz_source "lib/${lib_file:t}"
+for lib_file ("$ZSH"/lib/*.zsh); do
+  _omz_source "lib/${lib_file:t}"
 done
 unset lib_file
 
 # Load all of the plugins that were defined in ~/.zshrc
-for plugin in $plugins; do
+for plugin ($plugins); do
   _omz_source "plugins/$plugin/$plugin.plugin.zsh"
 done
 unset plugin
 
+# Debug: Check git completion functions after loading
+echo "DEBUG: Checking if git completion functions are available"
+if (( $+functions[_git] )); then
+  echo "DEBUG: _git function found"
+else
+  echo "DEBUG: _git function NOT found"
+fi
+
+# Check if we're on macOS
+if [[ "$OSTYPE" == darwin* ]]; then
+  echo "DEBUG: Running on macOS"
+else
+  echo "DEBUG: Running on non-macOS system"
+fi
+
+# Debug: Show current fpath
+echo "DEBUG: Current fpath:"
+echo "$fpath"
 
 # Load all of your custom configurations from custom/
-for config_file in "$ZSH_CUSTOM"/*.zsh; do
-  [ -f "$config_file" ] && source "$config_file"
+for config_file ("$ZSH_CUSTOM"/*.zsh(N)); do
+  source "$config_file"
 done
 unset config_file
 
@@ -239,8 +249,8 @@ if [[ -n "$ZSH_THEME" ]]; then
   fi
 fi
 
+# Final debugging output
+echo "DEBUG: OH-MY-ZSH loading complete"
 
 # set completion colors to be the same as `ls`, after theme has been loaded
-if [[ -n "$LS_COLORS" ]]; then
-  zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
-fi
+[[ -z "$LS_COLORS" ]] || zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"

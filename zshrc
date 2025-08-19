@@ -64,6 +64,9 @@ zstyle ':autocomplete:*' min-input 3
 # completely absurd why this is not default
 zstyle ':autocomplete:*' widget-style menu-select 
 
+# Debug git completion
+echo "DEBUG: Loading git completion..."
+autoload -Uz _git 2>/dev/null && echo "DEBUG: _git loaded successfully" || echo "DEBUG: _git load failed"
 
 # not sure what this is
 # zstyle ':completion:*' tag-order '! history-words' -
