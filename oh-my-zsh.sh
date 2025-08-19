@@ -48,7 +48,7 @@ omz_f() {
 unset -f omz_f
 
 # If ZSH is not defined, use the current script's directory.
-[[ -n "$ZSH" ]] || export ZSH="${${(%):-%x}:a:h}"
+[[ -n "$ZSH" ]] || export ZSH="${ZSH:-${${(%):-%x}:a:h}}"
 
 # Set ZSH_CUSTOM to the path where your custom config files
 # and plugins exists, or else we will use the default custom/
@@ -233,4 +233,6 @@ fi
 
 
 # set completion colors to be the same as `ls`, after theme has been loaded
-[[ -z "$LS_COLORS" ]] || zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+if [[ -n "$LS_COLORS" ]]; then
+  zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+fi
