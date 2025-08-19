@@ -286,8 +286,6 @@ log_command() {
 # Add log_command to preexec functions
 preexec_functions+=(log_command)
 
-: <<'END_COMMENT'_
-
 # NOTE (no good place to put this) -- consider Antigen (move away from 
 # oh-my-zsh)
 
