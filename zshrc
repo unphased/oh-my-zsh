@@ -58,15 +58,18 @@ alias mmv='noglob zmv -W'
 plugins=(git cp macos history F-Sy-H zsh-autosuggestions vi-mode lf)
 
 # autocomplete configuration reduce spasticness at least starting out
-zstyle ':autocomplete:*' min-input 3
+# The following zstyle settings are for zsh-autocomplete, which is not currently
+# enabled, and may be causing completion conflicts.
+# zstyle ':autocomplete:*' min-input 3
 # Show this many history lines when pressing ↑.
 # zstyle ':autocomplete:history-search:*' list-lines 200  # int
 # completely absurd why this is not default
-zstyle ':autocomplete:*' widget-style menu-select 
+# zstyle ':autocomplete:*' widget-style menu-select 
 
 # Debug git completion
 echo "DEBUG: Loading git completion..."
-autoload -Uz _git 2>/dev/null && echo "DEBUG: _git loaded successfully" || echo "DEBUG: _git load failed"
+# The autoload below was for debugging, but it can interfere with OMZ's compinit.
+# autoload -Uz _git 2>/dev/null && echo "DEBUG: _git loaded successfully" || echo "DEBUG: _git load failed"
 
 # not sure what this is
 # zstyle ':completion:*' tag-order '! history-words' -
