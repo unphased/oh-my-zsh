@@ -1,5 +1,5 @@
 #include "catch_amalgamated.hpp" // Using Catch2 v3 amalgamated header
-#include "../hexflow.hpp" // Include the header for print_byte (from parent dir)
+#include "hexflow.hpp" // Include the header for print_byte
 #include <sstream>     // For std::stringstream to capture output
 
 TEST_CASE("Hexflow print_byte functionality", "[hexflow]") {

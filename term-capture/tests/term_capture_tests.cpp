@@ -1,5 +1,5 @@
 #include "catch_amalgamated.hpp" // Using Catch2 v3 amalgamated header
-#include "../term_capture.hpp"   // Include the header for term_capture
+#include "term_capture.hpp"   // Include the header for term_capture
 #include <vector>
 #include <string>
 
