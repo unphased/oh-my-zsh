@@ -60,7 +60,11 @@ Config parse_arguments(int argc, char* argv[]) {
     Config config;
     if (argc < 2) {
         config.valid = false;
-        config.error_message = "Usage: " + std::string(argv[0]) + " <prefix> [command...]\n"
+        std::string prog_name = "term-capture";
+        if (argc > 0 && argv[0] != nullptr) {
+            prog_name = argv[0];
+        }
+        config.error_message = "Usage: " + prog_name + " <prefix> [command...]\n"
                              + "  <prefix>    Prefix for the log files. Will create <prefix>.input and <prefix>.output\n"
                              + "  [command]   Optional command to execute (defaults to zsh if not specified)\n";
         return config;

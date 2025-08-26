@@ -20,10 +20,18 @@ void print_byte(unsigned char c, std::ostream& out, bool& last_was_nonprint_stat
     } else if (c == '\t') {
         out << " \\t";
     } else {
+        // Save stream state to avoid affecting subsequent prints
+        std::ios_base::fmtflags flags = out.flags();
+        char fill = out.fill();
+
         // Ensure hex output is consistent for tests (e.g., std::hex, std::setw, std::setfill)
         // These are now included via hexflow.hpp -> iomanip
         out << ' ' << std::hex << std::setw(2) << std::setfill('0') 
             << static_cast<int>(c);
+        
+        // Restore stream state
+        out.flags(flags);
+        out.fill(fill);
     }
     
     last_was_nonprint_state = !is_print; // Update the state
