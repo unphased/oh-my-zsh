@@ -28,7 +28,7 @@ TERM_CAPTURE_FOR_TEST_OBJ = debug/term_capture_for_test.o # Object file in debug
 APP_OBJ_FOR_TESTS = $(HEXFLOW_FOR_TEST_OBJ) $(TERM_CAPTURE_FOR_TEST_OBJ)
 
 # Add include path for catch.hpp and use debug (now with coverage) flags for tests
-TEST_COMPILE_FLAGS = $(DEBUG_FLAGS) -I. -I$(TEST_DIR)
+TEST_COMPILE_FLAGS = $(DEBUG_FLAGS) -I$(TEST_DIR)
 
 
 all: debug release
