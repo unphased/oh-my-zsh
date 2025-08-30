@@ -1,6 +1,8 @@
 # Makefile overview
 # - debug: builds debug binaries (with coverage flags) -> debug/term-capture, debug/hexflow
+#           Includes debug symbols and coverage instrumentation; ideal for GDB/lldb and tests.
 # - release: builds optimized binaries -> release/term-capture, release/hexflow
+#            Lean: no debug symbols, no -DDEBUG, no coverage/test instrumentation.
 # - test: builds and runs unit tests (Catch2 runner), then smoke-runs debug binaries,
 #         then generates coverage reports. This target depends on debug builds.
 # - coverage: generates HTML/TXT/XML/JSON coverage reports from debug build artifacts
@@ -11,7 +13,7 @@
 CXX = g++
 COMMON_FLAGS = -Wall -Wextra -std=c++14 # Specify C++14 standard for Catch2 v3
 DEBUG_FLAGS = $(COMMON_FLAGS) -g -O0 -DDEBUG -fprofile-arcs -ftest-coverage # Use gcov-compatible coverage flags
-RELEASE_FLAGS = $(COMMON_FLAGS) -O2 -DNDEBUG
+RELEASE_FLAGS = $(COMMON_FLAGS) -O2 -DNDEBUG # Lean release: no -g, no -DDEBUG, no coverage flags
 # COVERAGE_FLAGS is removed
 
 TARGETS = term-capture hexflow

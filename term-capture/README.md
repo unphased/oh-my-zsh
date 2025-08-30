@@ -64,13 +64,13 @@ The project uses a Makefile for building.
   ```sh
   make debug
   ```
-  This will create `debug/term-capture` and `debug/hexflow`.
+  This will create `debug/term-capture` and `debug/hexflow` (with debug symbols and coverage instrumentation; suitable for GDB/lldb and tests).
 
 - **Build release versions:**
   ```sh
   make release
   ```
-  This will create `release/term-capture` and `release/hexflow`.
+  This will create `release/term-capture` and `release/hexflow` (lean: optimized, no debug symbols, no test/coverage instrumentation).
 
 - **Build all (both debug and release):**
   ```sh
