@@ -6,7 +6,7 @@
 
 **0. Test System & Coverage Establishment (Top Priority)**
     - [X] **Set up Test Framework:** Migrated to Catch2 v3 (amalgamated). User to download `catch_amalgamated.hpp` and `catch_amalgamated.cpp` to `tests/`. Removed `tests/main.cpp`. Makefile updated for C++14 and new Catch2 files.
-    - [ ] **Develop Initial Test Suite:** Create basic tests covering core functionality:
+    - [X] **Develop Initial Test Suite:** Create basic tests covering core functionality:
         - [X] `term-capture`: Refactored argument parsing into `parse_arguments` function and `Config` struct. Added `term_capture.hpp`. Added unit tests for `parse_arguments` in `tests/term_capture_tests.cpp`. Makefile updated for new header and dependencies.
         - [X] `hexflow`: Refactored `print_byte` for testability and added comprehensive unit tests in `tests/hexflow_tests.cpp`.
     - [X] **Integrate Coverage Reporting (Makefile):** Configured Makefile to compile test files with coverage flags. Added `test` target to build and run tests. Linked `hexflow.o` and `term_capture.o` (compiled as libs with coverage) into test runner. Makefile updated for `hexflow.hpp`, `term_capture.hpp` and `term_capture.cpp` test compilation.
@@ -99,7 +99,7 @@ Batch 5 — Refactoring for testability (minimal, incremental)
 - [ ] Split cleanup_and_exit into:
   - [ ] cleanup() that returns status without exiting (testable),
   - [ ] thin exit path in main() that calls exit() (unchanged UX).
-- [ ] Extract argv construction for exec into a helper to unit-test NULL-termination and mapping.
+- [x] Extract argv construction for exec into a helper to unit-test NULL-termination and mapping.
 
 Batch 6 — Exit code propagation
 - [ ] Propagate child process exit code to term-capture’s exit code.
