@@ -116,9 +116,12 @@ $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 # Pass extra flags to Catch2 with TEST_ARGS, e.g.:
 #   make test TEST_ARGS="-s -v high --durations yes"
 TEST_ARGS ?=
-test: clean-coverage-data $(TEST_EXECUTABLE)
+test: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	./$(TEST_EXECUTABLE) $(TEST_ARGS)
+	./debug/term-capture debug/coverage_smoke /bin/echo ok >/dev/null 2>/dev/null || true
+	printf 'A' | ./debug/hexflow >/dev/null 2>/dev/null || true
 	$(MAKE) coverage
+	cat $(COVERAGE_DIR)/coverage.txt
 
 # Convenience targets for richer output or machine-readable reports
 test-verbose: $(TEST_EXECUTABLE)

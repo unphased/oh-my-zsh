@@ -15,12 +15,15 @@
 
 static volatile bool should_exit = false;
 static struct termios orig_termios;
+static bool have_orig_termios = false;
 static int masterFd = -1;
 static pid_t child_pid = -1;
 
 // Restore parent terminal to original settings
 void restore_terminal() {
-  tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
+  if (have_orig_termios) {
+    tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
+  }
 }
 
 void cleanup_and_exit() {
@@ -181,13 +184,14 @@ int main(int argc, char* argv[]) {
 
   // Put parent terminal in raw mode so keys flow properly
   struct termios raw;
-  tcgetattr(STDIN_FILENO, &orig_termios);
-  raw = orig_termios;
-  cfmakeraw(&raw);
-  tcsetattr(STDIN_FILENO, TCSANOW, &raw);
-
-  // Restore terminal on exit
-  atexit(restore_terminal);
+  if (isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &orig_termios) == 0) {
+    have_orig_termios = true;
+    raw = orig_termios;
+    cfmakeraw(&raw);
+    tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+    // Restore terminal on exit
+    atexit(restore_terminal);
+  }
 
   // Handle signals
   signal(SIGINT, signal_handler);
