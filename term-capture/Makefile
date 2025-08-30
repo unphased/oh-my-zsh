@@ -1,3 +1,13 @@
+# Makefile overview
+# - debug: builds debug binaries (with coverage flags) -> debug/term-capture, debug/hexflow
+# - release: builds optimized binaries -> release/term-capture, release/hexflow
+# - test: builds and runs unit tests (Catch2 runner), then smoke-runs debug binaries,
+#         then generates coverage reports. This target depends on debug builds.
+# - coverage: generates HTML/TXT/XML/JSON coverage reports from debug build artifacts
+# - open-coverage: opens the HTML coverage report (macOS)
+# - clean: removes build artifacts
+# - clean-coverage-data: removes stale .gcda files to avoid gcov merge errors
+# - help: prints a summary of common targets
 CXX = g++
 COMMON_FLAGS = -Wall -Wextra -std=c++14 # Specify C++14 standard for Catch2 v3
 DEBUG_FLAGS = $(COMMON_FLAGS) -g -O0 -DDEBUG -fprofile-arcs -ftest-coverage # Use gcov-compatible coverage flags
@@ -156,6 +166,20 @@ coverage:
 open-coverage: coverage
 	open $(COVERAGE_DIR)/index.html
 
+# Help: explain common targets and their relationships
+help:
+	@echo "Common targets:"
+	@echo "  make            -> same as 'make all' (builds debug and release)"
+	@echo "  make debug      -> build debug binaries (with coverage flags)"
+	@echo "  make release    -> build release binaries (optimized)"
+	@echo "  make test       -> build test runner + debug binaries, run tests,"
+	@echo "                     smoke-run main() of debug/term-capture and debug/hexflow,"
+	@echo "                     then generate and print coverage summary"
+	@echo "  make coverage   -> generate coverage reports from debug build artifacts"
+	@echo "  make open-coverage -> open HTML coverage report (macOS)"
+	@echo "  make clean      -> remove build artifacts (debug/, release/)"
+	@echo "  make clean-coverage-data -> remove stale coverage data files (*.gcda)"
+
 # Remove stale coverage data files to avoid gcov merge errors
 clean-coverage-data:
 	@find debug -name '*.gcda' -delete 2>/dev/null || true
@@ -168,5 +192,5 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test test-verbose test-json test-junit coverage open-coverage clean-coverage-data # coverage target removed
+.PHONY: all debug release clean test test-verbose test-json test-junit coverage open-coverage clean-coverage-data help # coverage target removed
 
