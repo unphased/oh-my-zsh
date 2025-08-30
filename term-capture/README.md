@@ -116,6 +116,8 @@ The test suite is built with Catch2 v3 (amalgamated). Our Makefile exposes conve
 
 - Build and run tests (quiet): `make -C term-capture test`
 - Verbose output with durations: `make -C term-capture test-verbose`
+- Unit tests only (exclude [integration] tag): `make -C term-capture test-unit`
+- Integration tests only (only [integration] tag): `make -C term-capture test-integration`
 - Machine-readable reports:
   - JSON: `make -C term-capture test-json` (writes to `debug/test-results.json`)
   - JUnit XML: `make -C term-capture test-junit` (writes to `debug/junit.xml`)

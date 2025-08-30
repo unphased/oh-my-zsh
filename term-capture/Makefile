@@ -128,6 +128,8 @@ $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 # Pass extra flags to Catch2 with TEST_ARGS, e.g.:
 #   make test TEST_ARGS="-s -v high --durations yes"
 TEST_ARGS ?=
+UNIT_FILTER ?= ~[integration]
+INTEGRATION_FILTER ?= [integration]
 test: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	# Run the Catch2 unit test suite
 	./$(TEST_EXECUTABLE) $(TEST_ARGS)
@@ -148,6 +150,14 @@ test: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	$(MAKE) coverage
 	# Print a quick text coverage summary to the console
 	cat $(COVERAGE_DIR)/coverage.txt
+
+# Run only unit tests (exclude [integration] tagged tests)
+test-unit: $(TEST_EXECUTABLE)
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(UNIT_FILTER)
+
+# Run only integration tests (only [integration] tagged tests)
+test-integration: $(TEST_EXECUTABLE)
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER)
 
 # Convenience targets for richer output or machine-readable reports
 test-verbose: $(TEST_EXECUTABLE)
@@ -189,6 +199,8 @@ help:
 	@echo "                     emit JSON (debug/test-results.json) and JUnit (debug/junit.xml) reports,"
 	@echo "                     smoke-run main() of debug/term-capture and debug/hexflow,"
 	@echo "                     then generate and print coverage summary"
+	@echo "  make test-unit  -> run only unit tests (exclude [integration] tagged tests)"
+	@echo "  make test-integration -> run only [integration]-tagged tests"
 	@echo "  make test-json  -> run tests and write JSON report to debug/test-results.json"
 	@echo "  make test-junit -> run tests and write JUnit XML to debug/junit.xml"
 	@echo "  make validate-reports -> sanity check JSON (jq) and XML (xmllint) if available"
@@ -209,5 +221,5 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test test-verbose test-json test-junit coverage open-coverage clean-coverage-data help # coverage target removed
+.PHONY: all debug release clean test test-unit test-integration test-verbose test-json test-junit coverage open-coverage clean-coverage-data help # coverage target removed
 

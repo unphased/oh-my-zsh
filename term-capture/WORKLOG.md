@@ -70,7 +70,7 @@
 
 Batch 1 — Test UX and Reports
 - [x] Add coverage report targets (gcovr) to Makefile (DONE).
-- [ ] Add test-integration targets and Catch2 tag filters to run only [integration] tests.
+- [x] Add test-integration targets and Catch2 tag filters to run only [integration] tests.
 - [ ] Validate machine-readable reports:
   - [ ] JSON: run with -r JSON, parse debug/test-results.json and assert basic structure.
   - [ ] JUnit: ensure debug/junit.xml is generated and well-formed.
