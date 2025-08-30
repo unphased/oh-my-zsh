@@ -114,6 +114,7 @@ $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 #   make test TEST_ARGS="-s -v high --durations yes"
 TEST_ARGS ?=
 test: $(TEST_EXECUTABLE)
+	$(MAKE) clean-coverage-data
 	./$(TEST_EXECUTABLE) $(TEST_ARGS)
 	$(MAKE) coverage
 
@@ -135,10 +136,19 @@ coverage:
 	@sh -c 'command -v gcovr >/dev/null 2>&1 || { echo "gcovr not found. Install with: brew install gcovr (or pip install gcovr)"; exit 0; }'
 	@gcovr --root . --exclude 'tests/.*' --exclude '.*catch_amalgamated.*' --html --html-details -o $(COVERAGE_DIR)/index.html
 	@gcovr --root . --exclude 'tests/.*' --exclude '.*catch_amalgamated.*' --txt -o $(COVERAGE_DIR)/coverage.txt --branches
+	@gcovr --root . --exclude 'tests/.*' --exclude '.*catch_amalgamated.*' --xml -o $(COVERAGE_DIR)/coverage.xml
+	@gcovr --root . --exclude 'tests/.*' --exclude '.*catch_amalgamated.*' --json -o $(COVERAGE_DIR)/coverage.json
 
 # Convenience: open the HTML coverage report on macOS
 open-coverage: coverage
 	open $(COVERAGE_DIR)/index.html
+
+# Remove stale coverage data files to avoid gcov merge errors
+clean-coverage-data:
+	@find debug -name '*.gcda' -delete 2>/dev/null || true
+	@find debug -name '*.gcno' -delete 2>/dev/null || true
+	@find release -name '*.gcda' -delete 2>/dev/null || true
+	@find release -name '*.gcno' -delete 2>/dev/null || true
 
 clean:
 	rm -rf debug release # coverage directory removed from clean
@@ -147,5 +157,5 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test test-verbose test-json test-junit coverage open-coverage # coverage target removed
+.PHONY: all debug release clean test test-verbose test-json test-junit coverage open-coverage clean-coverage-data # coverage target removed
 

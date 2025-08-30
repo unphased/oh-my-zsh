@@ -137,6 +137,9 @@ This ensures that any flaky, randomness-driven failures can be reproduced by re-
 
 - After running tests, an HTML coverage report is generated at: debug/coverage/index.html
 - A text summary is also written to: debug/coverage/coverage.txt
+- Machine-consumable coverage is also generated:
+  - Cobertura XML: debug/coverage/coverage.xml
+  - JSON: debug/coverage/coverage.json
 - To run tests (which generate coverage) and then open the report on macOS:
   - make -C term-capture test
   - make -C term-capture open-coverage
