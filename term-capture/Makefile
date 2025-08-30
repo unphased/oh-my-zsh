@@ -10,6 +10,7 @@ TARGETS = term-capture hexflow
 TEST_DIR = tests
 TEST_RUNNER_NAME = test_runner
 TEST_EXECUTABLE = debug/$(TEST_RUNNER_NAME) # Test executable now in debug/
+COVERAGE_DIR = debug/coverage
 
 # Source files for the test runner itself and specific test suites
 # main.cpp is removed as catch_amalgamated.cpp provides main() for Catch2 v3
@@ -114,6 +115,7 @@ $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 TEST_ARGS ?=
 test: $(TEST_EXECUTABLE)
 	./$(TEST_EXECUTABLE) $(TEST_ARGS)
+	$(MAKE) coverage
 
 # Convenience targets for richer output or machine-readable reports
 test-verbose: $(TEST_EXECUTABLE)
@@ -127,6 +129,17 @@ test-junit: $(TEST_EXECUTABLE)
 	@mkdir -p debug
 	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s
 
+# Generate coverage reports (HTML + text summary) after tests
+coverage:
+	@mkdir -p $(COVERAGE_DIR)
+	@sh -c 'command -v gcovr >/dev/null 2>&1 || { echo "gcovr not found. Install with: brew install gcovr (or pip install gcovr)"; exit 0; }'
+	@gcovr --root . --exclude 'tests/.*' --exclude '.*catch_amalgamated.*' --html --html-details -o $(COVERAGE_DIR)/index.html
+	@gcovr --root . --exclude 'tests/.*' --exclude '.*catch_amalgamated.*' --txt -o $(COVERAGE_DIR)/coverage.txt --branches
+
+# Convenience: open the HTML coverage report on macOS
+open-coverage: coverage
+	open $(COVERAGE_DIR)/index.html
+
 clean:
 	rm -rf debug release # coverage directory removed from clean
 	rm -f *.gcda *.gcno # Remove gcov data files from the root directory (if any)
@@ -134,5 +147,5 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test test-verbose test-json test-junit # coverage target removed
+.PHONY: all debug release clean test test-verbose test-json test-junit coverage open-coverage # coverage target removed
 

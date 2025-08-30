@@ -132,4 +132,13 @@ Because our Makefile forwards extra arguments through `TEST_ARGS`, you can do fo
 - Combine with verbosity: `make -C term-capture test TEST_ARGS="--rng-seed 12345 -s -v high --durations yes"`
 
 This ensures that any flaky, randomness-driven failures can be reproduced by re-running with the printed seed.
-```
+
+## Coverage reports
+
+- After running tests, an HTML coverage report is generated at: debug/coverage/index.html
+- A text summary is also written to: debug/coverage/coverage.txt
+- To run tests (which generate coverage) and then open the report on macOS:
+  - make -C term-capture test
+  - make -C term-capture open-coverage
+- If gcovr is not installed, install it first:
+  - brew install gcovr
