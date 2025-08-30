@@ -10,7 +10,7 @@
         - [X] `term-capture`: Refactored argument parsing into `parse_arguments` function and `Config` struct. Added `term_capture.hpp`. Added unit tests for `parse_arguments` in `tests/term_capture_tests.cpp`. Makefile updated for new header and dependencies.
         - [X] `hexflow`: Refactored `print_byte` for testability and added comprehensive unit tests in `tests/hexflow_tests.cpp`.
     - [X] **Integrate Coverage Reporting (Makefile):** Configured Makefile to compile test files with coverage flags. Added `test` target to build and run tests. Linked `hexflow.o` and `term_capture.o` (compiled as libs with coverage) into test runner. Makefile updated for `hexflow.hpp`, `term_capture.hpp` and `term_capture.cpp` test compilation.
-    - [ ] **Generate Coverage Reports (gcov/lcov):** Add Makefile targets or scripts to generate and view coverage reports (e.g., using `gcov` and `lcov` to produce HTML reports).
+    - [X] **Generate Coverage Reports (gcovr):** Added Makefile coverage target using gcovr with HTML and text outputs; documented in README.
     - [ ] **General Hardening (Continuous through Testing):** Conduct thorough testing across various shells, commands, and edge cases (e.g., rapid window resizing, unusual signal patterns, PTY exhaustion, different TERM values) to identify and fix stability issues. This will be driven by the test suite.
     - [ ] **Iteratively Increase Coverage:** Continuously write and refine tests to achieve high code coverage for `term-capture.cpp` and `hexflow.cpp`.
 
@@ -48,6 +48,16 @@
     - [ ] **Update README:** Keep README.md updated with new features, configuration options, and usage examples.
     - [ ] **Makefile Enhancements:** Review Makefile for any necessary updates as new source files or dependencies are added (e.g., for test framework, coverage report generation).
 
+**6. WebSocket TTY Bridge (New Requirement):**
+    - [ ] Embed a lightweight WebSocket server into term-capture to relay PTY I/O.
+    - [ ] CLI: add --ws-listen, --ws-token, --ws-allow-remote, --ws-max-clients, --ws-send-buffer.
+    - [ ] Protocol: binary frames for data; JSON control for resize and hello; auth token on connect.
+    - [ ] Multi-client: allow multiple viewers; simple FIFO input; optional exclusive control.
+    - [ ] Backpressure: per-client buffers, drops/disconnect on overflow.
+    - [ ] Security: default bind to 127.0.0.1; recommend TLS/auth via reverse proxy.
+    - [ ] Observability: counters and logs for connections and bytes.
+    - [ ] Document architecture options: embedded per-session WS vs centralized gateway.
+
 ## In Progress
 
 - (None currently)
@@ -59,7 +69,7 @@
 ## Work Batches (derived from coverage review, 2025-08-30)
 
 Batch 1 — Test UX and Reports
-- [ ] Add coverage report targets (e.g., gcovr or lcov+genhtml) to Makefile.
+- [x] Add coverage report targets (gcovr) to Makefile (DONE).
 - [ ] Add test-integration targets and Catch2 tag filters to run only [integration] tests.
 - [ ] Validate machine-readable reports:
   - [ ] JSON: run with -r JSON, parse debug/test-results.json and assert basic structure.
@@ -106,6 +116,50 @@ Batch 8 — Performance and throttling backlog
 Batch 9 — CI and portability
 - [ ] Decide macOS/Linux CI matrix; ensure PTY tests are stable on both.
 - [ ] Gate flaky/host-dependent tests with Catch2 tags and Makefile targets.
+
+Batch 10 — WebSocket TTY bridge (MVP)
+- [ ] Select WS library (evaluate: cpp-httplib with WS, Boost.Beast, libwebsockets, uWebSockets). Prefer minimal deps and simple build on macOS/Linux.
+- [ ] Add minimal WS server to term-capture: listen on --ws-listen HOST:PORT (default 127.0.0.1:0 auto-port); print assigned port to stderr.
+- [ ] Outbound: broadcast PTY output bytes to connected WS clients (binary frames).
+- [ ] Inbound: write received WS binary frames to masterFd and append to .input log.
+- [ ] Multi-client: support multiple clients by broadcasting output, multiplex input as FIFO; document that input is not arbitrated.
+- [ ] Backpressure: cap per-client send buffer; drop with metric when exceeded.
+
+Batch 11 — Protocol, auth, and lifecycle
+- [ ] Define message protocol: binary frames for data; JSON control frames for resize {type:"resize", cols, rows}, ping/pong, hello/version.
+- [ ] Support window resize from clients via WS -> TIOCSWINSZ.
+- [ ] Auth: optional shared-secret token via --ws-token TOKEN or env; reject unauthenticated clients.
+- [ ] Heartbeats: ping/pong and idle timeouts.
+- [ ] Graceful shutdown semantics on WS close; allow keep-running without clients.
+
+Batch 12 — Observability and limits
+- [ ] Metrics counters (connections, bytes in/out, drops, backlog).
+- [ ] Logging of connections and auth failures (rate-limited).
+- [ ] Configuration flags: --ws-max-clients, --ws-send-buffer, --ws-allow-remote (default localhost only).
+- [ ] Document resource footprint; test up to 100 concurrent sessions.
+
+Batch 13 — Architectural follow-ups
+- [ ] Evaluate per-session server vs centralized gateway process:
+  - [ ] Option A: per-session WS inside term-capture (simple, 1:1).
+  - [ ] Option B: separate "tc-gateway" multiplexing WS and connecting to term-capture via Unix domain sockets.
+- [ ] Decide on TLS termination (recommend reverse proxy like nginx/traefik; keep term-capture plain WS).
+- [ ] Define discovery of endpoints (stdout, file, or registry file <prefix>.ws.json).
+
+Architecture options and considerations
+- Per-session embedded WS:
+  - Pros: simple deployment, aligns with 1 shell = 1 server; easy to isolate; scales to ~100 sessions with low overhead.
+  - Cons: many listening sockets/ports; harder to expose securely on WAN without proxy; duplicated code/resources per session.
+- Centralized gateway:
+  - Pros: single port/TLS, shared auth, resource pooling, simpler external exposure; can supervise child sessions.
+  - Cons: extra moving part; term-capture needs IPC (Unix sockets) and discovery; slightly more complex to deploy.
+- Data framing:
+  - Prefer binary frames with raw bytes; use JSON only for control messages (resize, hello).
+- Security posture:
+  - Default bind 127.0.0.1, require explicit flag to allow remote; recommend reverse proxy with TLS and auth.
+- Backpressure:
+  - Apply bounded buffers; drop or disconnect misbehaving clients to protect PTY and disk.
+- Input arbitration:
+  - Simple FIFO is fine; document that concurrent clients can override each other; add exclusive "control" mode later if needed.
 
 Notes
 - Keep main() thin; grow testable seams around event loop and PTY pieces.
