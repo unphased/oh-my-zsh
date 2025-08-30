@@ -17,11 +17,21 @@ struct Config {
 // and config.error_message will contain details.
 Config parse_arguments(int argc, char* argv[]);
 
-// Function declarations for other functions from term-capture.cpp if they are to be tested
-// For example:
-// void restore_terminal();
-// void cleanup_and_exit(); // Note: exit() makes direct testing hard
-// void signal_handler(int sig);
-// void handle_winch(int);
+/**
+ * Build a NULL-terminated argv-style array suitable for exec* calls.
+ * - If args is empty, returns an empty vector (callers should handle fallback).
+ * - If args is non-empty, returns {args[0].c_str(), ..., args[n-1].c_str(), nullptr}.
+ * Note: The returned pointers are valid only as long as the original strings live.
+ */
+std::vector<const char*> build_exec_argv(const std::vector<std::string>& args);
+
+// Selected functions we can safely call in tests
+void signal_handler(int sig);
+
+#ifdef BUILD_TERM_CAPTURE_AS_LIB
+// Test-only accessors for internal state
+bool get_should_exit();
+void set_should_exit(bool v);
+#endif
 
 #endif // TERM_CAPTURE_HPP

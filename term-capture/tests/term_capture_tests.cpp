@@ -2,6 +2,7 @@
 #include "../term-capture.hpp"   // Include the header for term_capture
 #include <vector>
 #include <string>
+#include <csignal>
 
 TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
     SECTION("Only prefix provided") {
@@ -77,7 +78,46 @@ TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
     }
 }
 
-// Placeholder for future tests
+ // Placeholder for future tests
 TEST_CASE("TermCapture PTY Logic (Placeholder)", "[term_capture][pty]") {
     REQUIRE(true);
+}
+
+TEST_CASE("build_exec_argv produces NULL-terminated argv for exec", "[term_capture][argv]") {
+    SECTION("Non-empty args are NULL-terminated") {
+        std::vector<std::string> args = {"grep", "pattern", "file.txt"};
+        auto argv_vec = build_exec_argv(args);
+        REQUIRE(argv_vec.size() == args.size() + 1);
+        REQUIRE(argv_vec.back() == nullptr);
+        REQUIRE(std::string(argv_vec[0]) == "grep");
+        REQUIRE(std::string(argv_vec[1]) == "pattern");
+        REQUIRE(std::string(argv_vec[2]) == "file.txt");
+    }
+
+    SECTION("Single-element args are handled") {
+        std::vector<std::string> args = {"ls"};
+        auto argv_vec = build_exec_argv(args);
+        REQUIRE(argv_vec.size() == 2);
+        REQUIRE(argv_vec.back() == nullptr);
+        REQUIRE(std::string(argv_vec[0]) == "ls");
+    }
+
+    SECTION("Empty args yields empty vector (caller should handle fallback)") {
+        std::vector<std::string> args;
+        auto argv_vec = build_exec_argv(args);
+        REQUIRE(argv_vec.empty());
+    }
+}
+
+TEST_CASE("signal_handler sets exit flag on SIGINT", "[term_capture][signals]") {
+#ifdef BUILD_TERM_CAPTURE_AS_LIB
+    set_should_exit(false);
+    REQUIRE_FALSE(get_should_exit());
+    signal_handler(SIGINT);
+    REQUIRE(get_should_exit());
+    // reset for other tests
+    set_should_exit(false);
+#else
+    SUCCEED("Not built as LIB; signal flag accessors unavailable.");
+#endif
 }

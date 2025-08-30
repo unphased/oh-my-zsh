@@ -76,6 +76,23 @@ Config parse_arguments(int argc, char* argv[]) {
     return config;
 }
 
+std::vector<const char*> build_exec_argv(const std::vector<std::string>& args) {
+  std::vector<const char*> out;
+  if (!args.empty()) {
+    out.reserve(args.size() + 1);
+    for (const auto& s : args) {
+      out.push_back(s.c_str());
+    }
+    out.push_back(nullptr);
+  }
+  return out;
+}
+
+#ifdef BUILD_TERM_CAPTURE_AS_LIB
+bool get_should_exit() { return should_exit; }
+void set_should_exit(bool v) { should_exit = v; }
+#endif
+
 #ifndef BUILD_TERM_CAPTURE_AS_LIB
 int main(int argc, char* argv[]) {
   Config config = parse_arguments(argc, argv);
