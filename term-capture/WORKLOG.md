@@ -71,9 +71,9 @@
 Batch 1 — Test UX and Reports
 - [x] Add coverage report targets (gcovr) to Makefile (DONE).
 - [x] Add test-integration targets and Catch2 tag filters to run only [integration] tests.
-- [ ] Validate machine-readable reports:
-  - [ ] JSON: run with -r JSON, parse debug/test-results.json and assert basic structure.
-  - [ ] JUnit: ensure debug/junit.xml is generated and well-formed.
+- [x] Validate machine-readable reports (via make validate-reports):
+  - [x] JSON: generated debug/test-results.json and validated with jq.
+  - [x] JUnit: generated debug/junit.xml and validated with xmllint (well-formed).
 - [x] RNG seed guidance in README for reproducibility (DONE).
 
 Batch 2 — Integration tests: baseline flows
