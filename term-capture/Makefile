@@ -156,7 +156,8 @@ test-unit: $(TEST_EXECUTABLE)
 	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(UNIT_FILTER)
 
 # Run only integration tests (only [integration] tagged tests)
-test-integration: $(TEST_EXECUTABLE)
+# Ensure the debug binaries exist because integration tests invoke them.
+test-integration: $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER)
 
 # Convenience targets for richer output or machine-readable reports
