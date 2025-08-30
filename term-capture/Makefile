@@ -116,8 +116,7 @@ $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 # Pass extra flags to Catch2 with TEST_ARGS, e.g.:
 #   make test TEST_ARGS="-s -v high --durations yes"
 TEST_ARGS ?=
-test: $(TEST_EXECUTABLE)
-	$(MAKE) clean-coverage-data
+test: clean-coverage-data $(TEST_EXECUTABLE)
 	./$(TEST_EXECUTABLE) $(TEST_ARGS)
 	$(MAKE) coverage
 
@@ -138,7 +137,7 @@ coverage:
 	@mkdir -p $(COVERAGE_DIR)
 	@sh -c 'command -v gcovr >/dev/null 2>&1 || { echo "gcovr not found. Install with: brew install gcovr (or pip install gcovr)"; exit 0; }'
 	@gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --html --html-details -o $(COVERAGE_DIR)/index.html --gcov-ignore-errors=no_working_dir_found
-	@gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --txt -o $(COVERAGE_DIR)/coverage.txt --branches --gcov-ignore-errors=no_working_dir_found
+	@gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found
 	@gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --xml -o $(COVERAGE_DIR)/coverage.xml --gcov-ignore-errors=no_working_dir_found
 	@gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --json -o $(COVERAGE_DIR)/coverage.json --gcov-ignore-errors=no_working_dir_found
 
@@ -149,9 +148,7 @@ open-coverage: coverage
 # Remove stale coverage data files to avoid gcov merge errors
 clean-coverage-data:
 	@find debug -name '*.gcda' -delete 2>/dev/null || true
-	@find debug -name '*.gcno' -delete 2>/dev/null || true
 	@find release -name '*.gcda' -delete 2>/dev/null || true
-	@find release -name '*.gcno' -delete 2>/dev/null || true
 
 clean:
 	rm -rf debug release # coverage directory removed from clean
