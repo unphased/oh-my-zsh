@@ -131,6 +131,12 @@ TEST_ARGS ?=
 test: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	# Run the Catch2 unit test suite
 	./$(TEST_EXECUTABLE) $(TEST_ARGS)
+	# Also emit machine-readable test reports for downstream tooling
+	@mkdir -p debug
+	./$(TEST_EXECUTABLE) -r JSON -o debug/test-results.json -s || true
+	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s || true
+	# Optionally sanity-check the reports if tools are available
+	$(MAKE) validate-reports
 	# Smoke-run term-capture main(): run a harmless command under a PTY.
 	# This exercises PTY setup, fork/exec, raw-mode guards, select loop, logging, and cleanup.
 	# Redirect output to keep logs clean; ignore non-zero exit (env-specific quirks shouldn't fail tests).
@@ -168,6 +174,11 @@ coverage:
 open-coverage: coverage
 	open $(COVERAGE_DIR)/index.html
 
+# Validate machine-readable test reports if tools are present
+validate-reports:
+	@sh -c 'command -v jq >/dev/null 2>&1 && jq -e . debug/test-results.json >/dev/null 2>&1 && echo "Validated JSON report: debug/test-results.json" || echo "Skipping JSON validation: install jq to validate (brew install jq)";'
+	@sh -c 'command -v xmllint >/dev/null 2>&1 && xmllint --noout debug/junit.xml >/dev/null 2>&1 && echo "Validated JUnit XML: debug/junit.xml" || echo "Skipping JUnit XML validation: install xmllint (libxml2) to validate";'
+
 # Help: explain common targets and their relationships
 help:
 	@echo "Common targets:"
@@ -175,8 +186,12 @@ help:
 	@echo "  make debug      -> build debug binaries (with coverage flags)"
 	@echo "  make release    -> build release binaries (optimized)"
 	@echo "  make test       -> build test runner + debug binaries, run tests,"
+	@echo "                     emit JSON (debug/test-results.json) and JUnit (debug/junit.xml) reports,"
 	@echo "                     smoke-run main() of debug/term-capture and debug/hexflow,"
 	@echo "                     then generate and print coverage summary"
+	@echo "  make test-json  -> run tests and write JSON report to debug/test-results.json"
+	@echo "  make test-junit -> run tests and write JUnit XML to debug/junit.xml"
+	@echo "  make validate-reports -> sanity check JSON (jq) and XML (xmllint) if available"
 	@echo "  make coverage   -> generate coverage reports from debug build artifacts"
 	@echo "  make open-coverage -> open HTML coverage report (macOS)"
 	@echo "  make clean      -> remove build artifacts (debug/, release/)"

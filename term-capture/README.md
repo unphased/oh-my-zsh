@@ -119,6 +119,10 @@ The test suite is built with Catch2 v3 (amalgamated). Our Makefile exposes conve
 - Machine-readable reports:
   - JSON: `make -C term-capture test-json` (writes to `debug/test-results.json`)
   - JUnit XML: `make -C term-capture test-junit` (writes to `debug/junit.xml`)
+  - Note: `make -C term-capture test` now also emits both `debug/test-results.json` and `debug/junit.xml` automatically.
+- Validate machine-readable reports (optional):
+  - `make -C term-capture validate-reports` will check JSON with jq and XML with xmllint if those tools are installed.
+  - Install helpers on macOS: `brew install jq` (xmllint is provided by libxml2 and usually preinstalled).
 
 Catch2 provides an internal pseudo-random generator for things like generators (e.g., GENERATE/take/random) and prints the seed at the start:
 “Randomness seeded to: <seed>”
