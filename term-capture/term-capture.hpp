@@ -25,8 +25,14 @@ Config parse_arguments(int argc, char* argv[]);
  */
 std::vector<const char*> build_exec_argv(const std::vector<std::string>& args);
 
-// Selected functions we can safely call in tests
+/**
+ * Selected functions we can safely call in tests
+ * Note: handle_winch will read the current window size from STDIN_FILENO
+ * and attempt to propagate it if an internal master FD is valid. In library
+ * builds, master FD is typically invalid, so this is a no-op after ioctl read.
+ */
 void signal_handler(int sig);
+void handle_winch(int);
 
 #ifdef BUILD_TERM_CAPTURE_AS_LIB
 // Test-only accessors for internal state

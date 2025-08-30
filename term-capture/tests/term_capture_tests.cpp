@@ -121,3 +121,10 @@ TEST_CASE("signal_handler sets exit flag on SIGINT", "[term_capture][signals]") 
     SUCCEED("Not built as LIB; signal flag accessors unavailable.");
 #endif
 }
+
+TEST_CASE("handle_winch can be invoked safely in tests", "[term_capture][signals][winch]") {
+    // This ensures we exercise the handle_winch code path without a valid masterFd.
+    // It should be a no-op aside from reading current window size from STDIN.
+    handle_winch(0);
+    REQUIRE(true); // No crash implies success for this smoke test
+}
