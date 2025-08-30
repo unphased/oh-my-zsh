@@ -109,8 +109,23 @@ $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 	$(CXX) $(DEBUG_FLAGS) $^ -o $@
 
 # Test target: build and run tests
+# Pass extra flags to Catch2 with TEST_ARGS, e.g.:
+#   make test TEST_ARGS="-s -v high --durations yes"
+TEST_ARGS ?=
 test: $(TEST_EXECUTABLE)
-	./$(TEST_EXECUTABLE)
+	./$(TEST_EXECUTABLE) $(TEST_ARGS)
+
+# Convenience targets for richer output or machine-readable reports
+test-verbose: $(TEST_EXECUTABLE)
+	./$(TEST_EXECUTABLE) -s -v high --durations yes
+
+test-json: $(TEST_EXECUTABLE)
+	@mkdir -p debug
+	./$(TEST_EXECUTABLE) -r JSON -o debug/test-results.json -s -v high
+
+test-junit: $(TEST_EXECUTABLE)
+	@mkdir -p debug
+	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s
 
 clean:
 	rm -rf debug release # coverage directory removed from clean
@@ -119,5 +134,5 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test # coverage target removed
+.PHONY: all debug release clean test test-verbose test-json test-junit # coverage target removed
 
