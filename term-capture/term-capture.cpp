@@ -1,4 +1,4 @@
-#include "term_capture.hpp" // Include the new header
+#include "term-capture.hpp" // Include the new header
 
 #include <iostream>
 #include <fstream>

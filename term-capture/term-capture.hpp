@@ -3,7 +3,6 @@
 
 #include <string>
 #include <vector>
-#include <optional> // For C++17, or use a custom optional/pointer for older standards if necessary
 
 // Structure to hold parsed command-line arguments
 struct Config {

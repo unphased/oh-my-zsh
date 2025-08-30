@@ -49,7 +49,7 @@ release/%: release/%.o
 
 # Specific rules for objects that depend on .hpp files
 HEXFLOW_HPP = hexflow.hpp
-TERM_CAPTURE_HPP = term_capture.hpp
+TERM_CAPTURE_HPP = term-capture.hpp
 
 debug/hexflow.o: hexflow.cpp $(HEXFLOW_HPP) Makefile
 	@mkdir -p debug
