@@ -109,4 +109,27 @@ The project uses a Makefile for building.
 
 The `term-capture` program relies on standard POSIX PTY and terminal interface functions available on Unix-like systems (Linux, macOS).
 The `hexflow` program uses standard C++ iostreams and cctype.
+
+## Testing and RNG seed control
+
+The test suite is built with Catch2 v3 (amalgamated). Our Makefile exposes convenient targets:
+
+- Build and run tests (quiet): `make -C term-capture test`
+- Verbose output with durations: `make -C term-capture test-verbose`
+- Machine-readable reports:
+  - JSON: `make -C term-capture test-json` (writes to `debug/test-results.json`)
+  - JUnit XML: `make -C term-capture test-junit` (writes to `debug/junit.xml`)
+
+Catch2 provides an internal pseudo-random generator for things like generators (e.g., GENERATE/take/random) and prints the seed at the start:
+“Randomness seeded to: <seed>”
+
+To make any randomness reproducible, pass a specific seed via Catch2’s CLI:
+- Use a fixed number: `--rng-seed 12345`
+- Or special values: `--rng-seed time` (seed from current time), `--rng-seed random-device` (seed from std::random_device)
+
+Because our Makefile forwards extra arguments through `TEST_ARGS`, you can do for example:
+- `make -C term-capture test TEST_ARGS="--rng-seed 12345"`
+- Combine with verbosity: `make -C term-capture test TEST_ARGS="--rng-seed 12345 -s -v high --durations yes"`
+
+This ensures that any flaky, randomness-driven failures can be reproduced by re-running with the printed seed.
 ```
