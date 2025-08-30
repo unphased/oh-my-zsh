@@ -117,10 +117,18 @@ $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 #   make test TEST_ARGS="-s -v high --durations yes"
 TEST_ARGS ?=
 test: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
+	# Run the Catch2 unit test suite
 	./$(TEST_EXECUTABLE) $(TEST_ARGS)
+	# Smoke-run term-capture main(): run a harmless command under a PTY.
+	# This exercises PTY setup, fork/exec, raw-mode guards, select loop, logging, and cleanup.
+	# Redirect output to keep logs clean; ignore non-zero exit (env-specific quirks shouldn't fail tests).
 	./debug/term-capture debug/coverage_smoke /bin/echo ok >/dev/null 2>/dev/null || true
+	# Smoke-run hexflow main(): feed a single byte so main() is covered; discard output.
+	# Ignore non-zero exit to avoid failing on non-interactive environments.
 	printf 'A' | ./debug/hexflow >/dev/null 2>/dev/null || true
+	# Generate coverage reports (HTML, text, XML, JSON)
 	$(MAKE) coverage
+	# Print a quick text coverage summary to the console
 	cat $(COVERAGE_DIR)/coverage.txt
 
 # Convenience targets for richer output or machine-readable reports
