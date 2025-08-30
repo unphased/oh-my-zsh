@@ -128,3 +128,78 @@ TEST_CASE("handle_winch can be invoked safely in tests", "[term_capture][signals
     handle_winch(0);
     REQUIRE(true); // No crash implies success for this smoke test
 }
+
+//
+// Integration tests
+//
+#include <sys/stat.h>
+#include <cstdio>
+#include <fstream>
+#include <cstdlib>
+
+static bool file_exists(const std::string& path) {
+    struct stat st{};
+    return ::stat(path.c_str(), &st) == 0;
+}
+
+static size_t file_size(const std::string& path) {
+    struct stat st{};
+    if (::stat(path.c_str(), &st) == 0) return static_cast<size_t>(st.st_size);
+    return 0;
+}
+
+static std::string read_all(const std::string& path) {
+    std::ifstream ifs(path, std::ios::binary);
+    std::ostringstream oss;
+    oss << ifs.rdbuf();
+    return oss.str();
+}
+
+TEST_CASE("Integration: trivial command creates logs and captures output", "[integration][term_capture]") {
+    // Prefix under debug/ to keep artifacts in build dir
+    const std::string prefix = "debug/it_echo";
+    const std::string input_path = prefix + ".input";
+    const std::string output_path = prefix + ".output";
+
+    // Clean up any leftovers
+    std::remove(input_path.c_str());
+    std::remove(output_path.c_str());
+
+    // Run term-capture with a trivial command that exits quickly
+    // Expect: logs created; output contains "hello"
+    int rc = std::system("./debug/term-capture debug/it_echo /bin/echo hello >/dev/null 2>&1");
+    REQUIRE(rc == 0);
+
+    REQUIRE(file_exists(input_path));
+    REQUIRE(file_exists(output_path));
+
+    // For this run we didn't type anything, so input log should usually be empty
+    // (It may not be strictly required, but is expected.)
+    CHECK(file_size(input_path) == 0);
+
+    const std::string out = read_all(output_path);
+    // PTY may transform newline to CRLF, so check substring rather than exact equality
+    REQUIRE(out.find("hello") != std::string::npos);
+}
+
+TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration][term_capture]") {
+    const std::string prefix = "debug/it_printf";
+    const std::string input_path = prefix + ".input";
+    const std::string output_path = prefix + ".output";
+
+    std::remove(input_path.c_str());
+    std::remove(output_path.c_str());
+
+    // Quote the printf argument so the shell interprets the newline escape
+    int rc = std::system("./debug/term-capture debug/it_printf /bin/sh -c \"printf 'a\\nb'\" >/dev/null 2>&1");
+    REQUIRE(rc == 0);
+
+    REQUIRE(file_exists(input_path));
+    REQUIRE(file_exists(output_path));
+
+    const std::string out = read_all(output_path);
+    // Expect both 'a' and 'b' present, with some newline/CRLF between
+    REQUIRE(out.find('a') != std::string::npos);
+    REQUIRE(out.find('b') != std::string::npos);
+    REQUIRE(out.find("ab") == std::string::npos); // should not be contiguous without a line break
+}
