@@ -81,9 +81,9 @@ Batch 2 — Integration tests: baseline flows
   - [x] Assert <prefix>.input and <prefix>.output files are created.
   - [x] Assert output file contains expected bytes; input file reflects user keystrokes when applicable (empty in this case).
 - [x] Spawn term-capture with a longer command + args (e.g., sh -c "printf 'a\nb'").
-- [ ] Exercise “no command” fallback to shell (zsh). Gate by environment:
-  - [ ] Skip if zsh is unavailable; document portability note.
-  - Note: Deferred to avoid hanging on interactive shell without a way to auto-exit.
+- [x] Exercise “no command” fallback to shell (zsh). Gate by environment:
+  - [x] Skip if zsh is unavailable; document portability note.
+  - Implemented by piping "echo fallback_ok\nexit\n" into term-capture to auto-exit the interactive shell.
 
 Batch 3 — Signals and window size behavior
 - [ ] Send SIGWINCH to parent; ensure no crash and child PTY gets size (smoke test).
