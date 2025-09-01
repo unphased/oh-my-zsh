@@ -203,3 +203,51 @@ TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration]
     REQUIRE(out.find('b') != std::string::npos);
     REQUIRE(out.find("ab") == std::string::npos); // should not be contiguous without a line break
 }
+
+TEST_CASE("Integration: fallback to zsh when no command is provided", "[integration][term_capture][shell]") {
+    // Skip if zsh is not installed
+    int has_zsh = std::system("command -v zsh >/dev/null 2>&1");
+    if (has_zsh != 0) {
+        WARN("zsh not found on PATH; skipping fallback integration test");
+        SUCCEED();
+        return;
+    }
+
+    const std::string prefix = "debug/it_fallback";
+    const std::string input_path = prefix + ".input";
+    const std::string output_path = prefix + ".output";
+
+    std::remove(input_path.c_str());
+    std::remove(output_path.c_str());
+
+    // Pipe commands into term-capture's STDIN so the interactive shell exits automatically.
+    // We emit a marker and then exit to keep the test bounded.
+    int rc = std::system("printf 'echo fallback_ok\\nexit\\n' | ./debug/term-capture debug/it_fallback >/dev/null 2>&1");
+    REQUIRE(rc == 0);
+
+    REQUIRE(file_exists(input_path));
+    REQUIRE(file_exists(output_path));
+
+    const std::string out = read_all(output_path);
+    REQUIRE(out.find("fallback_ok") != std::string::npos);
+}
+
+TEST_CASE("Integration: invalid log directory causes failure to open logs", "[integration][term_capture][errors]") {
+    // Use a prefix that points into a non-existent directory
+    int rc = std::system("./debug/term-capture debug/does-not-exist/subdir/log /bin/echo ok >/dev/null 2>&1");
+    REQUIRE(rc != 0);
+}
+
+TEST_CASE("signal_handler on SIGCHLD sets exit flag without exiting", "[term_capture][signals]") {
+#ifdef BUILD_TERM_CAPTURE_AS_LIB
+    set_should_exit(false);
+    REQUIRE_FALSE(get_should_exit());
+    // With child_pid defaulting to -1 in library builds, this should not call exit(),
+    // but it should set the exit flag.
+    signal_handler(SIGCHLD);
+    REQUIRE(get_should_exit());
+    set_should_exit(false);
+#else
+    SUCCEED("Not built as LIB; signal flag accessors unavailable.");
+#endif
+}
