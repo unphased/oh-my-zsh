@@ -56,8 +56,8 @@ TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
 
         REQUIRE_FALSE(config.valid);
         REQUIRE_FALSE(config.error_message.empty());
-        // Optionally, check parts of the error message
-        REQUIRE(config.error_message.find("Usage: term-capture <prefix>") != std::string::npos);
+        // Optionally, check parts of the error message (program name is argv[0])
+        REQUIRE(config.error_message.find("Usage: term-capture") != std::string::npos);
     }
     
     SECTION("Insufficient arguments (argc is 0 - highly unlikely but good to cover)") {
@@ -76,6 +76,51 @@ TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
 
         REQUIRE_FALSE(config.valid);
         REQUIRE_FALSE(config.error_message.empty());
+    }
+
+    SECTION("WS flags before prefix and command parsing", "[term_capture][args][ws]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--ws-listen"), const_cast<char*>("127.0.0.1:0"),
+            const_cast<char*>("--ws-token"), const_cast<char*>("sekret"),
+            const_cast<char*>("--ws-allow-remote"),
+            const_cast<char*>("--ws-send-buffer"), const_cast<char*>("2097152"),
+            const_cast<char*>("myprefix"),
+            const_cast<char*>("/bin/echo"), const_cast<char*>("ok")
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE(config.valid);
+        REQUIRE(config.log_prefix == "myprefix");
+        REQUIRE(config.ws_listen == "127.0.0.1:0");
+        REQUIRE(config.ws_token == "sekret");
+        REQUIRE(config.ws_allow_remote == true);
+        REQUIRE(config.ws_send_buffer == static_cast<size_t>(2097152));
+        REQUIRE(config.command_and_args.size() == 2);
+        REQUIRE(config.command_and_args[0] == "/bin/echo");
+        REQUIRE(config.command_and_args[1] == "ok");
+    }
+
+    SECTION("WS flags with equals syntax", "[term_capture][args][ws]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--ws-listen=127.0.0.1:0"),
+            const_cast<char*>("--ws-token=mytok"),
+            const_cast<char*>("myprefix2"),
+            const_cast<char*>("sh"), const_cast<char*>("-c"), const_cast<char*>("echo hi")
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE(config.valid);
+        REQUIRE(config.log_prefix == "myprefix2");
+        REQUIRE(config.ws_listen == "127.0.0.1:0");
+        REQUIRE(config.ws_token == "mytok");
+        REQUIRE(config.command_and_args.size() == 3);
+        REQUIRE(config.command_and_args[0] == "sh");
+        REQUIRE(config.command_and_args[1] == "-c");
+        REQUIRE(config.command_and_args[2] == "echo hi");
     }
 }
 
@@ -257,6 +302,31 @@ TEST_CASE("Integration: fallback to zsh when no command is provided", "[integrat
 
     const std::string out = read_all(output_path);
     REQUIRE(out.find("fallback_ok") != std::string::npos);
+}
+
+TEST_CASE("Integration: WS flags create stub metadata and print skeleton notice", "[integration][term_capture][ws]") {
+    const std::string prefix = "debug/it_ws";
+    const std::string input_path = prefix + ".input";
+    const std::string output_path = prefix + ".output";
+    const std::string ws_meta = prefix + ".ws.json";
+    const std::string stderr_path = "debug/it_ws.stderr";
+
+    std::remove(input_path.c_str());
+    std::remove(output_path.c_str());
+    std::remove(ws_meta.c_str());
+    std::remove(stderr_path.c_str());
+
+    // Place WS flags before prefix to avoid ambiguity with command args
+    int rc = std::system("./debug/term-capture --ws-listen 127.0.0.1:0 "
+                         "debug/it_ws /bin/echo ok 2> debug/it_ws.stderr >/dev/null");
+    REQUIRE(rc == 0);
+
+    REQUIRE(file_exists(input_path));
+    REQUIRE(file_exists(output_path));
+    REQUIRE(file_exists(ws_meta));
+
+    const std::string err = read_all(stderr_path);
+    REQUIRE(err.find("WS: planned") != std::string::npos);
 }
 
 TEST_CASE("Integration: invalid log directory causes failure to open logs", "[integration][term_capture][errors]") {

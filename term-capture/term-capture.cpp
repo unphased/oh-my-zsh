@@ -12,6 +12,8 @@
 #include <sys/select.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <chrono>
+#include <sstream>
 
 static volatile bool should_exit = false;
 static struct termios orig_termios;
@@ -73,21 +75,106 @@ void handle_winch(int) {
 
 Config parse_arguments(int argc, char* argv[]) {
     Config config;
-    if (argc < 2) {
+
+    if (argc <= 1) {
         config.valid = false;
-        config.error_message = "Usage: " + std::string(argv[0]) + " <prefix> [command...]\n"
-                             + "  <prefix>    Prefix for the log files. Will create <prefix>.input and <prefix>.output\n"
-                             + "  [command]   Optional command to execute (defaults to zsh if not specified)\n";
+        config.error_message = "Usage: " + std::string(argv[0]) + " [--ws-* flags] <prefix> [command...]\n"
+                               "  <prefix>    Prefix for the log files. Will create <prefix>.input and <prefix>.output\n"
+                               "  [command]   Optional command to execute (defaults to zsh if not specified)\n"
+                               "  --ws-listen HOST:PORT     Bind address for WS server (MVP skeleton; no server yet)\n"
+                               "  --ws-token TOKEN          Optional shared secret for WS connections\n"
+                               "  --ws-allow-remote         Allow binding to 0.0.0.0 (insecure without proxy/TLS)\n"
+                               "  --ws-send-buffer BYTES    Per-client send buffer (for future backpressure controls)\n";
         return config;
     }
 
-    config.log_prefix = argv[1];
+    bool have_prefix = false;
+    bool in_command_args = false;
 
-    if (argc > 2) {
-        for (int i = 2; i < argc; ++i) {
-            config.command_and_args.push_back(argv[i]);
+    auto parse_kv = [](const std::string& s, const std::string& key) -> std::string {
+        std::string prefix = key + "=";
+        if (s.rfind(prefix, 0) == 0) {
+            return s.substr(prefix.size());
+        }
+        return {};
+    };
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+
+        if (!in_command_args && !arg.empty() && arg[0] == '-') {
+            if (arg == "--") {
+                in_command_args = true;
+                continue;
+            }
+            if (arg == "--ws-allow-remote") {
+                config.ws_allow_remote = true;
+                continue;
+            }
+            // Support --flag=value form
+            std::string v;
+            if ((v = parse_kv(arg, "--ws-listen")).size()) {
+                config.ws_listen = v;
+                continue;
+            }
+            if ((v = parse_kv(arg, "--ws-token")).size()) {
+                config.ws_token = v;
+                continue;
+            }
+            if ((v = parse_kv(arg, "--ws-send-buffer")).size()) {
+                try {
+                    config.ws_send_buffer = static_cast<size_t>(std::stoull(v));
+                } catch (...) {
+                    config.valid = false;
+                    config.error_message = "Invalid value for --ws-send-buffer: " + v + "\n";
+                    return config;
+                }
+                continue;
+            }
+            // Support --flag value form (consume next)
+            if (arg == "--ws-listen" || arg == "--ws-token" || arg == "--ws-send-buffer") {
+                if (i + 1 >= argc) {
+                    config.valid = false;
+                    config.error_message = "Missing value for " + arg + "\n";
+                    return config;
+                }
+                std::string val = argv[++i];
+                if (arg == "--ws-listen") {
+                    config.ws_listen = val;
+                } else if (arg == "--ws-token") {
+                    config.ws_token = val;
+                } else { // --ws-send-buffer
+                    try {
+                        config.ws_send_buffer = static_cast<size_t>(std::stoull(val));
+                    } catch (...) {
+                        config.valid = false;
+                        config.error_message = "Invalid value for --ws-send-buffer: " + val + "\n";
+                        return config;
+                    }
+                }
+                continue;
+            }
+            // Unknown flag
+            config.valid = false;
+            config.error_message = "Unknown flag: " + arg + "\n";
+            return config;
+        }
+
+        if (!have_prefix) {
+            config.log_prefix = arg;
+            have_prefix = true;
+        } else {
+            in_command_args = true;
+            config.command_and_args.push_back(arg);
         }
     }
+
+    if (!have_prefix) {
+        config.valid = false;
+        config.error_message = "Usage: " + std::string(argv[0]) + " [--ws-* flags] <prefix> [command...]\n";
+        return config;
+    }
+
     return config;
 }
 
@@ -222,6 +309,31 @@ int main(int argc, char* argv[]) {
   std::cerr << "Started capturing shell (PID " << child_pid << ")\n"
             << "Logging input to: " << input_path << "\n"
             << "Logging output to: " << output_path << "\n";
+
+  // MVP skeleton: if any WS flags were provided, emit notice and write stub metadata JSON
+  bool ws_enabled = !config.ws_listen.empty() || !config.ws_token.empty() || config.ws_allow_remote || (config.ws_send_buffer > 0);
+  if (ws_enabled) {
+    std::cerr << "WS: planned, not yet active; parsed CLI flags and wrote stub metadata\n";
+    // Write <prefix>.ws.json with minimal metadata
+    std::string ws_meta_path = log_path + ".ws.json";
+    auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                      std::chrono::system_clock::now().time_since_epoch())
+                      .count();
+    std::ostringstream id_ss;
+    id_ss << child_pid << "-" << now_ns;
+    std::ofstream wsmeta(ws_meta_path, std::ios::binary);
+    if (wsmeta.is_open()) {
+      wsmeta << "{\n"
+             << "  \"id\": \"" << id_ss.str() << "\",\n"
+             << "  \"pid\": " << child_pid << ",\n"
+             << "  \"prefix\": " << "\"" << log_path << "\"" << ",\n"
+             << "  \"started_at_unix_ns\": " << now_ns << "\n"
+             << "}\n";
+      wsmeta.close();
+    } else {
+      std::cerr << "WS: warning: failed to write stub metadata to " << ws_meta_path << "\n";
+    }
+  }
 
   // 4) Relay data between real terminal and child PTY
   while (!should_exit) {

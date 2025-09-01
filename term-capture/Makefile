@@ -31,6 +31,7 @@ GCOVR_EXCLUDES = --exclude 'tests/.*' --exclude '.*catch_amalgamated.*'
 # main.cpp is removed as catch_amalgamated.cpp provides main() for Catch2 v3
 TEST_SRC_FILES = $(TEST_DIR)/hexflow_tests.cpp \
                  $(TEST_DIR)/term_capture_tests.cpp \
+                 $(TEST_DIR)/tcap_tests.cpp \
                  $(TEST_DIR)/catch_amalgamated.cpp
 
 # Object files for the test sources
@@ -105,6 +106,11 @@ debug/$(TEST_DIR)/term_capture_tests.o: $(TEST_DIR)/term_capture_tests.cpp $(TES
 debug/$(TEST_DIR)/catch_amalgamated.o: $(TEST_DIR)/catch_amalgamated.cpp $(TEST_DIR)/catch_amalgamated.hpp Makefile
 	@mkdir -p $(@D)
 	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/catch_amalgamated.cpp -o $@
+
+# Rule to compile tcap_tests.cpp
+debug/$(TEST_DIR)/tcap_tests.o: $(TEST_DIR)/tcap_tests.cpp $(TEST_DIR)/catch_amalgamated.hpp tcap.hpp Makefile
+	@mkdir -p $(@D)
+	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/tcap_tests.cpp -o $@
 
 # Rule to compile hexflow.cpp as a library for tests (without its main function)
 # Output directory changed to debug/, uses DEBUG_FLAGS

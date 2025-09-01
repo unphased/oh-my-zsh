@@ -201,6 +201,6 @@ Open questions for later
 Recommended next steps (actionable)
 - Implement Phase 1 MVP (embedded WS + registry + WS RPC backfill) using uWebSockets (uWS). If uWS build proves problematic on a given host, temporarily use WebSocket++ as a fallback.
 - Add CLI flags (--ws-listen, --ws-token, --ws-allow-remote, --ws-send-buffer).
-- Write <prefix>.ws.json and update ~/.term-capture/sessions.json with flock.
+- Write <prefix>.ws.json and update ~/.term-capture/sessions.json with flock. For the first increment, write a per-session stub <prefix>.ws.json with {id,pid,prefix,started_at_unix_ns}.
 - Add a minimal xterm.js HTML client to prove end-to-end flow.
 - Later, create a small tc-gateway that serves birds-eye from the registry and proxies to sessions.

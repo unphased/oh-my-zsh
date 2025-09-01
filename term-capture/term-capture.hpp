@@ -11,6 +11,13 @@ struct Config {
     std::vector<std::string> command_and_args; // command is command_and_args[0]
     bool valid = true; // Was parsing successful?
     std::string error_message; // Error message if parsing failed
+
+    // WebSocket-related options (MVP skeleton)
+    // Flags can appear before the prefix or after the prefix but before the command.
+    std::string ws_listen;        // e.g., "127.0.0.1:0" (empty means disabled)
+    std::string ws_token;         // optional shared secret (empty means none)
+    bool ws_allow_remote = false; // if true, allow 0.0.0.0 bind (security risk without proxy)
+    size_t ws_send_buffer = 0;    // per-client buffer size (0 means default/unspecified)
 };
 
 // Parses command-line arguments.
