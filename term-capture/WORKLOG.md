@@ -51,7 +51,7 @@
 **6. WebSocket TTY Bridge (New Requirement) — see docs/WS_ARCHITECTURE.md for full plan:**
     - [ ] Phase 1 (MVP): embedded per-session WS + WS RPC backfill + local registry file.
     - [ ] CLI (MVP): --ws-listen, --ws-token, --ws-allow-remote, --ws-send-buffer. Advanced flags (e.g., --ws-max-clients) tracked in Batch 12.
-    - [ ] Data plane: WS /ws (binary PTY I/O) and JSON control (resize/hello); WS RPC for meta/backfill/stats (no separate HTTP endpoints).
+    - [ ] Data plane: WS /ws (server->client binary PTY output; client->server JSON for input/control); WS RPC for meta/backfill/stats (no separate HTTP endpoints).
     - [ ] Multi-client + backpressure as specified; default bind 127.0.0.1; optional shared-secret token.
     - [ ] Observability: counters and lightweight logs per doc.
     - [ ] Birds-eye: maintain sessions registry; later serve a simple UI via a thin gateway.
@@ -120,10 +120,10 @@ Batch 10 — WebSocket TTY bridge (MVP)
 - [ ] Implement Phase 1 per docs/WS_ARCHITECTURE.md using cpp-httplib (header-only).
 - [ ] Listen on 127.0.0.1:0 by default; print bound port; write <prefix>.ws.json; update ~/.term-capture/sessions.json (with pruning + file lock).
 - [ ] Broadcast PTY output to WS clients; enforce per-client send buffer with drop/disconnect policy.
-- [ ] Accept WS binary input -> write to PTY and append to .input; expose WS RPCs: get_meta, fetch_input, fetch_output, and get_stats.
+- [ ] Accept WS text input messages -> decode base64, write to PTY, and append to .input; expose WS RPCs: get_meta, fetch_input, fetch_output, and get_stats.
 
 Batch 11 — Protocol, auth, and lifecycle
-- [ ] Solidify message protocol per docs/WS_ARCHITECTURE.md: binary data frames; JSON control (resize/hello); ping/pong.
+- [ ] Solidify message protocol per docs/WS_ARCHITECTURE.md: server->client binary data frames; client->server JSON (input/control with base64 for input); ping/pong.
 - [ ] Implement resize handling via WS -> TIOCSWINSZ.
 - [ ] Enforce optional --ws-token for all WS connections and RPCs.
 - [ ] Add heartbeats and idle timeouts; graceful close semantics when last client disconnects.
@@ -156,7 +156,8 @@ Architecture options and considerations
   - Pros: single port/TLS, shared auth, resource pooling, simpler external exposure; can supervise child sessions.
   - Cons: extra moving part; term-capture needs IPC (Unix sockets) and discovery; slightly more complex to deploy.
 - Data framing:
-  - Prefer binary frames with raw bytes; use JSON only for control messages (resize, hello).
+  - Server->client: binary frames with raw PTY output bytes (no timestamps).
+  - Client->server: text JSON messages for input and control; input carries base64-encoded bytes.
 - Security posture:
   - Default bind 127.0.0.1, require explicit flag to allow remote; recommend reverse proxy with TLS and auth.
 - Backpressure:

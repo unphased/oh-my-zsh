@@ -57,10 +57,11 @@ Transport and endpoints
   - If configured, require token for all WS connections and RPCs.
 - Endpoints:
   - WS /ws
-    - Outbound: broadcast PTY output bytes to all connected clients as binary frames.
+    - Outbound: broadcast PTY output bytes to all connected clients as binary frames (raw bytes; no timestamps).
     - Inbound:
-      - Binary frames are written to PTY and appended to <prefix>.input (FIFO arbitration).
+      - Text frames only: JSON messages for input and control. For input, send {type:"input", data_b64:"..."}; server decodes and writes to PTY and appends to <prefix>.input (FIFO arbitration).
       - JSON control frames for {type:"resize", cols, rows}, ping/pong, hello/version.
+      - Client-sent binary frames are rejected.
   - WS RPC messages (over /ws):
     - get_meta -> JSON { input_size, output_size, started_at, pid, prefix }
     - fetch_input {offset,limit} -> returns container bytes when --log-format=tcap, or raw bytes when --log-format=raw (binary frame)
@@ -101,6 +102,7 @@ Time-indexed capture format (v1)
   - A client can reconstruct wall-clock times from absolute timestamps and/or accumulate deltas.
   - Cross-session sync is enabled by absolute timestamps across independent .tcap files.
   - Resize events (type=0x10) payload: struct { u16 cols; u16 rows } in little-endian.
+  - Live WS streaming uses raw output bytes with no timestamp envelope; time navigation uses tcap backfill/playback.
 
 Progressive backfill (client scrollback)
 - On client connect:
@@ -116,7 +118,7 @@ xterm.js client model
 - Initial populate: use WS RPC fetch_output for recent scrollback, write to terminal in chunks.
 - Live updates: WS binary frames append to xterm.js buffer.
 - Resize: xterm.js ‘resize’ -> send JSON {type:"resize", cols, rows} on WS.
-- Input: keypresses -> WS binary frames to server -> PTY write + <prefix>.input append.
+- Input: keypresses -> WS JSON text frame {type:"input", data_b64:"..."} -> server decodes, writes to PTY + <prefix>.input append.
 
 Backpressure and multi-client input
 - Output (server->clients):
@@ -154,7 +156,7 @@ Incremental implementation plan
    - Determine bound port; print to stderr; write <prefix>.ws.json and update registry.
 2) Data plane:
    - Hook PTY output path to broadcast bytes to WS clients.
-   - Hook WS binary frames to PTY input and append to <prefix>.input.
+   - Hook WS text frames of type "input" to PTY input and append to <prefix>.input.
    - If --log-format=tcap is enabled, write time-indexed container records to <prefix>.input.tcap and <prefix>.output.tcap instead of raw .input/.output.
 3) Control plane:
    - WS JSON: hello (version), resize, ping/pong.
