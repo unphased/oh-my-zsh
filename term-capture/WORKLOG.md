@@ -49,7 +49,7 @@
     - [ ] **Makefile Enhancements:** Review Makefile for any necessary updates as new source files or dependencies are added (e.g., for test framework, coverage report generation).
 
 **6. WebSocket TTY Bridge (New Requirement) — see docs/WS_ARCHITECTURE.md for full plan:**
-    - [ ] Phase 1 (MVP): embedded per-session WS + HTTP backfill + local registry file.
+    - [ ] Phase 1 (MVP): embedded per-session WS + WS RPC backfill + local registry file.
     - [ ] CLI (MVP): --ws-listen, --ws-token, --ws-allow-remote, --ws-send-buffer. Advanced flags (e.g., --ws-max-clients) tracked in Batch 12.
     - [ ] Data plane: WS /ws (binary PTY I/O) and JSON control (resize/hello); WS RPC for meta/backfill/stats (no separate HTTP endpoints).
     - [ ] Multi-client + backpressure as specified; default bind 127.0.0.1; optional shared-secret token.
@@ -137,6 +137,16 @@ Batch 13 — Architectural follow-ups
 - [ ] Evaluate per-session embedded WS (A) vs centralized "tc-gateway" (B) per docs/WS_ARCHITECTURE.md; decide rollout plan.
 - [ ] Choose TLS termination strategy (recommend reverse proxy); keep term-capture plain WS.
 - [ ] Finalize discovery: per-session <prefix>.ws.json + global sessions.json registry; wire birds-eye UI to the registry.
+
+Batch 14 — Time-indexed logging and playback
+- [ ] Spec: define "tcap v1" per-stream container (header + varint-framed records) with absolute/delta timestamps (docs/WS_ARCHITECTURE.md).
+- [ ] CLI: add --log-format raw|tcap (default raw in MVP); choose file naming (<prefix>.input.tcap / <prefix>.output.tcap).
+- [ ] Writer: implement tcap encoder in term-capture; heuristics for delta vs absolute; include resize events.
+- [ ] Reader: implement minimal decoder in tests to validate round-trip; JS client parser for playback.
+- [ ] WS RPC: ensure fetch_output/fetch_input return container bytes when tcap enabled; document legacy raw behavior.
+- [ ] Tests: unit tests for varint encode/decode; integration tests generating .tcap and verifying decode + timing progression.
+- [ ] Playback UX (frontend): PoC player that replays at 1x/2x, pause, seek; multi-session alignment by absolute timestamps.
+- [ ] Future: optional index sidecar for fast seek; evaluate permessage-deflate for backfill.
 
 Architecture options and considerations
 - Per-session embedded WS:

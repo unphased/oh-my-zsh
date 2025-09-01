@@ -40,7 +40,7 @@ Hybrid path (recommended)
 Discovery and registry (Phase 1)
 - Registry file: ~/.term-capture/sessions.json (or /tmp/term-capture-sessions.json).
 - On startup, each term-capture instance:
-  - Binds WS/HTTP to 127.0.0.1:0 (ephemeral port) by default.
+  - Binds WS to 127.0.0.1:0 (ephemeral port) by default.
   - Writes an entry into the registry: {
       id, pid, prefix, started_at, ws_host, ws_port, token_present, session_meta_path
     }.
@@ -63,9 +63,44 @@ Transport and endpoints
       - JSON control frames for {type:"resize", cols, rows}, ping/pong, hello/version.
   - WS RPC messages (over /ws):
     - get_meta -> JSON { input_size, output_size, started_at, pid, prefix }
-    - fetch_input {offset,limit} -> returns raw bytes (binary frame)
-    - fetch_output {offset,limit} -> returns raw bytes (binary frame)
+    - fetch_input {offset,limit} -> returns container bytes when --log-format=tcap, or raw bytes when --log-format=raw (binary frame)
+    - fetch_output {offset,limit} -> returns container bytes when --log-format=tcap, or raw bytes when --log-format=raw (binary frame)
     - get_stats -> JSON { connections, bytes_in, bytes_out, drops, backlog_high_water }
+
+Time-indexed capture format (v1)
+- Purpose: enable high-fidelity, time-based playback and cross-session synchronization (birds-eye view).
+- Files and naming:
+  - New container format "tcap" written per stream as:
+    - <prefix>.input.tcap
+    - <prefix>.output.tcap
+  - Legacy mode (default during MVP): raw byte logs:
+    - <prefix>.input
+    - <prefix>.output
+  - Select with --log-format raw|tcap (see CLI). When tcap is enabled, only .tcap files are written.
+- Header (fixed, little-endian for fixed-width fields):
+  - magic: 5 bytes, ASCII "TCAP1"
+  - flags: u8 bitfield (bit0=1 means little-endian; others reserved 0)
+  - started_at_unix_ns: u64 absolute UNIX epoch timestamp in nanoseconds (session start)
+  - reserved: 16 bytes (zero for now) for future use (e.g., session id, hostname)
+- Record framing (repeats until EOF):
+  - type: u8 (0x01 = output, 0x02 = input, 0x10 = resize, 0x11 = marker, 0x20–0x3F reserved for future control/events)
+  - ts_mode: u8 (0x00 = absolute; 0x01 = delta)
+  - ts_value: ULEB128 unsigned integer
+    - If ts_mode=absolute, ts_value is absolute UNIX ns since epoch.
+    - If ts_mode=delta, ts_value is nanoseconds since the previous record in the same file (stream-local).
+  - length: ULEB128 unsigned integer, byte length of payload
+  - payload: [length] bytes
+- Encoding notes:
+  - ULEB128 is used for ts_value and length to minimize space; small deltas typically encode to 1–3 bytes.
+  - Unknown record types must be safely skippable by using the length to advance.
+  - Endianness: all fixed-width header fields are little-endian; record integers use varint (LEB128), which is byte-oriented.
+- Writer heuristics:
+  - Prefer ts_mode=delta when the delta encodes in <=3 bytes (e.g., small gaps), else use absolute.
+  - Group bytes naturally as they arrive from the PTY loop to avoid over-fragmentation.
+- Playback:
+  - A client can reconstruct wall-clock times from absolute timestamps and/or accumulate deltas.
+  - Cross-session sync is enabled by absolute timestamps across independent .tcap files.
+  - Resize events (type=0x10) payload: struct { u16 cols; u16 rows } in little-endian.
 
 Progressive backfill (client scrollback)
 - On client connect:
@@ -78,7 +113,7 @@ Progressive backfill (client scrollback)
 
 xterm.js client model
 - Create an xterm.js instance per session.
-- Initial populate: use HTTP backfill for recent scrollback, write to terminal in chunks.
+- Initial populate: use WS RPC fetch_output for recent scrollback, write to terminal in chunks.
 - Live updates: WS binary frames append to xterm.js buffer.
 - Resize: xterm.js ‘resize’ -> send JSON {type:"resize", cols, rows} on WS.
 - Input: keypresses -> WS binary frames to server -> PTY write + <prefix>.input append.
@@ -108,9 +143,10 @@ Birds-eye view (Phase 1 UX)
 
 Minimal CLI (MVP)
 - --ws-listen HOST:PORT   (default: 127.0.0.1:0 for ephemeral port)
-- --ws-token TOKEN        (optional; if set, required for connections and HTTP)
+- --ws-token TOKEN        (optional; if set, required for connections and RPCs)
 - --ws-allow-remote       (if present, bind to 0.0.0.0; strongly recommend proxy+TLS)
 - --ws-send-buffer BYTES  (per-client buffer before drop/disconnect; default 2 MiB)
+- --log-format raw|tcap   (default: raw in MVP; tcap enables time-indexed container logs and RPC backfill of container bytes)
 
 Incremental implementation plan
 1) Server bootstrap in parent:
@@ -119,12 +155,13 @@ Incremental implementation plan
 2) Data plane:
    - Hook PTY output path to broadcast bytes to WS clients.
    - Hook WS binary frames to PTY input and append to <prefix>.input.
+   - If --log-format=tcap is enabled, write time-indexed container records to <prefix>.input.tcap and <prefix>.output.tcap instead of raw .input/.output.
 3) Control plane:
    - WS JSON: hello (version), resize, ping/pong.
    - WS RPC: get_meta, fetch_input, fetch_output, get_stats.
 4) Backpressure and counters:
    - Per-connection bounded queue; simple drop policy and metrics.
-   - /stats endpoint reflects counters.
+   - get_stats RPC reflects counters.
 5) Client PoC:
    - Minimal HTML page with xterm.js that:
      - Backfills last N bytes via WS RPC fetch_output.
@@ -135,7 +172,7 @@ Incremental implementation plan
 7) Docs and tests:
    - Document flags + endpoints; add integration tests that:
      - Start term-capture with --ws-listen 127.0.0.1:0 and --ws-token test.
-     - Fetch /logs/meta and a small slice.
+     - Issue get_meta RPC and a small fetch_output slice.
      - Optionally exercise WS connect (headless) to assert 101 Switching Protocols.
 
 Migration to centralized gateway (later)
@@ -151,11 +188,12 @@ Key trade-offs summarized
 - When needs grow (auth, TLS, multi-tenant), a centralized gateway can be introduced without breaking the embedded per-session model.
 
 Open questions for later
-- Log rotation semantics and how clients detect truncation or rotation.
-- Compression for WS backfill (permessage-deflate) or chunked RPC for large tails.
+- Log rotation semantics and how clients detect truncation or rotation; container header trailers and/or index sidecars.
+- Compression for WS backfill (permessage-deflate) or chunked RPC for large tails; interaction with varint framing.
 - Optional message framing if we later add multiple logical streams over WS.
 - Auth token handling best practice (header vs query vs subprotocol; recommend header).
 - Limits and quotas for inputs to avoid abuse when exposed remotely.
+- Fast-seek playback: optional on-disk index (e.g., every N records store byte offset + abs ts) to accelerate random access.
 
 Recommended next steps (actionable)
 - Implement Phase 1 MVP (embedded WS + registry + WS RPC backfill) using cpp-httplib or similar.
