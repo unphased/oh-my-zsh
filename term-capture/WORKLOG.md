@@ -58,7 +58,15 @@
 
 ## In Progress
 
-- (None currently)
+- Kickoff Batch 10 — WebSocket TTY bridge (MVP)
+  - Decide on WebSocket library (choose cpp-httplib for MVP).
+  - Implement CLI parsing for --ws-listen, --ws-token, --ws-allow-remote, --ws-send-buffer (no server yet).
+  - Add skeleton behavior: if any --ws-* flag is provided, print a short notice to stderr (e.g., "WS: planned, not yet active") and proceed normally.
+  - Draft sessions registry writer stub to <prefix>.ws.json with {id, pid, prefix, started_at} (content and pruning to evolve).
+
+- Prep Batch 14 — Time-indexed logging (tcap)
+  - Add ULEB128 encode/decode utilities and unit tests.
+  - Introduce tcap header/record structs and gated write path behind --log-format=tcap (feature off by default until tests land).
 
 ## Completed
 
