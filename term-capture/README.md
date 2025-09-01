@@ -151,3 +151,25 @@ This ensures that any flaky, randomness-driven failures can be reproduced by re-
   - make -C term-capture open-coverage
 - If gcovr is not installed, install it first:
   - brew install gcovr
+
+## Interpreting test run and coverage
+
+- The command `make -C term-capture test`:
+  - Runs unit tests (excluding [integration]) and then integration tests.
+  - Emits machine-readable reports (JSON and JUnit).
+  - Smoke-runs the main binaries.
+  - Generates coverage reports (HTML, text, XML, JSON) under `debug/coverage/`.
+
+- Snapshot from a recent run:
+  - All tests passed (unit and integration).
+  - Coverage summary was around ~51% overall.
+    - hexflow.cpp: 100%
+    - tcap.hpp: ~78% branch coverage (ULEB128 utils)
+    - term-capture.cpp: ~48% branch coverage
+
+- Suggested next steps to increase coverage (aligns with WORKLOG Batches 4/5/10/14):
+  - Add tests for error paths in term-capture.cpp (posix_openpt, grantpt, unlockpt, ptsname, fork, open, ioctl, select), using seam/shim injection to simulate failures deterministically.
+  - Strengthen signal and lifecycle tests (SIGWINCH sizing on a live child, SIGINT/SIGTERM flows already covered; extend to edge cases).
+  - Expand tests around log open failures and cleanup semantics.
+  - Keep the WS CLI skeleton test (stub .ws.json + stderr notice); add more when WS server lands.
+  - When tcap writer lands, add encoder/decoder round-trip tests and timing progression/seek tests beyond ULEB128.
