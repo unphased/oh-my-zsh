@@ -59,7 +59,7 @@
 ## In Progress
 
 - Kickoff Batch 10 — WebSocket TTY bridge (MVP)
-  - Decide on WebSocket library (choose cpp-httplib for MVP).
+  - Decide on WebSocket library (choose uWebSockets (uWS) for MVP; keep WebSocket++ as fallback).
   - Implement CLI parsing for --ws-listen, --ws-token, --ws-allow-remote, --ws-send-buffer (no server yet).
   - Add skeleton behavior: if any --ws-* flag is provided, print a short notice to stderr (e.g., "WS: planned, not yet active") and proceed normally.
   - Draft sessions registry writer stub to <prefix>.ws.json with {id, pid, prefix, started_at} (content and pruning to evolve).
@@ -125,7 +125,7 @@ Batch 9 — CI and portability
 - [ ] Gate flaky/host-dependent tests with Catch2 tags and Makefile targets.
 
 Batch 10 — WebSocket TTY bridge (MVP)
-- [ ] Implement Phase 1 per docs/WS_ARCHITECTURE.md using cpp-httplib (header-only).
+- [ ] Implement Phase 1 per docs/WS_ARCHITECTURE.md using uWebSockets (uWS).
 - [ ] Listen on 127.0.0.1:0 by default; print bound port; write <prefix>.ws.json; update ~/.term-capture/sessions.json (with pruning + file lock).
 - [ ] Broadcast PTY output to WS clients; enforce per-client send buffer with drop/disconnect policy.
 - [ ] Accept WS text input messages -> decode base64, write to PTY, and append to .input; expose WS RPCs: get_meta, fetch_input, fetch_output, and get_stats.

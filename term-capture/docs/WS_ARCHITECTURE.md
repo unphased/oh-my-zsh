@@ -49,7 +49,8 @@ Discovery and registry (Phase 1)
 - Concurrency: use a simple file lock (flock) around registry read/modify/write.
 
 Transport and endpoints
-- Library: prefer cpp-httplib (header-only) or similar with WebSocket support; MVP will use WebSocket-only transport.
+- Library: prefer uWebSockets (uWS) for high-performance WS; fallback to WebSocket++ (header-only with Asio standalone) if build constraints demand. MVP will use WebSocket-only transport.
+  - Rationale: uWS provides excellent throughput/latency and native permessage-deflate, with a simple C++ API. WebSocket++ remains a simple, portable backup.
 - Bind address: default 127.0.0.1; require --ws-allow-remote to bind 0.0.0.0.
 - Authentication:
   - Optional shared secret via --ws-token TOKEN.
@@ -152,7 +153,7 @@ Minimal CLI (MVP)
 
 Incremental implementation plan
 1) Server bootstrap in parent:
-   - After PTY and logs set up, start cpp-httplib server in a background thread.
+   - After PTY and logs set up, start a uWebSockets (uWS) server in a background thread (kqueue/epoll via usockets).
    - Determine bound port; print to stderr; write <prefix>.ws.json and update registry.
 2) Data plane:
    - Hook PTY output path to broadcast bytes to WS clients.
@@ -198,7 +199,7 @@ Open questions for later
 - Fast-seek playback: optional on-disk index (e.g., every N records store byte offset + abs ts) to accelerate random access.
 
 Recommended next steps (actionable)
-- Implement Phase 1 MVP (embedded WS + registry + WS RPC backfill) using cpp-httplib or similar.
+- Implement Phase 1 MVP (embedded WS + registry + WS RPC backfill) using uWebSockets (uWS). If uWS build proves problematic on a given host, temporarily use WebSocket++ as a fallback.
 - Add CLI flags (--ws-listen, --ws-token, --ws-allow-remote, --ws-send-buffer).
 - Write <prefix>.ws.json and update ~/.term-capture/sessions.json with flock.
 - Add a minimal xterm.js HTML client to prove end-to-end flow.
