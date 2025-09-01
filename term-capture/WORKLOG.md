@@ -48,15 +48,13 @@
     - [ ] **Update README:** Keep README.md updated with new features, configuration options, and usage examples.
     - [ ] **Makefile Enhancements:** Review Makefile for any necessary updates as new source files or dependencies are added (e.g., for test framework, coverage report generation).
 
-**6. WebSocket TTY Bridge (New Requirement):**
-    - [ ] Embed a lightweight WebSocket server into term-capture to relay PTY I/O.
-    - [ ] CLI: add --ws-listen, --ws-token, --ws-allow-remote, --ws-max-clients, --ws-send-buffer.
-    - [ ] Protocol: binary frames for data; JSON control for resize and hello; auth token on connect.
-    - [ ] Multi-client: allow multiple viewers; simple FIFO input; optional exclusive control.
-    - [ ] Backpressure: per-client buffers, drops/disconnect on overflow.
-    - [ ] Security: default bind to 127.0.0.1; recommend TLS/auth via reverse proxy.
-    - [ ] Observability: counters and logs for connections and bytes.
-    - [ ] Document architecture options: embedded per-session WS vs centralized gateway.
+**6. WebSocket TTY Bridge (New Requirement) — see docs/WS_ARCHITECTURE.md for full plan:**
+    - [ ] Phase 1 (MVP): embedded per-session WS + HTTP backfill + local registry file.
+    - [ ] CLI (MVP): --ws-listen, --ws-token, --ws-allow-remote, --ws-send-buffer. Advanced flags (e.g., --ws-max-clients) tracked in Batch 12.
+    - [ ] Data plane: WS /ws (binary PTY I/O) and JSON control (resize/hello); HTTP /logs/* and /stats.
+    - [ ] Multi-client + backpressure as specified; default bind 127.0.0.1; optional shared-secret token.
+    - [ ] Observability: counters and lightweight logs per doc.
+    - [ ] Birds-eye: maintain sessions registry; later serve a simple UI via a thin gateway.
 
 ## In Progress
 
@@ -119,32 +117,26 @@ Batch 9 — CI and portability
 - [ ] Gate flaky/host-dependent tests with Catch2 tags and Makefile targets.
 
 Batch 10 — WebSocket TTY bridge (MVP)
-- [ ] Select WS library (evaluate: cpp-httplib with WS, Boost.Beast, libwebsockets, uWebSockets). Prefer minimal deps and simple build on macOS/Linux.
-- [ ] Add minimal WS server to term-capture: listen on --ws-listen HOST:PORT (default 127.0.0.1:0 auto-port); print assigned port to stderr.
-- [ ] Outbound: broadcast PTY output bytes to connected WS clients (binary frames).
-- [ ] Inbound: write received WS binary frames to masterFd and append to .input log.
-- [ ] Multi-client: support multiple clients by broadcasting output, multiplex input as FIFO; document that input is not arbitrated.
-- [ ] Backpressure: cap per-client send buffer; drop with metric when exceeded.
+- [ ] Implement Phase 1 per docs/WS_ARCHITECTURE.md using cpp-httplib (header-only).
+- [ ] Listen on 127.0.0.1:0 by default; print bound port; write <prefix>.ws.json; update ~/.term-capture/sessions.json (with pruning + file lock).
+- [ ] Broadcast PTY output to WS clients; enforce per-client send buffer with drop/disconnect policy.
+- [ ] Accept WS binary input -> write to PTY and append to .input; expose HTTP /logs/meta, /logs/input, /logs/output, and /stats.
 
 Batch 11 — Protocol, auth, and lifecycle
-- [ ] Define message protocol: binary frames for data; JSON control frames for resize {type:"resize", cols, rows}, ping/pong, hello/version.
-- [ ] Support window resize from clients via WS -> TIOCSWINSZ.
-- [ ] Auth: optional shared-secret token via --ws-token TOKEN or env; reject unauthenticated clients.
-- [ ] Heartbeats: ping/pong and idle timeouts.
-- [ ] Graceful shutdown semantics on WS close; allow keep-running without clients.
+- [ ] Solidify message protocol per docs/WS_ARCHITECTURE.md: binary data frames; JSON control (resize/hello); ping/pong.
+- [ ] Implement resize handling via WS -> TIOCSWINSZ.
+- [ ] Enforce optional --ws-token for both WS and HTTP endpoints.
+- [ ] Add heartbeats and idle timeouts; graceful close semantics when last client disconnects.
 
 Batch 12 — Observability and limits
-- [ ] Metrics counters (connections, bytes in/out, drops, backlog).
-- [ ] Logging of connections and auth failures (rate-limited).
+- [ ] Metrics and logging per docs/WS_ARCHITECTURE.md: counters (connections, bytes in/out, drops, backlog) and rate-limited logs.
 - [ ] Configuration flags: --ws-max-clients, --ws-send-buffer, --ws-allow-remote (default localhost only).
-- [ ] Document resource footprint; test up to 100 concurrent sessions.
+- [ ] Document resource footprint; test up to ~100 concurrent sessions.
 
 Batch 13 — Architectural follow-ups
-- [ ] Evaluate per-session server vs centralized gateway process:
-  - [ ] Option A: per-session WS inside term-capture (simple, 1:1).
-  - [ ] Option B: separate "tc-gateway" multiplexing WS and connecting to term-capture via Unix domain sockets.
-- [ ] Decide on TLS termination (recommend reverse proxy like nginx/traefik; keep term-capture plain WS).
-- [ ] Define discovery of endpoints (stdout, file, or registry file <prefix>.ws.json).
+- [ ] Evaluate per-session embedded WS (A) vs centralized "tc-gateway" (B) per docs/WS_ARCHITECTURE.md; decide rollout plan.
+- [ ] Choose TLS termination strategy (recommend reverse proxy); keep term-capture plain WS.
+- [ ] Finalize discovery: per-session <prefix>.ws.json + global sessions.json registry; wire birds-eye UI to the registry.
 
 Architecture options and considerations
 - Per-session embedded WS:
