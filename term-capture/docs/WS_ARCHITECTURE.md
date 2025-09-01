@@ -8,7 +8,7 @@ Goals
 Guiding principles
 - Keep term-capture a single self-contained binary with minimal dependencies.
 - Favor incremental complexity: start embedded per-session WS, add a registry, later unlock a centralized gateway if/when needed.
-- Prefer simple, explicit protocols: raw binary for data, JSON for control, HTTP for backfill.
+- Prefer simple, explicit protocols: raw binary for data, JSON for control and request/response RPC over WebSocket (no separate HTTP endpoints).
 
 Approach comparison
 
@@ -49,31 +49,32 @@ Discovery and registry (Phase 1)
 - Concurrency: use a simple file lock (flock) around registry read/modify/write.
 
 Transport and endpoints
-- Library: prefer cpp-httplib (header-only, HTTP + WS) for MVP simplicity on macOS/Linux.
+- Library: prefer cpp-httplib (header-only) or similar with WebSocket support; MVP will use WebSocket-only transport.
 - Bind address: default 127.0.0.1; require --ws-allow-remote to bind 0.0.0.0.
 - Authentication:
   - Optional shared secret via --ws-token TOKEN.
   - For WS, accept token via query param (?token=...), header, or JSON hello message.
-  - For HTTP backfill endpoints, require the same token if configured.
+  - If configured, require token for all WS connections and RPCs.
 - Endpoints:
   - WS /ws
     - Outbound: broadcast PTY output bytes to all connected clients as binary frames.
     - Inbound:
       - Binary frames are written to PTY and appended to <prefix>.input (FIFO arbitration).
       - JSON control frames for {type:"resize", cols, rows}, ping/pong, hello/version.
-  - HTTP /logs/meta -> JSON { input_size, output_size, started_at, pid, prefix }
-  - HTTP /logs/input?offset=&limit= -> raw bytes slice (200–500 KB limits reasonable)
-  - HTTP /logs/output?offset=&limit= -> raw bytes slice
-  - HTTP /stats -> JSON counters { connections, bytes_in, bytes_out, drops, backlog_high_water }
+  - WS RPC messages (over /ws):
+    - get_meta -> JSON { input_size, output_size, started_at, pid, prefix }
+    - fetch_input {offset,limit} -> returns raw bytes (binary frame)
+    - fetch_output {offset,limit} -> returns raw bytes (binary frame)
+    - get_stats -> JSON { connections, bytes_in, bytes_out, drops, backlog_high_water }
 
 Progressive backfill (client scrollback)
 - On client connect:
-  - Fetch /logs/meta to learn sizes.
-  - Backfill recent tail via /logs/output?offset=max(0, size-N)&limit=N.
+  - Send WS RPC get_meta to learn sizes.
+  - Backfill recent tail via WS RPC fetch_output with {offset:max(0, size-N), limit:N}.
   - Start WS to receive live output; append to terminal.
 - User scrolls upward:
   - Client requests earlier ranges with offset/limit.
-- Rationale: HTTP range-like fetches are simpler than inventing WS subprotocols for random access; browsers fetch() integrates well.
+- Rationale: Keeping a single WS channel (data + control + RPC) simplifies deployment (no extra HTTP handlers) and works well with binary frames for backfill; clients can chunk requests as needed.
 
 xterm.js client model
 - Create an xterm.js instance per session.
@@ -103,7 +104,7 @@ Security posture (MVP)
 Birds-eye view (Phase 1 UX)
 - A static “sessions.html” (served by gateway later, or any static server) loads sessions.json from the registry path exposed behind auth.
 - Renders a list of live sessions with connect links (ws://127.0.0.1:PORT/ws).
-- For quick-start, serve a minimal HTML/JS page directly from term-capture (optional) at GET /, reading the local registry and opening a single session.
+- For quick-start, host a minimal HTML/JS page with any static server; it connects via WS RPC. A thin gateway can later serve the birds-eye UI.
 
 Minimal CLI (MVP)
 - --ws-listen HOST:PORT   (default: 127.0.0.1:0 for ephemeral port)
@@ -120,13 +121,13 @@ Incremental implementation plan
    - Hook WS binary frames to PTY input and append to <prefix>.input.
 3) Control plane:
    - WS JSON: hello (version), resize, ping/pong.
-   - HTTP: /logs/meta, /logs/input, /logs/output.
+   - WS RPC: get_meta, fetch_input, fetch_output, get_stats.
 4) Backpressure and counters:
    - Per-connection bounded queue; simple drop policy and metrics.
    - /stats endpoint reflects counters.
 5) Client PoC:
    - Minimal HTML page with xterm.js that:
-     - Backfills last N bytes via /logs/output.
+     - Backfills last N bytes via WS RPC fetch_output.
      - Connects WS for live.
      - Sends resize and input.
 6) Registry:
@@ -140,7 +141,7 @@ Incremental implementation plan
 Migration to centralized gateway (later)
 - Stand up tc-gateway:
   - Reads sessions.json (or subscribes to a named pipe/event).
-  - Serves the birds-eye UI, proxies WS/HTTP to per-session servers.
+  - Serves the birds-eye UI, proxies WS to per-session servers.
   - Adds external auth/TLS, rate-limits, and consolidated metrics.
 - Optionally switch term-capture to expose a Unix domain socket instead of TCP and let gateway bind public ports.
 
@@ -151,13 +152,13 @@ Key trade-offs summarized
 
 Open questions for later
 - Log rotation semantics and how clients detect truncation or rotation.
-- Compression for HTTP backfill (Accept-Encoding) for large tails.
+- Compression for WS backfill (permessage-deflate) or chunked RPC for large tails.
 - Optional message framing if we later add multiple logical streams over WS.
 - Auth token handling best practice (header vs query vs subprotocol; recommend header).
 - Limits and quotas for inputs to avoid abuse when exposed remotely.
 
 Recommended next steps (actionable)
-- Implement Phase 1 MVP (embedded WS + registry + HTTP backfill) using cpp-httplib.
+- Implement Phase 1 MVP (embedded WS + registry + WS RPC backfill) using cpp-httplib or similar.
 - Add CLI flags (--ws-listen, --ws-token, --ws-allow-remote, --ws-send-buffer).
 - Write <prefix>.ws.json and update ~/.term-capture/sessions.json with flock.
 - Add a minimal xterm.js HTML client to prove end-to-end flow.

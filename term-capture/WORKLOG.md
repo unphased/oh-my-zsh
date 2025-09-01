@@ -51,7 +51,7 @@
 **6. WebSocket TTY Bridge (New Requirement) — see docs/WS_ARCHITECTURE.md for full plan:**
     - [ ] Phase 1 (MVP): embedded per-session WS + HTTP backfill + local registry file.
     - [ ] CLI (MVP): --ws-listen, --ws-token, --ws-allow-remote, --ws-send-buffer. Advanced flags (e.g., --ws-max-clients) tracked in Batch 12.
-    - [ ] Data plane: WS /ws (binary PTY I/O) and JSON control (resize/hello); HTTP /logs/* and /stats.
+    - [ ] Data plane: WS /ws (binary PTY I/O) and JSON control (resize/hello); WS RPC for meta/backfill/stats (no separate HTTP endpoints).
     - [ ] Multi-client + backpressure as specified; default bind 127.0.0.1; optional shared-secret token.
     - [ ] Observability: counters and lightweight logs per doc.
     - [ ] Birds-eye: maintain sessions registry; later serve a simple UI via a thin gateway.
@@ -120,12 +120,12 @@ Batch 10 — WebSocket TTY bridge (MVP)
 - [ ] Implement Phase 1 per docs/WS_ARCHITECTURE.md using cpp-httplib (header-only).
 - [ ] Listen on 127.0.0.1:0 by default; print bound port; write <prefix>.ws.json; update ~/.term-capture/sessions.json (with pruning + file lock).
 - [ ] Broadcast PTY output to WS clients; enforce per-client send buffer with drop/disconnect policy.
-- [ ] Accept WS binary input -> write to PTY and append to .input; expose HTTP /logs/meta, /logs/input, /logs/output, and /stats.
+- [ ] Accept WS binary input -> write to PTY and append to .input; expose WS RPCs: get_meta, fetch_input, fetch_output, and get_stats.
 
 Batch 11 — Protocol, auth, and lifecycle
 - [ ] Solidify message protocol per docs/WS_ARCHITECTURE.md: binary data frames; JSON control (resize/hello); ping/pong.
 - [ ] Implement resize handling via WS -> TIOCSWINSZ.
-- [ ] Enforce optional --ws-token for both WS and HTTP endpoints.
+- [ ] Enforce optional --ws-token for all WS connections and RPCs.
 - [ ] Add heartbeats and idle timeouts; graceful close semantics when last client disconnects.
 
 Batch 12 — Observability and limits
