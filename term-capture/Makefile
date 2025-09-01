@@ -131,9 +131,10 @@ TEST_ARGS ?=
 UNIT_FILTER ?= ~[integration]
 INTEGRATION_FILTER ?= [integration]
 test: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
-	# Run the Catch2 unit test suite
-	./$(TEST_EXECUTABLE) $(TEST_ARGS)
-	# Also emit machine-readable test reports for downstream tooling
+	# Run unit tests (exclude [integration]) and then integration tests
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(UNIT_FILTER)
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER)
+	# Also emit machine-readable test reports for downstream tooling (full suite)
 	@mkdir -p debug
 	./$(TEST_EXECUTABLE) -r JSON -o debug/test-results.json -s || true
 	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s || true
@@ -196,7 +197,7 @@ help:
 	@echo "  make            -> same as 'make all' (builds debug and release)"
 	@echo "  make debug      -> build debug binaries (with coverage flags)"
 	@echo "  make release    -> build release binaries (optimized)"
-	@echo "  make test       -> build test runner + debug binaries, run tests,"
+	@echo "  make test       -> build test runner + debug binaries, run unit and integration tests,"
 	@echo "                     emit JSON (debug/test-results.json) and JUnit (debug/junit.xml) reports,"
 	@echo "                     smoke-run main() of debug/term-capture and debug/hexflow,"
 	@echo "                     then generate and print coverage summary"
