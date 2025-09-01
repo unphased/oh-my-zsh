@@ -86,9 +86,9 @@ Batch 2 — Integration tests: baseline flows
   - Implemented by piping "echo fallback_ok\nexit\n" into term-capture to auto-exit the interactive shell.
 
 Batch 3 — Signals and window size behavior
-- [ ] Send SIGWINCH to parent; ensure no crash and child PTY gets size (smoke test).
-- [ ] Send SIGINT/SIGTERM to parent; verify graceful shutdown and closed logs.
-- [ ] Observe SIGCHLD: child exits; parent performs cleanup_and_exit.
+- [x] Send SIGWINCH to parent; ensure no crash and child PTY gets size (smoke test).
+- [x] Send SIGINT/SIGTERM to parent; verify graceful shutdown and closed logs.
+- [x] Observe SIGCHLD: child exits; parent performs cleanup_and_exit.
 
 Batch 4 — Error handling
 - [ ] Design tests for failure paths (posix_openpt/grantpt/unlockpt/ptsname/fork/open/ioctl/select).
