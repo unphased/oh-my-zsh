@@ -18,6 +18,7 @@ static struct termios orig_termios;
 static bool have_orig_termios = false;
 static int masterFd = -1;
 static pid_t child_pid = -1;
+static volatile bool did_cleanup = false;
 
 // Restore parent terminal to original settings
 void restore_terminal() {
@@ -26,17 +27,28 @@ void restore_terminal() {
   }
 }
 
-void cleanup_and_exit() {
+void cleanup() {
   restore_terminal();
   if (masterFd >= 0) {
     close(masterFd);
+    masterFd = -1;
   }
   if (child_pid > 0) {
     kill(child_pid, SIGTERM);
     waitpid(child_pid, nullptr, 0);
+    child_pid = -1;
   }
   std::cerr << "\nTerminal capture completed. Logs have been saved.\n";
-  exit(0);
+  did_cleanup = true;
+}
+
+void cleanup_and_exit(int code) {
+  cleanup();
+#ifndef BUILD_TERM_CAPTURE_AS_LIB
+  exit(code);
+#else
+  (void)code;
+#endif
 }
 
 // Handle Ctrl+C, SIGTERM, etc.
@@ -46,7 +58,7 @@ void signal_handler(int sig) {
     int status;
     pid_t pid = waitpid(-1, &status, WNOHANG);
     if (pid == child_pid) {
-      cleanup_and_exit();
+      cleanup_and_exit(0);
     }
   }
 }
@@ -94,6 +106,9 @@ std::vector<const char*> build_exec_argv(const std::vector<std::string>& args) {
 #ifdef BUILD_TERM_CAPTURE_AS_LIB
 bool get_should_exit() { return should_exit; }
 void set_should_exit(bool v) { should_exit = v; }
+bool get_did_cleanup() { return did_cleanup; }
+void reset_did_cleanup(bool v) { did_cleanup = v; }
+void set_child_pid_for_test(pid_t pid) { child_pid = pid; }
 #endif
 
 #ifndef BUILD_TERM_CAPTURE_AS_LIB
@@ -249,7 +264,7 @@ int main(int argc, char* argv[]) {
 
   inputFile.close();
   outputFile.close();
-  cleanup_and_exit();
+  cleanup_and_exit(0);
   return 0; // Never reached
 }
 #endif // BUILD_TERM_CAPTURE_AS_LIB

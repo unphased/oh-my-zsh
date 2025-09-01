@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <csignal>
+#include <unistd.h>
 
 TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
     SECTION("Only prefix provided") {
@@ -127,6 +128,32 @@ TEST_CASE("handle_winch can be invoked safely in tests", "[term_capture][signals
     // It should be a no-op aside from reading current window size from STDIN.
     handle_winch(0);
     REQUIRE(true); // No crash implies success for this smoke test
+}
+
+TEST_CASE("signal_handler triggers cleanup on SIGCHLD when child exits", "[term_capture][signals][sigchld]") {
+#ifdef BUILD_TERM_CAPTURE_AS_LIB
+    reset_did_cleanup();
+    REQUIRE_FALSE(get_did_cleanup());
+
+    pid_t pid = fork();
+    REQUIRE(pid >= 0);
+
+    if (pid == 0) {
+        _exit(0);
+    } else {
+        set_child_pid_for_test(pid);
+        // Poll the handler until it observes/reaps the child and cleans up
+        for (int i = 0; i < 200 && !get_did_cleanup(); ++i) {
+            signal_handler(SIGCHLD);
+            usleep(1000); // 1ms
+        }
+        REQUIRE(get_did_cleanup());
+        // reset for other tests
+        reset_did_cleanup();
+    }
+#else
+    SUCCEED("Not built as LIB; SIGCHLD cleanup test unavailable.");
+#endif
 }
 
 //

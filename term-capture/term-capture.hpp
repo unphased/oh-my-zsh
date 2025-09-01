@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <sys/types.h>
 
 // Structure to hold parsed command-line arguments
 struct Config {
@@ -38,6 +39,10 @@ void handle_winch(int);
 // Test-only accessors for internal state
 bool get_should_exit();
 void set_should_exit(bool v);
+// Additional test-only hooks
+bool get_did_cleanup();
+void reset_did_cleanup(bool v = false); // default reset to false for convenience
+void set_child_pid_for_test(pid_t pid);
 #endif
 
 #endif // TERM_CAPTURE_HPP
