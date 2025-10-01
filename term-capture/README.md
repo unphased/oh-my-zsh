@@ -45,10 +45,12 @@ or
 exit
 
 cat my_session_log.input | ./hexflow
-cat my_session_log.output | ./hexflow
 ```
 
-This is useful for inspecting the raw byte streams captured by `term-capture`.
+Here is a nice way to view a "mirror" of an active session recording in real time:
+```
+tail -f my_session_log.output
+```
 
 ## Building
 
