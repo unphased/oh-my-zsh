@@ -1,4 +1,5 @@
 #include "term-capture.hpp" // Include the new header
+#include "term_capture_sys.hpp"
 
 #include <iostream>
 #include <fstream>
@@ -343,7 +344,7 @@ int main(int argc, char* argv[]) {
     FD_SET(masterFd, &fds);
 
     int maxFd = (masterFd > STDIN_FILENO) ? masterFd : STDIN_FILENO;
-    int ret = select(maxFd + 1, &fds, NULL, NULL, NULL);
+    int ret = tc::sys::select(maxFd + 1, &fds, NULL, NULL, NULL);
     if (ret < 0 && errno != EINTR) {
       break;
     }

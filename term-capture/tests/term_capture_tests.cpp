@@ -4,6 +4,25 @@
 #include <string>
 #include <csignal>
 #include <unistd.h>
+#include <cerrno>
+#include "../term_capture_sys.hpp"
+
+#ifdef BUILD_TERM_CAPTURE_AS_LIB
+namespace {
+int fake_select_call_count = 0;
+
+int fake_select_impl(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds, struct timeval* timeout) {
+    (void)nfds;
+    (void)readfds;
+    (void)writefds;
+    (void)exceptfds;
+    (void)timeout;
+    ++fake_select_call_count;
+    errno = EINTR;
+    return -1;
+}
+} // namespace
+#endif
 
 TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
     SECTION("Only prefix provided") {
@@ -198,6 +217,23 @@ TEST_CASE("signal_handler triggers cleanup on SIGCHLD when child exits", "[term_
     }
 #else
     SUCCEED("Not built as LIB; SIGCHLD cleanup test unavailable.");
+#endif
+}
+
+TEST_CASE("select seam can be overridden in tests", "[term_capture][seams]") {
+#ifdef BUILD_TERM_CAPTURE_AS_LIB
+    fake_select_call_count = 0;
+    auto original = tc::sys::select_impl;
+    tc::sys::select_impl = fake_select_impl;
+    errno = 0;
+    int rc = tc::sys::select(0, nullptr, nullptr, nullptr, nullptr);
+    REQUIRE(rc == -1);
+    REQUIRE(errno == EINTR);
+    REQUIRE(fake_select_call_count == 1);
+    tc::sys::select_impl = original;
+    tc::sys::reset_to_default_select();
+#else
+    SUCCEED("Not built as LIB; seam override unavailable.");
 #endif
 }
 
