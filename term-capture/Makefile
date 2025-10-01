@@ -42,7 +42,8 @@ TEST_OBJ_FILES = $(patsubst $(TEST_DIR)/%.cpp,debug/$(TEST_DIR)/%.o,$(TEST_SRC_F
 # We'll use special versions of .o files compiled without their main()
 HEXFLOW_FOR_TEST_OBJ = debug/hexflow_for_test.o # Object file in debug/
 TERM_CAPTURE_FOR_TEST_OBJ = debug/term_capture_for_test.o # Object file in debug/
-APP_OBJ_FOR_TESTS = $(HEXFLOW_FOR_TEST_OBJ) $(TERM_CAPTURE_FOR_TEST_OBJ)
+TERM_CAPTURE_SYS_FOR_TEST_OBJ = debug/term_capture_sys_for_test.o
+APP_OBJ_FOR_TESTS = $(HEXFLOW_FOR_TEST_OBJ) $(TERM_CAPTURE_FOR_TEST_OBJ) $(TERM_CAPTURE_SYS_FOR_TEST_OBJ)
 
 # Add include path for catch.hpp and use debug (now with coverage) flags for tests
 TEST_COMPILE_FLAGS = $(DEBUG_FLAGS) -I$(TEST_DIR)
@@ -56,6 +57,12 @@ release: $(patsubst %,release/%,$(TARGETS))
 
 # coverage target is removed
 
+debug/term-capture: debug/term-capture.o debug/term_capture_sys.o
+	$(CXX) $(DEBUG_FLAGS) $^ -o $@
+
+release/term-capture: release/term-capture.o release/term_capture_sys.o
+	$(CXX) $(RELEASE_FLAGS) $^ -o $@
+
 debug/%: debug/%.o
 	$(CXX) $(DEBUG_FLAGS) $^ -o $@
 
@@ -67,6 +74,7 @@ release/%: release/%.o
 # Specific rules for objects that depend on .hpp files
 HEXFLOW_HPP = hexflow.hpp
 TERM_CAPTURE_HPP = term-capture.hpp
+TERM_CAPTURE_SYS_HPP = term_capture_sys.hpp
 
 debug/hexflow.o: hexflow.cpp $(HEXFLOW_HPP) Makefile
 	@mkdir -p debug
@@ -85,6 +93,14 @@ debug/term-capture.o: term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
 release/term-capture.o: term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
 	@mkdir -p release
 	$(CXX) $(RELEASE_FLAGS) -c term-capture.cpp -o $@
+
+debug/term_capture_sys.o: term_capture_sys.cpp $(TERM_CAPTURE_SYS_HPP) Makefile
+	@mkdir -p debug
+	$(CXX) $(DEBUG_FLAGS) -c term_capture_sys.cpp -o $@
+
+release/term_capture_sys.o: term_capture_sys.cpp $(TERM_CAPTURE_SYS_HPP) Makefile
+	@mkdir -p release
+	$(CXX) $(RELEASE_FLAGS) -c term_capture_sys.cpp -o $@
 
 # coverage/term-capture.o rule removed
 
@@ -123,6 +139,10 @@ $(HEXFLOW_FOR_TEST_OBJ): hexflow.cpp $(HEXFLOW_HPP) Makefile
 $(TERM_CAPTURE_FOR_TEST_OBJ): term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
 	@mkdir -p $(@D)
 	$(CXX) $(DEBUG_FLAGS) -DBUILD_TERM_CAPTURE_AS_LIB -c term-capture.cpp -o $@
+
+$(TERM_CAPTURE_SYS_FOR_TEST_OBJ): term_capture_sys.cpp $(TERM_CAPTURE_SYS_HPP) Makefile
+	@mkdir -p $(@D)
+	$(CXX) $(DEBUG_FLAGS) -DBUILD_TERM_CAPTURE_AS_LIB -c term_capture_sys.cpp -o $@
 
 # Rule to link the test runner
 # Uses DEBUG_FLAGS
