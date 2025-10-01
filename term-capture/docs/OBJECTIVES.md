@@ -26,6 +26,7 @@
 - **Log Management & Storage**: rotation policy, pluggable log naming schemes, buffered writes with crash-safe flush semantics.
 - **High-Volume Throughput Controls**: configurable data-rate monitoring with boundary retention and drop notices.
 - **Session Playback Foundation**: tcap container writer/reader, time-indexed playback tooling, and integration hooks for the WebSocket RPC backfill.
+- **Daemonless Registry Mesh**: prototype peer-to-peer gossip between term-capture instances, leader election for the shared registry snapshot, and contract for which peer exposes external metadata.
 
 ## WebSocket Roadmap (batches)
 1. **Batch 7 – MVP Server Spine**: integrate WS server, CLI flags, registry, per-session metadata stub.
@@ -33,6 +34,10 @@
 3. **Batch 9 – Backfill RPCs**: implement `get_meta`, `fetch_input`, `fetch_output`, `get_stats` over WS.
 4. **Batch 10 – Browser Client PoC**: minimal xterm.js page with resize + authentication plumbing.
 5. **Batch 11+**: protocol hardening, auth token enforcement, lifecycle management, observability, and metric surfacing as outlined in `docs/WS_ARCHITECTURE.md`.
+- **Registry Mesh Track** (parallel exploration):
+  - Sketch gossip heartbeat payloads and on-disk snapshot rotation strategy.
+  - Implement PID/UUID-based bully election and switchover tests so one instance owns the public registry sink at a time.
+  - Harden permissions around the local gossip socket before wider deployment.
 
 ## Backlog & Ideas
 - Disk usage controls: smarter rotation/archival, optional compression, and low-frequency flush strategies.

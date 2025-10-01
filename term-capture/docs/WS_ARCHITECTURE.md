@@ -204,3 +204,28 @@ Recommended next steps (actionable)
 - Write <prefix>.ws.json and update ~/.term-capture/sessions.json with flock. For the first increment, write a per-session stub <prefix>.ws.json with {id,pid,prefix,started_at_unix_ns}.
 - Add a minimal xterm.js HTML client to prove end-to-end flow.
 - Later, create a small tc-gateway that serves birds-eye from the registry and proxies to sessions.
+
+Registry evolution (peer-to-peer, daemonless)
+- Vision: every shell launches under term-capture, and instances collaborate to keep discovery state without a standalone supervisor.
+- Local gossip channel:
+  - Each process exposes a Unix domain socket endpoint and exchanges JSON membership beacons on startup/shutdown.
+  - Heartbeats carry {session_id, pid, prefix, started_at, ws_host, ws_port, capabilities} so peers can reconcile state quickly.
+- Consensus on registry state:
+  - All peers maintain the full registry in memory and opportunistically write snapshots (and rotating backups) to `sessions.json` for cold-start recovery.
+  - Elect a leader with a lightweight algorithm (e.g., bully on PID or monotonic session_id) that owns the authoritative disk writes and any externally visible metadata socket/port.
+  - Followers monitor heartbeat gaps + pidfiles; on leader loss they nominate the next candidate and replay the latest snapshot.
+- External metadata endpoint selection:
+  - Only the leader binds the advertised port for birds-eye consumers; followers keep their WS metadata private to avoid conflicts while still mirroring PTY streams locally.
+  - Leader transitions trigger a registry version bump so clients can re-resolve quickly.
+- Lifecycle coupling benefits:
+  - Cluster membership automatically tracks PTY lifecycles; when the last shell exits the mesh disappears cleanly.
+  - Avoids deploying a daemon while preserving eventual consistency for dashboards and gateways.
+- Hardening ideas:
+  - Restrict gossip socket permissions to the owning user or group to prevent spoofing.
+  - If configuration grows (e.g., shared auth tokens), consider persisting a tiny replicated log or embedding a RAFT-style term counter to prevent split-brain writes.
+- Datagram heartbeat design:
+  - Transport: Unix domain datagram socket (e.g., `/tmp/term-capture heartbeats`), avoiding TCP TIME_WAIT issues and keeping setup lightweight.
+  - Primary selection: first instance that successfully `bind()`s the heartbeat path becomes the primary; followers handle `EADDRINUSE` by switching to listener mode.
+  - Heartbeat payload: small JSON blob `{pid, session_id, ws_port, snapshot_version}` broadcast once per second via `sendto()`; followers `recv()` these to stay current.
+  - Failure detection: followers declare the primary dead after missing N heartbeats, optionally confirming the PID vanished, then attempt to `bind()` the path themselves.
+  - Cleanup: heartbeat socket path permissions set to 0600 and unlinked when the primary exits, so the next process can bind immediately even after a crash.
