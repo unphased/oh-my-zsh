@@ -182,11 +182,15 @@ test-junit: $(TEST_EXECUTABLE)
 # Generate coverage reports (HTML + text summary) after tests
 coverage:
 	@mkdir -p $(COVERAGE_DIR)
-	@sh -c 'command -v gcovr >/dev/null 2>&1 || { echo "gcovr not found. Install with: brew install gcovr (or pip install gcovr)"; exit 0; }'
-	gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --html --html-details -o $(COVERAGE_DIR)/index.html --gcov-ignore-errors=no_working_dir_found
-	gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found
-	gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --xml -o $(COVERAGE_DIR)/coverage.xml --gcov-ignore-errors=no_working_dir_found
-	gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --json -o $(COVERAGE_DIR)/coverage.json --gcov-ignore-errors=no_working_dir_found
+	@if ! command -v gcovr >/dev/null 2>&1; then \
+		echo "gcovr not found. Install with: brew install gcovr (or pip install gcovr)"; \
+		echo "gcovr not found. Coverage reports were skipped." > $(COVERAGE_DIR)/coverage.txt; \
+	else \
+		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --html --html-details -o $(COVERAGE_DIR)/index.html --gcov-ignore-errors=no_working_dir_found; \
+		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found; \
+		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --xml -o $(COVERAGE_DIR)/coverage.xml --gcov-ignore-errors=no_working_dir_found; \
+		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --json -o $(COVERAGE_DIR)/coverage.json --gcov-ignore-errors=no_working_dir_found; \
+	fi
 
 # Convenience: open the HTML coverage report on macOS
 open-coverage: coverage
@@ -230,4 +234,3 @@ clean:
 
 
 .PHONY: all debug release clean test test-unit test-integration test-verbose test-json test-junit coverage open-coverage clean-coverage-data help # coverage target removed
-
