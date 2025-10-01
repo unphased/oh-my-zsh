@@ -32,21 +32,28 @@ GCOVR_EXCLUDES = --exclude 'tests/.*' --exclude '.*catch_amalgamated.*'
 TEST_SRC_FILES = $(TEST_DIR)/hexflow_tests.cpp \
                  $(TEST_DIR)/term_capture_tests.cpp \
                  $(TEST_DIR)/tcap_tests.cpp \
+                 $(TEST_DIR)/select_link_tests.cpp \
+                 $(TEST_DIR)/link_seam_tests.cpp \
                  $(TEST_DIR)/catch_amalgamated.cpp
 
 # Object files for the test sources
 # This pattern will generate debug/tests/hexflow_tests.o etc.
 TEST_OBJ_FILES = $(patsubst $(TEST_DIR)/%.cpp,debug/$(TEST_DIR)/%.o,$(TEST_SRC_FILES))
 
+UNAME_S := $(shell uname -s)
+LDLIBS :=
+ifeq ($(UNAME_S),Linux)
+LDLIBS += -ldl
+endif
+
 # Application object files needed for linking tests
 # We'll use special versions of .o files compiled without their main()
 HEXFLOW_FOR_TEST_OBJ = debug/hexflow_for_test.o # Object file in debug/
 TERM_CAPTURE_FOR_TEST_OBJ = debug/term_capture_for_test.o # Object file in debug/
-TERM_CAPTURE_SYS_FOR_TEST_OBJ = debug/term_capture_sys_for_test.o
-APP_OBJ_FOR_TESTS = $(HEXFLOW_FOR_TEST_OBJ) $(TERM_CAPTURE_FOR_TEST_OBJ) $(TERM_CAPTURE_SYS_FOR_TEST_OBJ)
+APP_OBJ_FOR_TESTS = $(HEXFLOW_FOR_TEST_OBJ) $(TERM_CAPTURE_FOR_TEST_OBJ)
 
 # Add include path for catch.hpp and use debug (now with coverage) flags for tests
-TEST_COMPILE_FLAGS = $(DEBUG_FLAGS) -I$(TEST_DIR)
+TEST_COMPILE_FLAGS = $(DEBUG_FLAGS) -I$(TEST_DIR) -DBUILD_TERM_CAPTURE_AS_LIB
 
 
 all: debug release
@@ -57,24 +64,17 @@ release: $(patsubst %,release/%,$(TARGETS))
 
 # coverage target is removed
 
-debug/term-capture: debug/term-capture.o debug/term_capture_sys.o
-	$(CXX) $(DEBUG_FLAGS) $^ -o $@
-
-release/term-capture: release/term-capture.o release/term_capture_sys.o
-	$(CXX) $(RELEASE_FLAGS) $^ -o $@
-
 debug/%: debug/%.o
-	$(CXX) $(DEBUG_FLAGS) $^ -o $@
+	$(CXX) $(DEBUG_FLAGS) $^ $(LDLIBS) -o $@
 
 release/%: release/%.o
-	$(CXX) $(RELEASE_FLAGS) $^ -o $@
+	$(CXX) $(RELEASE_FLAGS) $^ $(LDLIBS) -o $@
 
 # coverage executable linking rule is removed
 
 # Specific rules for objects that depend on .hpp files
 HEXFLOW_HPP = hexflow.hpp
 TERM_CAPTURE_HPP = term-capture.hpp
-TERM_CAPTURE_SYS_HPP = term_capture_sys.hpp
 
 debug/hexflow.o: hexflow.cpp $(HEXFLOW_HPP) Makefile
 	@mkdir -p debug
@@ -93,14 +93,6 @@ debug/term-capture.o: term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
 release/term-capture.o: term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
 	@mkdir -p release
 	$(CXX) $(RELEASE_FLAGS) -c term-capture.cpp -o $@
-
-debug/term_capture_sys.o: term_capture_sys.cpp $(TERM_CAPTURE_SYS_HPP) Makefile
-	@mkdir -p debug
-	$(CXX) $(DEBUG_FLAGS) -c term_capture_sys.cpp -o $@
-
-release/term_capture_sys.o: term_capture_sys.cpp $(TERM_CAPTURE_SYS_HPP) Makefile
-	@mkdir -p release
-	$(CXX) $(RELEASE_FLAGS) -c term_capture_sys.cpp -o $@
 
 # coverage/term-capture.o rule removed
 
@@ -128,6 +120,14 @@ debug/$(TEST_DIR)/tcap_tests.o: $(TEST_DIR)/tcap_tests.cpp $(TEST_DIR)/catch_ama
 	@mkdir -p $(@D)
 	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/tcap_tests.cpp -o $@
 
+debug/$(TEST_DIR)/link_seam_tests.o: $(TEST_DIR)/link_seam_tests.cpp $(TEST_DIR)/catch_amalgamated.hpp Makefile
+	@mkdir -p $(@D)
+	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/link_seam_tests.cpp -o $@
+
+debug/$(TEST_DIR)/select_link_tests.o: $(TEST_DIR)/select_link_tests.cpp $(TEST_DIR)/catch_amalgamated.hpp Makefile
+	@mkdir -p $(@D)
+	$(CXX) $(TEST_COMPILE_FLAGS) -c $(TEST_DIR)/select_link_tests.cpp -o $@
+
 # Rule to compile hexflow.cpp as a library for tests (without its main function)
 # Output directory changed to debug/, uses DEBUG_FLAGS
 $(HEXFLOW_FOR_TEST_OBJ): hexflow.cpp $(HEXFLOW_HPP) Makefile
@@ -140,15 +140,11 @@ $(TERM_CAPTURE_FOR_TEST_OBJ): term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
 	@mkdir -p $(@D)
 	$(CXX) $(DEBUG_FLAGS) -DBUILD_TERM_CAPTURE_AS_LIB -c term-capture.cpp -o $@
 
-$(TERM_CAPTURE_SYS_FOR_TEST_OBJ): term_capture_sys.cpp $(TERM_CAPTURE_SYS_HPP) Makefile
-	@mkdir -p $(@D)
-	$(CXX) $(DEBUG_FLAGS) -DBUILD_TERM_CAPTURE_AS_LIB -c term_capture_sys.cpp -o $@
-
 # Rule to link the test runner
 # Uses DEBUG_FLAGS
 $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 	@mkdir -p $(@D)
-	$(CXX) $(DEBUG_FLAGS) $^ -o $@
+	$(CXX) $(DEBUG_FLAGS) $^ $(LDLIBS) -o $@
 
 # Test target: build and run tests
 # Pass extra flags to Catch2 with TEST_ARGS, e.g.:
