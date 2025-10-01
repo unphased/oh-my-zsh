@@ -196,6 +196,7 @@ test-junit: $(TEST_EXECUTABLE)
 	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s
 
 # Generate coverage reports (HTML + text summary) after tests
+
 coverage:
 	@mkdir -p $(COVERAGE_DIR)
 	@if ! command -v gcovr >/dev/null 2>&1; then \
