@@ -158,6 +158,8 @@ test: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER)
 	# Also emit machine-readable test reports for downstream tooling (full suite)
 	@mkdir -p debug
+	# Run the full suite once more (no filters) solely to write the JSON report that CI/other tools ingest.
+	# We ignore the exit code so missing optional deps or flaky environments don’t fail `make test`.
 	./$(TEST_EXECUTABLE) -r JSON -o debug/test-results.json -s || true
 	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s || true
 	# Optionally sanity-check the reports if tools are available

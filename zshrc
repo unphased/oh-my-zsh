@@ -322,19 +322,7 @@ color_tmux_pane() {
   fi
   _last_color_tmux_pane_pwd=$PWD
 
-  # Only run in tmux, and run in the background to not delay the prompt.
-  if [[ -n "$TMUX" ]]; then
-    local git_root
-    git_root=$(git rev-parse --show-toplevel 2>/dev/null)
-    local bgcolor_file="$git_root/.tmux-bgcolor"
-
-    # Make sure color-pane.sh is in your PATH and executable.
-    if [[ -f "$bgcolor_file" ]]; then
-      color-pane.sh "$(cat "$bgcolor_file")" &|
-    else
-      color-pane.sh &|
-    fi
-  fi
+  ~/util/set-bgcolor-by-cwd-tmux.zsh
 }
 
 # Add it to the precmd hooks, which is a robust way to handle this.
