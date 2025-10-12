@@ -316,10 +316,22 @@ handle_execution_duration() {
 
 _last_color_tmux_pane_pwd=""
 color_tmux_pane() {
-  # Avoid running if the directory hasn't changed.
-  if [[ "$PWD" == "$_last_color_tmux_pane_pwd" ]]; then
+  if [[ -z "$TMUX" ]]; then
     return
   fi
+
+  local desired_color actual_color
+  if [[ "$PWD" == "$_last_color_tmux_pane_pwd" ]]; then
+    desired_color=$(~/util/color-pane.sh --get-color 2>/dev/null)
+    if [[ -n "$desired_color" ]]; then
+      actual_color=$(tmux display-message -p -t "${TMUX_PANE:-.}" '#{pane_bg}' 2>/dev/null)
+      if [[ -n "$actual_color" && "${desired_color:l}" == "${actual_color:l}" ]]; then
+        return
+      fi
+    fi
+  fi
+
+  # Avoid running if the directory hasn't changed.
   _last_color_tmux_pane_pwd=$PWD
 
   ~/util/set-bgcolor-by-cwd-tmux.zsh
