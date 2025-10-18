@@ -55,7 +55,10 @@ alias mmv='noglob zmv -W'
 # Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
-plugins=(git cp macos history F-Sy-H zsh-autosuggestions vi-mode lf)
+plugins=(git cp macos history F-Sy-H zsh-autosuggestions vi-mode lf zsh-copilot)
+
+# api env vars for auth (e.g. zsh-copilot)
+source ~/.ai-env
 
 # autocomplete configuration reduce spasticness at least starting out
 # The following zstyle settings are for zsh-autocomplete, which is not currently
@@ -437,3 +440,4 @@ eval "$(pyenv init -)"
 
 # the atuin setup
 eval "$(atuin init zsh --disable-up-arrow)"
+
