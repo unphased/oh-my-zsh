@@ -334,6 +334,9 @@ color_tmux_pane() {
     fi
   fi
 
+  # temp disabling this -- looking to swap to OSC11 to achieve this
+  return
+
   # Avoid running if the directory hasn't changed.
   _last_color_tmux_pane_pwd=$PWD
 
@@ -343,9 +346,9 @@ color_tmux_pane() {
 # Add it to the precmd hooks, which is a robust way to handle this.
 autoload -U add-zsh-hook
 add-zsh-hook precmd handle_execution_duration
-add-zsh-hook precmd color_tmux_pane
+# add-zsh-hook precmd color_tmux_pane
 
-color_tmux_pane
+# color_tmux_pane
 
 echo "Finished loading my .zshrc"
 
@@ -435,7 +438,7 @@ bindkey '^e' atuin-up-search
 # for pyenv
 export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init --path)"
+# eval "$(pyenv init --path)"
 eval "$(pyenv init -)"
 
 # the atuin setup
