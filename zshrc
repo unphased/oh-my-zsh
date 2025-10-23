@@ -447,3 +447,4 @@ eval "$(pyenv init -)"
 
 # the atuin setup
 eval "$(atuin init zsh --disable-up-arrow)"
+eval "$(zoxide init zsh)"
