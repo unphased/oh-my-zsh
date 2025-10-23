@@ -112,52 +112,26 @@ The project uses a Makefile for building.
 The `term-capture` program relies on standard POSIX PTY and terminal interface functions available on Unix-like systems (Linux, macOS).
 The `hexflow` program uses standard C++ iostreams and cctype.
 
-## Testing and RNG seed control
+## Testing
 
-The test suite is built with Catch2 v3 (amalgamated). Our Makefile exposes convenient targets:
+The test suite is built with Catch2 v3. Useful targets include:
 
-- Build and run tests (quiet): `make -C term-capture test`
-- Verbose output with durations: `make -C term-capture test-verbose`
-- Unit tests only (exclude [integration] tag): `make -C term-capture test-unit`
-- Integration tests only (only [integration] tag): `make -C term-capture test-integration`
-- Machine-readable reports:
-  - JSON: `make -C term-capture test-json` (writes to `debug/test-results.json`)
-  - JUnit XML: `make -C term-capture test-junit` (writes to `debug/junit.xml`)
-  - Note: `make -C term-capture test` now also emits both `debug/test-results.json` and `debug/junit.xml` automatically.
-- Validate machine-readable reports (optional):
-  - `make -C term-capture validate-reports` will check JSON with jq and XML with xmllint if those tools are installed.
-  - Install helpers on macOS: `brew install jq` (xmllint is provided by libxml2 and usually preinstalled).
+- `make -C term-capture test` – default run, emits JSON/JUnit reports under `debug/`
+- `make -C term-capture test-verbose` – verbose output with durations
+- `make -C term-capture test-unit` / `make -C term-capture test-integration`
+- `make -C term-capture test TEST_ARGS="--rng-seed 12345"` – reproduce runs with a fixed RNG seed
 
-Catch2 provides an internal pseudo-random generator for things like generators (e.g., GENERATE/take/random) and prints the seed at the start:
-“Randomness seeded to: <seed>”
+Coverage artifacts land in `debug/coverage/`. On macOS, `make -C term-capture open-coverage` opens the HTML report.
 
-To make any randomness reproducible, pass a specific seed via Catch2’s CLI:
-- Use a fixed number: `--rng-seed 12345`
-- Or special values: `--rng-seed time` (seed from current time), `--rng-seed random-device` (seed from std::random_device)
+## Documentation
 
-Because our Makefile forwards extra arguments through `TEST_ARGS`, you can do for example:
-- `make -C term-capture test TEST_ARGS="--rng-seed 12345"`
-- Combine with verbosity: `make -C term-capture test TEST_ARGS="--rng-seed 12345 -s -v high --durations yes"`
+- `docs/ROADMAP.md` – high-level objectives, batches, and upcoming milestones
+- `WORKLOG.md` – chronological notes on what changed and the reasoning behind it
+- `docs/WS_ARCHITECTURE.md` – WebSocket design and phased rollout plan
+- `docs/COMPRESSION.md` – TCAP compression goals and implementation strategy
 
-This ensures that any flaky, randomness-driven failures can be reproduced by re-running with the printed seed.
+Add future specs under `docs/` and link them here so this guide stays the jumping-off point.
 
-## Coverage reports
+## ULEB128 primer
 
-- After running tests, an HTML coverage report is generated at: debug/coverage/index.html
-- A text summary is also written to: debug/coverage/coverage.txt
-- Machine-consumable coverage is also generated:
-  - Cobertura XML: debug/coverage/coverage.xml
-  - JSON: debug/coverage/coverage.json
-- To run tests (which generate coverage) and then open the report on macOS:
-  - make -C term-capture test
-  - make -C term-capture open-coverage
-- If gcovr is not installed, install it first:
-  - brew install gcovr
-
-## Increasing test coverage and hardening
-
-- Add tests for error paths in term-capture.cpp (posix_openpt, grantpt, unlockpt, ptsname, fork, open, ioctl, select), using seam/shim injection to simulate failures deterministically.
-- Strengthen signal and lifecycle tests (SIGWINCH sizing on a live child, SIGINT/SIGTERM flows already covered; extend to edge cases).
-- Expand tests around log open failures and cleanup semantics.
-- Keep the WS CLI skeleton test (stub .ws.json + stderr notice); add more when the WS server lands.
-- When tcap writer lands, add encoder/decoder round-trip tests and timing progression/seek tests beyond ULEB128.
+TCAP tooling uses ULEB128 to store integers compactly. ULEB128 stands for **Unsigned Little Endian Base 128**, a standard variable-length encoding used in DWARF debug info, WebAssembly, and other binary formats. Each byte contributes 7 payload bits (least-significant chunk first); the high bit (`0x80`) marks whether more bytes follow. For example, `0xAC 0x02` encodes the value 300: `(0x2C) + (0x02 << 7)`. The encoding is unsigned—use SLEB128 for signed values.
