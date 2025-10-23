@@ -321,30 +321,9 @@ handle_execution_duration() {
   fi
 }
 
-_last_color_tmux_pane_pwd=""
 color_tmux_pane() {
-  if [[ -z "$TMUX" ]]; then
-    return
-  fi
-
-  local desired_color actual_color
-  if [[ "$PWD" == "$_last_color_tmux_pane_pwd" ]]; then
-    desired_color=$(~/util/color-pane.sh --get-color 2>/dev/null)
-    if [[ -n "$desired_color" ]]; then
-      actual_color=$(tmux display-message -p -t "${TMUX_PANE:-.}" '#{pane_bg}' 2>/dev/null)
-      if [[ -n "$actual_color" && "${desired_color:l}" == "${actual_color:l}" ]]; then
-        return
-      fi
-    fi
-  fi
-
-  # temp disabling this -- looking to swap to OSC11 to achieve this
-  return
-
-  # Avoid running if the directory hasn't changed.
-  _last_color_tmux_pane_pwd=$PWD
-
-  ~/util/set-bgcolor-by-cwd-tmux.zsh
+  # Emit OSC 11 background color for the current path; let tmux propagate it.
+  ~/util/bgcolor.sh
 }
 
 # Add it to the precmd hooks, which is a robust way to handle this.
