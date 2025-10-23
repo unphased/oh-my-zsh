@@ -9,6 +9,11 @@ This document captures the high-level plan: what we are driving right now, what 
 - Shake out edge scenarios (signal storms, resize churn, log failures) and feed the fixes back into the main loop.
 - Outcome: confidence-gated release backed by refreshed coverage reports and a defect checklist.
 
+### Testing Discipline _(ongoing initiative)_
+- Fold every new feature behind unit + integration coverage, with failure-path seams validated via linker overrides where practical.
+- Maintain a fast smoke suite (CLI, PTY, WS stubs) and document required test updates in PR templates.
+- Outcome: testing remains the first-class contract for shipping, not an afterthought.
+
 ### Runtime Reliability _(queued)
 - Propagate the wrapped command’s exit status to the parent.
 - Offer a quiet mode for startup/shutdown chatter and audit signal handling (SIGHUP/SIGINT/SIGTERM/SIGWINCH).
