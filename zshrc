@@ -273,10 +273,14 @@ preexec_functions+=(update_env_from_tmux)
 log_command() {
   local cmd_start_time=$EPOCHREALTIME
   local cmd_string=$3
+  typeset -g COMMAND_START_TIME
+  typeset -g CMD_DELIMITER_ESCAPED
+  COMMAND_START_TIME=$cmd_start_time
   local replace="@\\\$@"
   local cmd_escaped=${cmd_string//
 /@\\n@}
   local cmd_delimiter_escaped=${cmd_escaped//@\$@/$replace}
+  CMD_DELIMITER_ESCAPED=$cmd_delimiter_escaped
   local tmux_info=$([ -n "$TMUX" ] && tmux display -p "W #I:#W P#P D#D" || echo "No Tmux")
   
   print -r "$PWD@\$@${cmd_delimiter_escaped}@\$@GIT_AUTHOR_NAME_DEPRECATED@\$@$TTY@\$@$HOST@\$@$(date)@\$@$(git rev-parse --short HEAD 2> /dev/null)@\$@$tmux_info@\$@$cmd_start_time" >> ~/.zsh_enhanced_new_history
@@ -309,8 +313,8 @@ handle_execution_duration() {
       minutes=$((${delta%%.*} / 60))
       fractional_seconds=$((${delta} - $minutes * 60))
       printf "\x1b[33m==> Took %d min %.3f sec\x1b[m\n" "$minutes" "$fractional_seconds"
-    elif [ ${delta%%.*} -gt 10 ]; then
-      # Display in seconds
+    elif [ ${delta%%.*} -gt 4 ]; then
+      # this will display the duration when exceeding 5.0 seconds
       printf "\x1b[33m==> Took %.3f sec\x1b[m\n" "$delta"
     fi
     COMMAND_START_TIME=
@@ -346,9 +350,9 @@ color_tmux_pane() {
 # Add it to the precmd hooks, which is a robust way to handle this.
 autoload -U add-zsh-hook
 add-zsh-hook precmd handle_execution_duration
-# add-zsh-hook precmd color_tmux_pane
+add-zsh-hook precmd color_tmux_pane
 
-# color_tmux_pane
+color_tmux_pane
 
 echo "Finished loading my .zshrc"
 
@@ -443,4 +447,3 @@ eval "$(pyenv init -)"
 
 # the atuin setup
 eval "$(atuin init zsh --disable-up-arrow)"
-
