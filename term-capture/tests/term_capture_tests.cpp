@@ -5,8 +5,12 @@
 #include <csignal>
 #include <unistd.h>
 #include <cerrno>
+#include <cstring>
+#include <fcntl.h>
 
+// Argument-parsing scenarios: happy paths first, then error handling.
 TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
+    // --- Happy-path parsing ---
     SECTION("Only prefix provided") {
         char* argv[] = {const_cast<char*>("term-capture"), const_cast<char*>("my_log_prefix")};
         int argc = sizeof(argv) / sizeof(char*);
@@ -50,6 +54,7 @@ TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
         REQUIRE(config.error_message.empty());
     }
 
+    // --- Missing argument handling ---
     SECTION("Insufficient arguments (no prefix)") {
         char* argv[] = {const_cast<char*>("term-capture")};
         int argc = sizeof(argv) / sizeof(char*);
@@ -79,6 +84,7 @@ TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
         REQUIRE_FALSE(config.error_message.empty());
     }
 
+    // --- WebSocket flag parsing ---
     SECTION("WS flags before prefix and command parsing", "[term_capture][args][ws]") {
         char* argv[] = {
             const_cast<char*>("term-capture"),
@@ -123,11 +129,80 @@ TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
         REQUIRE(config.command_and_args[1] == "-c");
         REQUIRE(config.command_and_args[2] == "echo hi");
     }
-}
 
- // Placeholder for future tests
-TEST_CASE("TermCapture PTY Logic (Placeholder)", "[term_capture][pty]") {
-    REQUIRE(true);
+    SECTION("Duplicate WS flags take the last value", "[term_capture][args][ws]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--ws-token=first"),
+            const_cast<char*>("--ws-token"), const_cast<char*>("second"),
+            const_cast<char*>("myprefix"),
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE(config.valid);
+        REQUIRE(config.log_prefix == "myprefix");
+        REQUIRE(config.ws_token == "second");
+    }
+
+    // --- Communicating command boundaries ---
+    SECTION("-- sentinel treats later dashes as command arguments", "[term_capture][args]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("myprefix"),
+            const_cast<char*>("--"),
+            const_cast<char*>("--not-a-flag"),
+            const_cast<char*>("-v"),
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE(config.valid);
+        REQUIRE(config.log_prefix == "myprefix");
+        REQUIRE(config.command_and_args.size() == 2);
+        REQUIRE(config.command_and_args[0] == "--not-a-flag");
+        REQUIRE(config.command_and_args[1] == "-v");
+    }
+
+    // --- WebSocket flag error handling ---
+    SECTION("Invalid ws-send-buffer value is rejected", "[term_capture][args][ws][error]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--ws-send-buffer"), const_cast<char*>("not-a-number"),
+            const_cast<char*>("myprefix"),
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE_FALSE(config.valid);
+        REQUIRE(config.error_message.find("Invalid value for --ws-send-buffer") != std::string::npos);
+    }
+
+    SECTION("Missing ws flag value is rejected", "[term_capture][args][ws][error]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--ws-listen"),
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE_FALSE(config.valid);
+        REQUIRE(config.error_message.find("Missing value for --ws-listen") != std::string::npos);
+    }
+
+    // --- Unknown flags ---
+    SECTION("Unknown flag causes parse failure", "[term_capture][args][error]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--mystery-flag"),
+            const_cast<char*>("myprefix"),
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE_FALSE(config.valid);
+        REQUIRE(config.error_message.find("Unknown flag") != std::string::npos);
+    }
 }
 
 TEST_CASE("build_exec_argv produces NULL-terminated argv for exec", "[term_capture][argv]") {
@@ -215,6 +290,30 @@ static bool file_exists(const std::string& path) {
     return ::stat(path.c_str(), &st) == 0;
 }
 
+struct IntegrationPrereq {
+    bool ready;
+    std::string message;
+};
+
+static IntegrationPrereq compute_integration_prereq() {
+    if (!file_exists("debug/term-capture")) {
+        return {false, "Integration tests require debug/term-capture. Run `make debug` before executing them."};
+    }
+    int fd = ::posix_openpt(O_RDWR | O_NOCTTY);
+    if (fd < 0) {
+        std::string msg = "posix_openpt failed (" + std::to_string(errno) + ": " + std::string(std::strerror(errno)) + ")";
+        msg += ". Integration tests require PTY support.";
+        return {false, msg};
+    }
+    ::close(fd);
+    return {true, {}};
+}
+
+static const IntegrationPrereq& integration_prereq() {
+    static IntegrationPrereq prereq = compute_integration_prereq();
+    return prereq;
+}
+
 static size_t file_size(const std::string& path) {
     struct stat st{};
     if (::stat(path.c_str(), &st) == 0) return static_cast<size_t>(st.st_size);
@@ -228,7 +327,11 @@ static std::string read_all(const std::string& path) {
     return oss.str();
 }
 
+// Integration smoke: captures a short-lived command and checks log artifacts.
 TEST_CASE("Integration: trivial command creates logs and captures output", "[integration][term_capture]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
     // Prefix under debug/ to keep artifacts in build dir
     const std::string prefix = "debug/it_echo";
     const std::string input_path = prefix + ".input";
@@ -255,7 +358,11 @@ TEST_CASE("Integration: trivial command creates logs and captures output", "[int
     REQUIRE(out.find("hello") != std::string::npos);
 }
 
+// Integration variant: ensure multi-line PTY output is preserved in the log.
 TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration][term_capture]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
     const std::string prefix = "debug/it_printf";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
@@ -277,7 +384,11 @@ TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration]
     REQUIRE(out.find("ab") == std::string::npos); // should not be contiguous without a line break
 }
 
+// Integration: default shell fallback when no explicit command is supplied.
 TEST_CASE("Integration: fallback to zsh when no command is provided", "[integration][term_capture][shell]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
     // Skip if zsh is not installed
     int has_zsh = std::system("command -v zsh >/dev/null 2>&1");
     if (has_zsh != 0) {
@@ -305,7 +416,11 @@ TEST_CASE("Integration: fallback to zsh when no command is provided", "[integrat
     REQUIRE(out.find("fallback_ok") != std::string::npos);
 }
 
+// Integration: WS CLI flags emit stub metadata until the server implementation lands.
 TEST_CASE("Integration: WS flags create stub metadata and print skeleton notice", "[integration][term_capture][ws]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
     const std::string prefix = "debug/it_ws";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
@@ -330,7 +445,11 @@ TEST_CASE("Integration: WS flags create stub metadata and print skeleton notice"
     REQUIRE(err.find("WS: planned") != std::string::npos);
 }
 
+// Integration: invalid log paths should fail fast and return non-zero.
 TEST_CASE("Integration: invalid log directory causes failure to open logs", "[integration][term_capture][errors]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
     // Use a prefix that points into a non-existent directory
     int rc = std::system("./debug/term-capture debug/does-not-exist/subdir/log /bin/echo ok >/dev/null 2>&1");
     REQUIRE(rc != 0);

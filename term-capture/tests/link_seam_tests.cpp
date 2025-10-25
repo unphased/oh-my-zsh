@@ -19,6 +19,7 @@ extern "C" int getaddrinfo(const char* node,
     return 42;
 }
 
+// Ensure our test binary can override libc symbols via weak linkage.
 TEST_CASE("link seam override replaces libc symbol", "[link_seam]") {
     link_seam_call_count = 0;
     int rc = ::getaddrinfo(nullptr, nullptr, nullptr, nullptr);

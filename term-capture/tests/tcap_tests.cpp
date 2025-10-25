@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstdint>
 
+// Encode/decode behaviour for TCAP's ULEB128 helpers.
 TEST_CASE("ULEB128 encodes small values into single byte", "[tcap][uleb128]") {
     auto enc0 = uleb128_encode(0);
     REQUIRE(enc0.size() == 1);

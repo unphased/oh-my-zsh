@@ -74,108 +74,108 @@ void handle_winch(int) {
 }
 
 Config parse_arguments(int argc, char* argv[]) {
-    Config config;
+  Config config;
 
-    if (argc <= 1) {
-        config.valid = false;
-        config.error_message = "Usage: " + std::string(argv[0]) + " [--ws-* flags] <prefix> [command...]\n"
-                               "  <prefix>    Prefix for the log files. Will create <prefix>.input and <prefix>.output\n"
-                               "  [command]   Optional command to execute (defaults to zsh if not specified)\n"
-                               "  --ws-listen HOST:PORT     Bind address for WS server (MVP skeleton; no server yet)\n"
-                               "  --ws-token TOKEN          Optional shared secret for WS connections\n"
-                               "  --ws-allow-remote         Allow binding to 0.0.0.0 (insecure without proxy/TLS)\n"
-                               "  --ws-send-buffer BYTES    Per-client send buffer (for future backpressure controls)\n";
-        return config;
+  if (argc <= 1) {
+    config.valid = false;
+    config.error_message = "Usage: " + std::string(argv[0]) + " [--ws-* flags] <prefix> [command...]\n"
+      "  <prefix>    Prefix for the log files. Will create <prefix>.input and <prefix>.output\n"
+      "  [command]   Optional command to execute (defaults to zsh if not specified)\n"
+      "  --ws-listen HOST:PORT     Bind address for WS server (MVP skeleton; no server yet)\n"
+      "  --ws-token TOKEN          Optional shared secret for WS connections\n"
+      "  --ws-allow-remote         Allow binding to 0.0.0.0 (insecure without proxy/TLS)\n"
+      "  --ws-send-buffer BYTES    Per-client send buffer (for future backpressure controls)\n";
+    return config;
+  }
+
+  bool have_prefix = false;
+  bool in_command_args = false;
+
+  auto parse_kv = [](const std::string& s, const std::string& key) -> std::string {
+    std::string prefix = key + "=";
+    if (s.rfind(prefix, 0) == 0) {
+      return s.substr(prefix.size());
     }
+    return {};
+  };
 
-    bool have_prefix = false;
-    bool in_command_args = false;
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
 
-    auto parse_kv = [](const std::string& s, const std::string& key) -> std::string {
-        std::string prefix = key + "=";
-        if (s.rfind(prefix, 0) == 0) {
-            return s.substr(prefix.size());
+    if (!in_command_args && !arg.empty() && arg[0] == '-') {
+      if (arg == "--") {
+        in_command_args = true;
+        continue;
+      }
+      if (arg == "--ws-allow-remote") {
+        config.ws_allow_remote = true;
+        continue;
+      }
+      // Support --flag=value form
+      std::string v;
+      if ((v = parse_kv(arg, "--ws-listen")).size()) {
+        config.ws_listen = v;
+        continue;
+      }
+      if ((v = parse_kv(arg, "--ws-token")).size()) {
+        config.ws_token = v;
+        continue;
+      }
+      if ((v = parse_kv(arg, "--ws-send-buffer")).size()) {
+        try {
+          config.ws_send_buffer = static_cast<size_t>(std::stoull(v));
+        } catch (...) {
+          config.valid = false;
+          config.error_message = "Invalid value for --ws-send-buffer: " + v + "\n";
+          return config;
         }
-        return {};
-    };
-
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-
-        if (!in_command_args && !arg.empty() && arg[0] == '-') {
-            if (arg == "--") {
-                in_command_args = true;
-                continue;
-            }
-            if (arg == "--ws-allow-remote") {
-                config.ws_allow_remote = true;
-                continue;
-            }
-            // Support --flag=value form
-            std::string v;
-            if ((v = parse_kv(arg, "--ws-listen")).size()) {
-                config.ws_listen = v;
-                continue;
-            }
-            if ((v = parse_kv(arg, "--ws-token")).size()) {
-                config.ws_token = v;
-                continue;
-            }
-            if ((v = parse_kv(arg, "--ws-send-buffer")).size()) {
-                try {
-                    config.ws_send_buffer = static_cast<size_t>(std::stoull(v));
-                } catch (...) {
-                    config.valid = false;
-                    config.error_message = "Invalid value for --ws-send-buffer: " + v + "\n";
-                    return config;
-                }
-                continue;
-            }
-            // Support --flag value form (consume next)
-            if (arg == "--ws-listen" || arg == "--ws-token" || arg == "--ws-send-buffer") {
-                if (i + 1 >= argc) {
-                    config.valid = false;
-                    config.error_message = "Missing value for " + arg + "\n";
-                    return config;
-                }
-                std::string val = argv[++i];
-                if (arg == "--ws-listen") {
-                    config.ws_listen = val;
-                } else if (arg == "--ws-token") {
-                    config.ws_token = val;
-                } else { // --ws-send-buffer
-                    try {
-                        config.ws_send_buffer = static_cast<size_t>(std::stoull(val));
-                    } catch (...) {
-                        config.valid = false;
-                        config.error_message = "Invalid value for --ws-send-buffer: " + val + "\n";
-                        return config;
-                    }
-                }
-                continue;
-            }
-            // Unknown flag
+        continue;
+      }
+      // Support --flag value form (consume next)
+      if (arg == "--ws-listen" || arg == "--ws-token" || arg == "--ws-send-buffer") {
+        if (i + 1 >= argc) {
+          config.valid = false;
+          config.error_message = "Missing value for " + arg + "\n";
+          return config;
+        }
+        std::string val = argv[++i];
+        if (arg == "--ws-listen") {
+          config.ws_listen = val;
+        } else if (arg == "--ws-token") {
+          config.ws_token = val;
+        } else { // --ws-send-buffer
+          try {
+            config.ws_send_buffer = static_cast<size_t>(std::stoull(val));
+          } catch (...) {
             config.valid = false;
-            config.error_message = "Unknown flag: " + arg + "\n";
+            config.error_message = "Invalid value for --ws-send-buffer: " + val + "\n";
             return config;
+          }
         }
-
-        if (!have_prefix) {
-            config.log_prefix = arg;
-            have_prefix = true;
-        } else {
-            in_command_args = true;
-            config.command_and_args.push_back(arg);
-        }
+        continue;
+      }
+      // Unknown flag
+      config.valid = false;
+      config.error_message = "Unknown flag: " + arg + "\n";
+      return config;
     }
 
     if (!have_prefix) {
-        config.valid = false;
-        config.error_message = "Usage: " + std::string(argv[0]) + " [--ws-* flags] <prefix> [command...]\n";
-        return config;
+      config.log_prefix = arg;
+      have_prefix = true;
+    } else {
+      in_command_args = true;
+      config.command_and_args.push_back(arg);
     }
+  }
 
+  if (!have_prefix) {
+    config.valid = false;
+    config.error_message = "Usage: " + std::string(argv[0]) + " [--ws-* flags] <prefix> [command...]\n";
     return config;
+  }
+
+  return config;
 }
 
 std::vector<const char*> build_exec_argv(const std::vector<std::string>& args) {

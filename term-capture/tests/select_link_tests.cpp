@@ -30,6 +30,7 @@ extern "C" int select(int nfds, fd_set* readfds, fd_set* writefds,
 }
 } // namespace
 
+// Override select(2) to simulate EINTR and verify seam plumbing.
 TEST_CASE("link override can intercept select", "[link_seam][select]") {
     fake_select_calls = 0;
     use_fake_select = true;

@@ -2,6 +2,7 @@
 #include "../hexflow.hpp" // Include the header for print_byte (from parent dir)
 #include <sstream>     // For std::stringstream to capture output
 
+// Validate the formatting logic for individual bytes written by hexflow.
 TEST_CASE("Hexflow print_byte functionality", "[hexflow]") {
     std::stringstream ss;
     bool test_last_was_nonprint; // State variable for tests
