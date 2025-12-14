@@ -35,6 +35,10 @@ function isXtermAvailable() {
 
 function speedToBytesPerSec(speed) {
   switch (speed) {
+    case "turtle":
+      return 4_000;
+    case "slow":
+      return 12_000;
     case "realtime":
       return 40_000;
     case "fast":
@@ -166,6 +170,7 @@ function createSink() {
     });
 
     ui.fallback.hidden = true;
+    ui.terminal.hidden = false;
     ui.terminal.innerHTML = "";
     term.open(ui.terminal);
     term.focus();
@@ -177,9 +182,10 @@ function createSink() {
     };
   }
 
+  ui.terminal.hidden = true;
+  ui.terminal.innerHTML = "";
   ui.fallback.hidden = false;
   ui.fallback.textContent = "";
-  ui.terminal.innerHTML = "";
 
   return {
     kind: "pre",

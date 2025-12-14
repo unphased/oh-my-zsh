@@ -225,6 +225,10 @@ button:disabled {
   padding: 10px 10px;
 }
 
+.terminal[hidden] {
+  display: none !important;
+}
+
 .fallback {
   margin: 0;
   padding: 10px 10px;
@@ -238,6 +242,10 @@ button:disabled {
   line-height: 1.35;
   background: #050607;
   border-top: 1px solid var(--border);
+}
+
+.fallback[hidden] {
+  display: none !important;
 }
 
 @media (max-width: 1000px) {
