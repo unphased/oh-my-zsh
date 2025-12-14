@@ -32,13 +32,13 @@ async function tryLoadXtermPair({ css, js, label }) {
 
 async function tryLoadXtermEsm() {
   try {
-    // Uses CORS-friendly ESM CDN. This works when you serve `web/` over HTTP.
-    const mod = await import("https://esm.sh/xterm@5.5.0");
+    // Uses an ESM CDN. This works when you serve `web/` over HTTP.
+    const mod = await import("https://cdn.skypack.dev/xterm");
     if (mod && typeof mod.Terminal === "function") {
       window.Terminal = mod.Terminal;
-      window.__TERM_CAPTURE_XTERM_SOURCE = "esm.sh (ESM import)";
-      // CSS still needs to be loaded separately.
-      await loadCss("https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.css");
+      window.__TERM_CAPTURE_XTERM_SOURCE = "skypack (ESM import)";
+      // CSS still needs to be loaded separately (use @latest to avoid version mismatches).
+      await loadCss("https://cdn.jsdelivr.net/npm/xterm@latest/css/xterm.css");
       return true;
     }
   } catch {
@@ -63,13 +63,13 @@ async function maybeLoadXterm() {
   const cdnPairs = [
     {
       label: "jsdelivr",
-      css: "https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.css",
-      js: "https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.js",
+      css: "https://cdn.jsdelivr.net/npm/xterm@latest/css/xterm.css",
+      js: "https://cdn.jsdelivr.net/npm/xterm@latest/lib/xterm.js",
     },
     {
       label: "unpkg",
-      css: "https://unpkg.com/xterm@5.5.0/css/xterm.css",
-      js: "https://unpkg.com/xterm@5.5.0/lib/xterm.js",
+      css: "https://unpkg.com/xterm@latest/css/xterm.css",
+      js: "https://unpkg.com/xterm@latest/lib/xterm.js",
     },
   ];
 

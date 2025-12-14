@@ -24,7 +24,7 @@ Note: Some browsers restrict ES modules when opened via `file://`. Serving `web/
 Run:
 
 ```sh
-./scripts/fetch-xterm.sh
+./fetch-xterm.sh
 ```
 
 This downloads into:
