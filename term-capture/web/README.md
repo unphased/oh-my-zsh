@@ -21,7 +21,20 @@ Then visit `http://127.0.0.1:8080/`.
 Note: Some browsers restrict ES modules when opened via `file://`. Serving `web/` over HTTP avoids that.
 
 ## Vendor xterm.js (optional, recommended)
-Place these files:
+Run:
+
+```sh
+./vendor/fetch-xterm.sh
+```
+
+This downloads into:
+
+- `web/vendor/xterm/xterm.js`
+- `web/vendor/xterm/xterm.css`
+
+These files are ignored by git via `web/vendor/.gitignore`.
+
+If you prefer to do it manually, place these files yourself:
 
 - `web/vendor/xterm/xterm.js`
 - `web/vendor/xterm/xterm.css`
