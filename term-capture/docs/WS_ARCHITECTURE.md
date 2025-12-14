@@ -94,6 +94,29 @@
 - Resize: xterm.js ‘resize’ -> send JSON {type:"resize", cols, rows} on WS.
 - Input: keypresses -> WS JSON text frame {type:"input", data_b64:"..."} -> server decodes, writes to PTY + <prefix>.input append.
 
+### Frontend beachhead (keep it framework-light)
+The first browser client should be a static page you can run from disk or any dumb static server, with a small amount of vanilla JS glue. The goal is to start dogfooding UX immediately, without committing to a heavy frontend stack.
+
+Recommended shape:
+- One HTML page + one ES module: `index.html` + `app.js` with no build step for the PoC.
+- Optional dependencies only:
+  - xterm.js (vendored) for terminal rendering.
+  - xterm addons (fit/webgl) only if needed; keep the default fast path simple.
+- Two data sources, one UI:
+  1. Offline playback mode: read `<prefix>.output` (raw) or `<prefix>.output.tcap` (later) and feed it into xterm for “replay from disk”.
+  2. Live mode: connect to `/ws` and append binary frames as they arrive; backfill via `fetch_output` before going live.
+
+Practical UI milestones (in order):
+1. A “connect” form: host/port + optional token.
+2. A session list view (reads `~/.term-capture/sessions.json` via a future gateway or local exposure).
+3. A single-session terminal view (xterm.js) with resize + paste/typing wired to WS messages.
+4. A minimal observability panel: bytes/sec, drops, backlog high-water, and a “recording prefix” link.
+
+Performance guardrails for the PoC:
+- Batch terminal writes: append on `requestAnimationFrame` or in coarse chunks (e.g., 16–33ms).
+- Treat WS frames as opaque byte streams; avoid parsing in the hot path.
+- Keep “birds-eye” views cheap: don’t render N terminals at once; render summaries + click-to-open.
+
 ### Backpressure and multi-client input
 - Output (server->clients):
   - Per-client send queue, bounded (e.g., 2–8 MB). If exceeded:

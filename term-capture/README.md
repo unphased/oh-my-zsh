@@ -2,6 +2,18 @@
 
 This project provides two command-line utilities: `term-capture` and `hexflow`.
 
+## Vision (what this is building toward)
+
+The long-term goal is to keep the terminal workflow, but add a light client/server-style layer (similar “level” to tmux, but with different primitives) so terminal input/output become durable, queryable data streams.
+
+- **Capture everything**: record bytes from keyboard input and PTY output without omission.
+- **Persist as a format**: evolve the on-disk container (“TCAP”) so playback, indexing, and search can be fast and robust.
+- **Universal playback UX**: time-scrub across sessions, down to the keystroke, so you can retrace work and regain context quickly.
+- **Disposable sessions**: reduce dependence on tmux pane archaeology by making history the primary interface (with tmux-like live control still available).
+- **A web surface area**: a thin browser client (xterm.js) for live mirroring/control and for higher-level dashboards that slice across many sessions.
+
+If you’re looking for the WebSocket + browser plan, start with `docs/WS_ARCHITECTURE.md` and `docs/ROADMAP.md`.
+
 ## `term-capture`
 
 `term-capture` is a tool that records all terminal input and output to separate log files. It creates a pseudo-terminal (PTY) and runs a specified command (or a default shell, `zsh`) within it. All keyboard input is logged to `<prefix>.input` and all output from the PTY is logged to `<prefix>.output`.

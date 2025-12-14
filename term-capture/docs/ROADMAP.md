@@ -14,7 +14,7 @@ This document captures the high-level plan: what we are driving right now, what 
 - Maintain a fast smoke suite (CLI, PTY, WS stubs) and document required test updates in PR templates.
 - Outcome: testing remains the first-class contract for shipping, not an afterthought.
 
-### Runtime Reliability _(queued)
+### Runtime Reliability _(queued)_
 - Propagate the wrapped command’s exit status to the parent.
 - Offer a quiet mode for startup/shutdown chatter and audit signal handling (SIGHUP/SIGINT/SIGTERM/SIGWINCH).
 - Outcome: predictable exits and documented knobs for noisy environments.
@@ -24,6 +24,12 @@ This document captures the high-level plan: what we are driving right now, what 
 - Land minimal CLI surface (`--ws-listen`, `--ws-token`, `--ws-allow-remote`, `--ws-send-buffer`).
 - Emit `<prefix>.ws.json` and manage `~/.term-capture/sessions.json` with flock-based pruning.
 - Outcome: background thread skeleton that starts/stops cleanly without touching the PTY data path yet.
+
+### Dogfooding & Frontend Beachhead _(parallel)_
+- Unblock daily use by adding a tiny browser proof-of-concept that works off existing logs first (no WS required).
+- Start with “offline playback”: load `<prefix>.output` and replay it into xterm.js in a static page; this creates the UI foothold while WS work is still hardening-blocked.
+- Evolve to “live mode” when Batch 8 lands: connect via WS, do a tail backfill (`fetch_output`) then stream live frames.
+- Outcome: a usable viewer early, driving the WS protocol and TCAP format with real usage instead of speculation.
 
 ## Near-Term Milestones
 - **Log management & storage**: rotation policy, naming schemes, buffered writes with crash-safe flush semantics.
