@@ -215,6 +215,13 @@ function setStatus(msg, { error = false } = {}) {
   ui.status.style.color = error ? "var(--bad)" : "var(--muted)";
 }
 
+function xtermSourceNote() {
+  const src =
+    typeof window.__TERM_CAPTURE_XTERM_SOURCE === "string" ? window.__TERM_CAPTURE_XTERM_SOURCE : null;
+  if (!src) return "";
+  return ` xterm=${src}`;
+}
+
 function updateButtons() {
   const hasFile = !!currentFile;
   const hasLoaded = player.hasLoaded();
@@ -257,7 +264,7 @@ async function loadSelectedFile() {
 
     const tailNote = start > 0 ? ` (tail ${fmtBytes(fileSize - start)} of ${fmtBytes(fileSize)})` : "";
     setStatus(
-      `Loaded ${currentFile.name}${tailNote}. Renderer: ${sink.kind === "xterm" ? "xterm.js" : "fallback"}.`,
+      `Loaded ${currentFile.name}${tailNote}. Renderer: ${sink.kind === "xterm" ? "xterm.js" : "fallback"}.${xtermSourceNote()}`,
     );
     updateButtons();
 

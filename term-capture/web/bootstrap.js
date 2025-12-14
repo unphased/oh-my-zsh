@@ -1,12 +1,3 @@
-async function probe(url) {
-  try {
-    const res = await fetch(url, { method: "HEAD", cache: "no-store" });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 function loadCss(href) {
   return new Promise((resolve) => {
     const link = document.createElement("link");
@@ -29,22 +20,66 @@ function loadScript(src) {
   });
 }
 
+async function tryLoadXtermPair({ css, js, label }) {
+  const cssOk = await loadCss(css);
+  const jsOk = await loadScript(js);
+  const ok = cssOk && jsOk && typeof window.Terminal === "function";
+  if (ok) {
+    window.__TERM_CAPTURE_XTERM_SOURCE = label;
+  }
+  return ok;
+}
+
+async function tryLoadXtermEsm() {
+  try {
+    // Uses CORS-friendly ESM CDN. This works when you serve `web/` over HTTP.
+    const mod = await import("https://esm.sh/xterm@5.5.0");
+    if (mod && typeof mod.Terminal === "function") {
+      window.Terminal = mod.Terminal;
+      window.__TERM_CAPTURE_XTERM_SOURCE = "esm.sh (ESM import)";
+      // CSS still needs to be loaded separately.
+      await loadCss("https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.css");
+      return true;
+    }
+  } catch {
+    // ignored: we'll fall back to <pre> mode
+  }
+  return false;
+}
+
 async function maybeLoadXterm() {
-  const localJs = "./vendor/xterm/xterm.js";
-  const localCss = "./vendor/xterm/xterm.css";
+  // Prefer local vendoring for offline use and reproducibility.
+  if (
+    await tryLoadXtermPair({
+      label: "local vendored",
+      css: "./vendor/xterm/xterm.css",
+      js: "./vendor/xterm/xterm.js",
+    })
+  ) {
+    return;
+  }
 
-  // CDN fallback (no build step, good enough for PoC).
-  const cdnBase = "https://cdn.jsdelivr.net/npm/xterm@5.5.0";
-  const cdnJs = `${cdnBase}/lib/xterm.js`;
-  const cdnCss = `${cdnBase}/css/xterm.css`;
+  // CDN fallbacks (UMD/global build). If these fail, we still run in <pre> mode.
+  const cdnPairs = [
+    {
+      label: "jsdelivr",
+      css: "https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.css",
+      js: "https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.js",
+    },
+    {
+      label: "unpkg",
+      css: "https://unpkg.com/xterm@5.5.0/css/xterm.css",
+      js: "https://unpkg.com/xterm@5.5.0/lib/xterm.js",
+    },
+  ];
 
-  const hasLocal = (await probe(localJs)) && (await probe(localCss));
-  const js = hasLocal ? localJs : cdnJs;
-  const css = hasLocal ? localCss : cdnCss;
+  for (const pair of cdnPairs) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await tryLoadXtermPair(pair)) return;
+  }
 
-  // If xterm isn't reachable (offline), we still want the app to run with the <pre> fallback.
-  await loadCss(css);
-  await loadScript(js);
+  // Last resort: ESM import and wire it to window.Terminal.
+  await tryLoadXtermEsm();
 }
 
 await maybeLoadXterm();
