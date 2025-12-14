@@ -24,7 +24,7 @@ Place these files:
 - `web/vendor/xterm/xterm.js`
 - `web/vendor/xterm/xterm.css`
 
-Once present, `index.html` will automatically use xterm.js.
+Once present, `index.html` will use them; otherwise it will fall back to loading xterm from a CDN.
 
 ## Notes
 - Default “Tail” is 2 MiB to keep big logs snappy; set Tail=0 to load the whole file.

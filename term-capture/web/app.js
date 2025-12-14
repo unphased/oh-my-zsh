@@ -323,13 +323,4 @@ ui.drop.addEventListener("drop", (e) => {
   if (file) pickFile(file);
 });
 
-// If xterm assets are missing, most browsers log a 404; hide the empty css error
-// by disabling the <link> when it fails to load.
-const xtermCss = document.getElementById("xtermCss");
-if (xtermCss) {
-  xtermCss.addEventListener("error", () => {
-    xtermCss.disabled = true;
-  });
-}
-
 updateButtons();
