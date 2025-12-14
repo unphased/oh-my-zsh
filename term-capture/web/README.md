@@ -24,7 +24,7 @@ Note: Some browsers restrict ES modules when opened via `file://`. Serving `web/
 Run:
 
 ```sh
-./vendor/fetch-xterm.sh
+./scripts/fetch-xterm.sh
 ```
 
 This downloads into:
@@ -32,7 +32,7 @@ This downloads into:
 - `web/vendor/xterm/xterm.js`
 - `web/vendor/xterm/xterm.css`
 
-These files are ignored by git via `web/vendor/.gitignore`.
+These files are ignored by git via `web/.gitignore`.
 
 If you prefer to do it manually, place these files yourself:
 

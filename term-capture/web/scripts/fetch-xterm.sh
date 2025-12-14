@@ -2,7 +2,8 @@
 set -euo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-out_dir="$here/xterm"
+web_dir="$(cd -- "$here/.." && pwd)"
+out_dir="$web_dir/vendor/xterm"
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "error: curl not found" >&2
