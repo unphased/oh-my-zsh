@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>term-capture viewer (offline)</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="title">
+        <div class="name">term-capture viewer</div>
+        <div class="sub">offline playback from <code>&lt;prefix&gt;.output</code></div>
+      </div>
+
+      <div class="controls">
+        <label class="file">
+          <input id="file" type="file" />
+          <span>Choose <code>.output</code></span>
+        </label>
+
+        <label class="field">
+          <span>Tail</span>
+          <input id="tailBytes" type="number" min="0" step="4096" value="2097152" />
+        </label>
+
+        <label class="field">
+          <span>Chunk</span>
+          <input id="chunkBytes" type="number" min="1024" step="1024" value="32768" />
+        </label>
+
+        <label class="field">
+          <span>Speed</span>
+          <select id="speed">
+            <option value="realtime">realtime-ish</option>
+            <option value="fast" selected>fast</option>
+            <option value="turbo">turbo</option>
+            <option value="instant">instant</option>
+          </select>
+        </label>
+
+        <div class="buttons">
+          <button id="load" disabled>Load</button>
+          <button id="play" disabled>Play</button>
+          <button id="pause" disabled>Pause</button>
+          <button id="reset" disabled>Reset</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="panel">
+        <div class="hint">
+          <div class="hint-title">Quick start</div>
+          <ol>
+            <li>Run <code>./term-capture mylog</code> and use the shell as normal.</li>
+            <li>Open this page and select <code>mylog.output</code>.</li>
+          </ol>
+          <p>
+            If you vendor xterm.js at <code>web/vendor/xterm/xterm.js</code> and
+            <code>web/vendor/xterm/xterm.css</code>, this page will render ANSI properly.
+            Without it, you’ll see a basic text fallback.
+          </p>
+        </div>
+
+        <div class="status" id="status">No file loaded.</div>
+        <div class="drop" id="drop">
+          Drop a <code>.output</code> file here
+        </div>
+      </section>
+
+      <section class="terminal-wrap">
+        <div class="terminal-header">
+          <div class="terminal-title">Output</div>
+          <div class="terminal-meta" id="meta"></div>
+        </div>
+        <div id="terminal" class="terminal"></div>
+        <pre id="fallback" class="fallback" hidden></pre>
+      </section>
+    </main>
+
+    <!-- Optional: vendor xterm.js to web/vendor/xterm/{xterm.js,xterm.css}. -->
+    <link id="xtermCss" rel="stylesheet" href="./vendor/xterm/xterm.css" />
+    <script src="./vendor/xterm/xterm.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
