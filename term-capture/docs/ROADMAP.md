@@ -34,7 +34,7 @@ This document captures the high-level plan: what we are driving right now, what 
 ## Near-Term Milestones
 - **Log management & storage**: rotation policy, naming schemes, buffered writes with crash-safe flush semantics.
 - **High-volume throughput controls**: rate monitoring, retention windows, drop notifications.
-- **Session playback foundation**: TCAP writer/reader, time-indexed playback, hooks for WS backfill.
+- **Session playback foundation**: TCAP layout (`.input/.output` + `*.tidx` sidecars), time-indexed playback, hooks for WS backfill.
 - **Daemonless registry mesh**: peer-to-peer gossip, leader election for registry snapshots, external metadata contract.
 
 ## WebSocket Track

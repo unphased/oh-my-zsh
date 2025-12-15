@@ -140,6 +140,7 @@ Coverage artifacts land in `debug/coverage/`. On macOS, `make -C term-capture op
 - `docs/ROADMAP.md` – high-level objectives, batches, and upcoming milestones
 - `WORKLOG.md` – chronological notes on what changed and the reasoning behind it
 - `docs/WS_ARCHITECTURE.md` – WebSocket design and phased rollout plan
+- `docs/TCAP.md` – TCAP on-disk format (layout-first: raw streams + sidecars)
 - `docs/COMPRESSION.md` – TCAP compression goals and implementation strategy
 - `web/` – framework-free browser viewer PoC (offline playback from `.output`)
 

@@ -103,7 +103,7 @@ Recommended shape:
   - xterm.js (vendored) for terminal rendering.
   - xterm addons (fit/webgl) only if needed; keep the default fast path simple.
 - Two data sources, one UI:
-  1. Offline playback mode: read `<prefix>.output` (raw) or `<prefix>.output.tcap` (later) and feed it into xterm for “replay from disk”.
+  1. Offline playback mode: read `<prefix>.output` (raw) and use `<prefix>.output.tidx` (later) for time-aware replay.
   2. Live mode: connect to `/ws` and append binary frames as they arrive; backfill via `fetch_output` before going live.
 
 Practical UI milestones (in order):
@@ -145,43 +145,15 @@ Performance guardrails for the PoC:
 - --ws-token TOKEN        (optional; if set, required for connections and RPCs)
 - --ws-allow-remote       (if present, bind to 0.0.0.0; strongly recommend proxy+TLS)
 - --ws-send-buffer BYTES  (per-client buffer before drop/disconnect; default 2 MiB)
-- --log-format raw|tcap   (default: raw in MVP; tcap enables time-indexed container logs and RPC backfill of container bytes)
+- Logging format: TCAP is now defined as a layout of raw streams + sidecar metadata (see `docs/TCAP.md`). MVP starts by writing raw `.input`/`.output`, then adds `*.tidx` sidecars for timestamps.
 
-## Capture Format: TCAP (v1)
-- Purpose: enable high-fidelity, time-based playback and cross-session synchronization (birds-eye view).
-- Files and naming:
-  - New container format "tcap" written per stream as:
-    - <prefix>.input.tcap
-    - <prefix>.output.tcap
-  - Legacy mode (default during MVP): raw byte logs:
-    - <prefix>.input
-    - <prefix>.output
-  - Select with --log-format raw|tcap (see CLI). When tcap is enabled, only .tcap files are written.
-- Header (fixed, little-endian for fixed-width fields):
-  - magic: 5 bytes, ASCII "TCAP1"
-  - flags: u8 bitfield (bit0=1 means little-endian; others reserved 0)
-  - started_at_unix_ns: u64 absolute UNIX epoch timestamp in nanoseconds (session start)
-  - reserved: 16 bytes (zero for now) for future use (e.g., session id, hostname)
-- Record framing (repeats until EOF):
-  - type: u8 (0x01 = output, 0x02 = input, 0x10 = resize, 0x11 = marker, 0x20–0x3F reserved for future control/events)
-  - ts_mode: u8 (0x00 = absolute; 0x01 = delta)
-  - ts_value: ULEB128 unsigned integer
-    - If ts_mode=absolute, ts_value is absolute UNIX ns since epoch.
-    - If ts_mode=delta, ts_value is nanoseconds since the previous record in the same file (stream-local).
-  - length: ULEB128 unsigned integer, byte length of payload
-  - payload: [length] bytes
-- Encoding notes:
-  - ULEB128 is used for ts_value and length to minimize space; small deltas typically encode to 1–3 bytes.
-  - Unknown record types must be safely skippable by using the length to advance.
-  - Endianness: all fixed-width header fields are little-endian; record integers use varint (LEB128), which is byte-oriented.
-- Writer heuristics:
-  - Prefer ts_mode=delta when the delta encodes in <=3 bytes (e.g., small gaps), else use absolute.
-  - Group bytes naturally as they arrive from the PTY loop to avoid over-fragmentation.
-- Playback:
-  - A client can reconstruct wall-clock times from absolute timestamps and/or accumulate deltas.
-  - Cross-session sync is enabled by absolute timestamps across independent .tcap files.
-  - Resize events (type=0x10) payload: struct { u16 cols; u16 rows } in little-endian.
-  - Live WS streaming uses raw output bytes with no timestamp envelope; time navigation uses tcap backfill/playback.
+## Capture Format: TCAP (layout-first)
+TCAP is defined as a layout of files that preserves raw terminal byte streams and stores timing/metadata separately.
+
+See `docs/TCAP.md` for the authoritative spec. Summary:
+- `<prefix>.output` + `<prefix>.output.tidx`
+- `<prefix>.input` + `<prefix>.input.tidx`
+- Optional `<prefix>.meta.json`
 
 ## Implementation Plan
 1. Server bootstrap in parent:
@@ -190,7 +162,7 @@ Performance guardrails for the PoC:
 2. Data plane:
    - Hook PTY output path to broadcast bytes to WS clients.
    - Hook WS text frames of type "input" to PTY input and append to <prefix>.input.
-   - If --log-format=tcap is enabled, write time-indexed container records to <prefix>.input.tcap and <prefix>.output.tcap instead of raw .input/.output.
+   - Write raw `.input`/`.output` always; add `*.tidx` time-index sidecars once timestamps land.
 3. Control plane:
    - WS JSON: hello (version), resize, ping/pong.
    - WS RPC: get_meta, fetch_input, fetch_output, get_stats.
