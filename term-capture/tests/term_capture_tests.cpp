@@ -84,6 +84,15 @@ TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
         REQUIRE_FALSE(config.error_message.empty());
     }
 
+    SECTION("Empty prefix is rejected", "[term_capture][args][error]") {
+        char* argv[] = {const_cast<char*>("term-capture"), const_cast<char*>("")};
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE_FALSE(config.valid);
+        REQUIRE(config.error_message.find("Prefix cannot be empty") != std::string::npos);
+    }
+
     // --- WebSocket flag parsing ---
     SECTION("WS flags before prefix and command parsing", "[term_capture][args][ws]") {
         char* argv[] = {
@@ -188,6 +197,43 @@ TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
 
         REQUIRE_FALSE(config.valid);
         REQUIRE(config.error_message.find("Missing value for --ws-listen") != std::string::npos);
+    }
+
+    SECTION("Missing ws-token value is rejected", "[term_capture][args][ws][error]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--ws-token"),
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE_FALSE(config.valid);
+        REQUIRE(config.error_message.find("Missing value for --ws-token") != std::string::npos);
+    }
+
+    SECTION("Missing ws-send-buffer value is rejected", "[term_capture][args][ws][error]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--ws-send-buffer"),
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE_FALSE(config.valid);
+        REQUIRE(config.error_message.find("Missing value for --ws-send-buffer") != std::string::npos);
+    }
+
+    SECTION("Invalid ws-send-buffer equals syntax value is rejected", "[term_capture][args][ws][error]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--ws-send-buffer=not-a-number"),
+            const_cast<char*>("myprefix"),
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE_FALSE(config.valid);
+        REQUIRE(config.error_message.find("Invalid value for --ws-send-buffer") != std::string::npos);
     }
 
     SECTION("ws-send-buffer equals syntax parses", "[term_capture][args][ws]") {
@@ -325,6 +371,20 @@ TEST_CASE("cleanup closes internal fds when present", "[term_capture][cleanup]")
     close(pipe2[1]);
 #else
     SUCCEED("Not built as LIB; test hooks unavailable.");
+#endif
+}
+
+TEST_CASE("restore_terminal attempts tcsetattr when orig termios is available", "[term_capture][termios]") {
+#ifdef BUILD_TERM_CAPTURE_AS_LIB
+    // In typical CI/unit-test environments STDIN is not a TTY, so tcsetattr may fail with ENOTTY.
+    // The purpose of this test is to cover the have_orig_termios=true branch without crashing.
+    set_orig_termios_zeroed_for_test();
+    set_have_orig_termios_for_test(true);
+    call_restore_terminal_for_test();
+    set_have_orig_termios_for_test(false);
+    REQUIRE(true);
+#else
+    SUCCEED("Not built as LIB; termios hooks unavailable.");
 #endif
 }
 

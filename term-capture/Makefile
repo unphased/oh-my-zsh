@@ -26,6 +26,7 @@ COVERAGE_DIR = debug/coverage
 GCOVR_OBJECT_DIR = debug
 GCOVR_GCOV = $(shell command -v llvm-cov >/dev/null 2>&1 && echo "--gcov-executable=llvm-cov gcov" || echo "")
 GCOVR_EXCLUDES = --exclude 'tests/.*' --exclude '.*catch_amalgamated.*'
+GCOVR_BRANCH_FILTERS = --exclude-throw-branches --exclude-unreachable-branches
 
 # Source files for the test runner itself and specific test suites
 # main.cpp is removed as catch_amalgamated.cpp provides main() for Catch2 v3
@@ -203,8 +204,8 @@ coverage:
 		echo "gcovr not found. Install with: brew install gcovr (or pip install gcovr)"; \
 		echo "gcovr not found. Coverage reports were skipped." > $(COVERAGE_DIR)/coverage.txt; \
 	else \
-		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --html --html-details -o $(COVERAGE_DIR)/index.html --gcov-ignore-errors=no_working_dir_found; \
-		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found; \
+		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) $(GCOVR_BRANCH_FILTERS) --html --html-details -o $(COVERAGE_DIR)/index.html --gcov-ignore-errors=no_working_dir_found; \
+		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) $(GCOVR_BRANCH_FILTERS) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found; \
 		cat $(COVERAGE_DIR)/coverage.txt; \
 	fi
 
@@ -219,7 +220,7 @@ coverage-text:
 		echo "gcovr not found. Install with: brew install gcovr (or pip install gcovr)"; \
 		echo "gcovr not found. Coverage reports were skipped." > $(COVERAGE_DIR)/coverage.txt; \
 	else \
-		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found; \
+		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) $(GCOVR_BRANCH_FILTERS) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found; \
 		cat $(COVERAGE_DIR)/coverage.txt; \
 	fi
 

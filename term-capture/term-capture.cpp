@@ -199,6 +199,11 @@ Config parse_arguments(int argc, char* argv[]) {
     }
 
     if (!have_prefix) {
+      if (arg.empty()) {
+        config.valid = false;
+        config.error_message = "Prefix cannot be empty.\n";
+        return config;
+      }
       config.log_prefix = arg;
       have_prefix = true;
     } else {
@@ -239,6 +244,9 @@ void set_winch_pipe_fds_for_test(int read_fd, int write_fd) {
   winch_pipe_fds[0] = read_fd;
   winch_pipe_fds[1] = write_fd;
 }
+void set_have_orig_termios_for_test(bool v) { have_orig_termios = v; }
+void set_orig_termios_zeroed_for_test() { std::memset(&orig_termios, 0, sizeof(orig_termios)); }
+void call_restore_terminal_for_test() { restore_terminal(); }
 #endif
 
 #ifndef BUILD_TERM_CAPTURE_AS_LIB

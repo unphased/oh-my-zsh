@@ -58,3 +58,12 @@ TEST_CASE("ULEB128 decode fails on truncated input", "[tcap][uleb128]") {
     REQUIRE_FALSE(res.first);
     REQUIRE(res.second == 0);
 }
+
+TEST_CASE("ULEB128 decode fails on overflow", "[tcap][uleb128]") {
+    // 10 continuation bytes forces shift past 64 bits (7 bits per byte) before termination.
+    std::vector<uint8_t> bad(10, 0x80);
+    uint64_t dec = 0;
+    auto res = uleb128_decode(bad.data(), bad.size(), dec);
+    REQUIRE_FALSE(res.first);
+    REQUIRE(res.second == 0);
+}
