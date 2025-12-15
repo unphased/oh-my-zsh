@@ -155,20 +155,14 @@ INTEGRATION_FILTER ?= [integration]
 test: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	@set -e; \
 	rc=0; \
-	# Run unit tests (exclude [integration]) and then integration tests \
 	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(UNIT_FILTER) || rc=$$?; \
 	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER) || rc=$$?; \
-	# Always emit machine-readable test reports for downstream tooling (full suite), even if tests failed above \
 	mkdir -p debug; \
 	./$(TEST_EXECUTABLE) -r JSON -o debug/test-results.json -s || true; \
 	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s || true; \
-	# Optionally sanity-check the reports if tools are available \
 	$(MAKE) validate-reports; \
-	# Smoke-run term-capture main(): run a harmless command under a PTY \
 	./debug/term-capture debug/coverage_smoke /bin/echo ok >/dev/null 2>/dev/null || true; \
-	# Smoke-run hexflow main(): feed a single byte so main() is covered \
 	printf 'A' | ./debug/hexflow >/dev/null 2>/dev/null || true; \
-	# Generate coverage reports and print a quick text summary \
 	$(MAKE) coverage; \
 	cat $(COVERAGE_DIR)/coverage.txt; \
 	exit $$rc
