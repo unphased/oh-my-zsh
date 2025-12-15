@@ -162,7 +162,7 @@ test-lite: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexfl
 # Full suite, JSON report (single-run; no double-execution).
 test-json: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	@mkdir -p debug
-	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -o debug/test-results.json -s
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -s > debug/test-results.json
 
 # Full suite, JUnit (single-run; kept for compatibility, but JSON is preferred).
 test-junit: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
@@ -193,7 +193,7 @@ test-verbose: $(TEST_EXECUTABLE)
 # Verbose JSON (useful for debugging the report itself)
 test-json-verbose: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	@mkdir -p debug
-	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -o debug/test-results.json -s -v high
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -s -v high > debug/test-results.json
 
 # Generate coverage reports (HTML + text summary) after tests
 
