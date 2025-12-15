@@ -50,10 +50,20 @@ def parse_junit(path: Path) -> tuple[dict[str, int | float], list[TestCaseResult
     else:
         suites = [el for el in root.findall("testsuite")]
 
-    totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0, "time_s": 0.0, "suites": len(suites)}
+    totals = {
+        "tests": 0,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "time_s": 0.0,
+        "suites": len(suites),
+        "timestamp": "",
+    }
 
     cases: list[TestCaseResult] = []
     for suite in suites:
+        if not totals["timestamp"]:
+            totals["timestamp"] = suite.attrib.get("timestamp", "")
         totals["tests"] += int(suite.attrib.get("tests", "0"))
         totals["failures"] += int(suite.attrib.get("failures", "0"))
         totals["errors"] += int(suite.attrib.get("errors", "0"))
@@ -88,6 +98,16 @@ def render_text(path: Path, totals: dict[str, int | float], cases: list[TestCase
 
     lines: list[str] = []
     lines.append(f"JUnit: {path}")
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = None
+    if totals.get("timestamp"):
+        lines.append(f"Generated (suite timestamp): {totals['timestamp']}")
+    if mtime is not None:
+        import datetime as _dt
+
+        lines.append(f"File mtime: {_dt.datetime.fromtimestamp(mtime).isoformat(timespec='seconds')}")
     lines.append(
         "Suites: {suites}  Tests: {tests}  Failures: {failures}  Errors: {errors}  Skipped: {skipped}  Time: {time_s:.3f}s".format(
             **totals
@@ -241,4 +261,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

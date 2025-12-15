@@ -153,28 +153,25 @@ TEST_ARGS ?=
 UNIT_FILTER ?= ~[integration]
 INTEGRATION_FILTER ?= [integration]
 test: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
-	# Run unit tests (exclude [integration]) and then integration tests
-	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(UNIT_FILTER)
-	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER)
-	# Also emit machine-readable test reports for downstream tooling (full suite)
-	@mkdir -p debug
-	# Run the full suite once more (no filters) solely to write the JSON report that CI/other tools ingest.
-	# We ignore the exit code so missing optional deps or flaky environments don’t fail `make test`.
-	./$(TEST_EXECUTABLE) -r JSON -o debug/test-results.json -s || true
-	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s || true
-	# Optionally sanity-check the reports if tools are available
-	$(MAKE) validate-reports
-	# Smoke-run term-capture main(): run a harmless command under a PTY.
-	# This exercises PTY setup, fork/exec, raw-mode guards, select loop, logging, and cleanup.
-	# Redirect output to keep logs clean; ignore non-zero exit (env-specific quirks shouldn't fail tests).
-	./debug/term-capture debug/coverage_smoke /bin/echo ok >/dev/null 2>/dev/null || true
-	# Smoke-run hexflow main(): feed a single byte so main() is covered; discard output.
-	# Ignore non-zero exit to avoid failing on non-interactive environments.
-	printf 'A' | ./debug/hexflow >/dev/null 2>/dev/null || true
-	# Generate coverage reports (HTML, text, XML, JSON)
-	$(MAKE) coverage
-	# Print a quick text coverage summary to the console
-	cat $(COVERAGE_DIR)/coverage.txt
+	@set -e; \
+	rc=0; \
+	# Run unit tests (exclude [integration]) and then integration tests \
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(UNIT_FILTER) || rc=$$?; \
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER) || rc=$$?; \
+	# Always emit machine-readable test reports for downstream tooling (full suite), even if tests failed above \
+	mkdir -p debug; \
+	./$(TEST_EXECUTABLE) -r JSON -o debug/test-results.json -s || true; \
+	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s || true; \
+	# Optionally sanity-check the reports if tools are available \
+	$(MAKE) validate-reports; \
+	# Smoke-run term-capture main(): run a harmless command under a PTY \
+	./debug/term-capture debug/coverage_smoke /bin/echo ok >/dev/null 2>/dev/null || true; \
+	# Smoke-run hexflow main(): feed a single byte so main() is covered \
+	printf 'A' | ./debug/hexflow >/dev/null 2>/dev/null || true; \
+	# Generate coverage reports and print a quick text summary \
+	$(MAKE) coverage; \
+	cat $(COVERAGE_DIR)/coverage.txt; \
+	exit $$rc
 
 # Run only unit tests (exclude [integration] tagged tests)
 test-unit: $(TEST_EXECUTABLE)
