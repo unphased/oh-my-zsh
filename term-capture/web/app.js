@@ -14,6 +14,17 @@ const ui = {
   meta: document.getElementById("meta"),
 };
 
+const SPEED_PRESETS = [
+  { id: "snail", label: "snail", bytesPerSec: 10, default: true },
+  { id: "turtle", label: "turtle", bytesPerSec: 400 },
+  { id: "slow", label: "slow", bytesPerSec: 1_200 },
+  { id: "fast", label: "fast", bytesPerSec: 50_000 },
+  { id: "turbo", label: "turbo", bytesPerSec: 400_000 },
+  { id: "instant", label: "instant", bytesPerSec: Number.POSITIVE_INFINITY },
+];
+
+const SPEED_BY_ID = new Map(SPEED_PRESETS.map((p) => [p.id, p]));
+
 function fmtBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   const kib = bytes / 1024;
@@ -34,20 +45,30 @@ function isXtermAvailable() {
 }
 
 function speedToBytesPerSec(speed) {
-  switch (speed) {
-    case "snail":
-      return 10;
-    case "turtle":
-      return 400;
-    case "slow":
-      return 1_200;
-    case "fast":
-      return 50_000;
-    case "turbo":
-      return 400_000;
-    case "instant":
-      return Number.POSITIVE_INFINITY;
+  const preset = SPEED_BY_ID.get(speed);
+  if (preset) return preset.bytesPerSec;
+  const def = SPEED_PRESETS.find((p) => p.default);
+  return def ? def.bytesPerSec : 50_000;
+}
+
+function initSpeedSelect() {
+  const existing = ui.speed.value;
+  ui.speed.innerHTML = "";
+
+  for (const preset of SPEED_PRESETS) {
+    const opt = document.createElement("option");
+    opt.value = preset.id;
+    opt.textContent = preset.label;
+    ui.speed.appendChild(opt);
   }
+
+  if (existing && SPEED_BY_ID.has(existing)) {
+    ui.speed.value = existing;
+    return;
+  }
+
+  const def = SPEED_PRESETS.find((p) => p.default) || SPEED_PRESETS[0];
+  if (def) ui.speed.value = def.id;
 }
 
 class OutputPlayer {
@@ -249,7 +270,6 @@ async function loadSelectedFile() {
     const tailBytes = clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
     const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
     const speedBps = speedToBytesPerSec(ui.speed.value);
-    console.log('speedBps:', speedBps);
 
     player.configure({ speedBps, chunkBytes });
 
@@ -336,3 +356,4 @@ ui.drop.addEventListener("drop", (e) => {
 });
 
 updateButtons();
+initSpeedSelect();
