@@ -210,10 +210,17 @@ coverage:
 	fi
 
 # Convenience: open the HTML coverage report on macOS
-coverage-run: test-lite coverage
-
-open-coverage: coverage-run
+open-coverage: test-lite coverage
 	open $(COVERAGE_DIR)/index.html
+
+# Dev helpers (macOS-oriented)
+dev:
+	python3 -m http.server 7878
+
+test-open: test-json
+	@echo "Opening: http://127.0.0.1:7878/web/test-report/"
+	@echo "If it doesn't load, start the server first: make dev"
+	open http://127.0.0.1:7878/web/test-report/
 
 # Validate machine-readable test reports if tools are present
 validate-reports:
@@ -240,8 +247,9 @@ help:
 	@echo "  make junit-summary -> print a quick summary of debug/junit.xml"
 	@echo "  make validate-reports -> sanity check JSON (jq) and XML (xmllint) if available"
 	@echo "  make coverage   -> generate coverage reports from existing debug build artifacts"
-	@echo "  make coverage-run -> run full suite then generate coverage"
 	@echo "  make open-coverage -> open HTML coverage report (macOS)"
+	@echo "  make dev        -> run python http.server on :7878"
+	@echo "  make test-open  -> run tests (JSON) and open report UI"
 	@echo "  make clean      -> remove build artifacts (debug/, release/)"
 	@echo "  make clean-coverage-data -> remove stale coverage data files (*.gcda)"
 
@@ -257,4 +265,4 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test test-lite test-unit test-integration test-verbose test-json test-json-verbose test-junit junit-summary coverage coverage-run open-coverage clean-coverage-data validate-reports help # coverage target removed
+.PHONY: all debug release clean test test-lite test-unit test-integration test-verbose test-json test-json-verbose test-junit junit-summary coverage open-coverage dev test-open clean-coverage-data validate-reports help # coverage target removed
