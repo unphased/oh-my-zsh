@@ -215,12 +215,6 @@ validate-reports:
 junit-summary: test-junit
 	@python3 tools/junit_summary.py debug/junit.xml
 
-junit-html: test-junit
-	@python3 tools/junit_summary.py debug/junit.xml --html debug/junit.html
-
-open-junit: junit-html
-	open debug/junit.html
-
 # Help: explain common targets and their relationships
 help:
 	@echo "Common targets:"
@@ -236,7 +230,6 @@ help:
 	@echo "  make test-json  -> run tests and write JSON report to debug/test-results.json"
 	@echo "  make test-junit -> run tests and write JUnit XML to debug/junit.xml"
 	@echo "  make junit-summary -> print a quick summary of debug/junit.xml"
-	@echo "  make open-junit -> generate and open debug/junit.html (macOS)"
 	@echo "  make validate-reports -> sanity check JSON (jq) and XML (xmllint) if available"
 	@echo "  make coverage   -> generate coverage reports from debug build artifacts"
 	@echo "  make open-coverage -> open HTML coverage report (macOS)"
@@ -255,4 +248,4 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test test-unit test-integration test-verbose test-json test-junit junit-summary junit-html open-junit coverage open-coverage clean-coverage-data validate-reports help # coverage target removed
+.PHONY: all debug release clean test test-unit test-integration test-verbose test-json test-junit junit-summary coverage open-coverage clean-coverage-data validate-reports help # coverage target removed

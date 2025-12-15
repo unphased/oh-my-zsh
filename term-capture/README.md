@@ -133,7 +133,6 @@ The test suite is built with Catch2 v3. Useful targets include:
 - `make -C term-capture test-unit` / `make -C term-capture test-integration`
 - `make -C term-capture test TEST_ARGS="--rng-seed 12345"` – reproduce runs with a fixed RNG seed
 - `make -C term-capture junit-summary` – quick summary of `debug/junit.xml`
-- `make -C term-capture open-junit` – generate and open `debug/junit.html` (macOS)
 
 Coverage artifacts land in `debug/coverage/`. On macOS, `make -C term-capture open-coverage` opens the HTML report.
 
