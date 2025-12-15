@@ -50,6 +50,8 @@ void set_should_exit(bool v);
 bool get_did_cleanup();
 void reset_did_cleanup(bool v = false); // default reset to false for convenience
 void set_child_pid_for_test(pid_t pid);
+void set_master_fd_for_test(int fd);
+void set_winch_pipe_fds_for_test(int read_fd, int write_fd);
 #endif
 
 #endif // TERM_CAPTURE_HPP

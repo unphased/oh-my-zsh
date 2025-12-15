@@ -190,6 +190,32 @@ TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
         REQUIRE(config.error_message.find("Missing value for --ws-listen") != std::string::npos);
     }
 
+    SECTION("ws-send-buffer equals syntax parses", "[term_capture][args][ws]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--ws-send-buffer=123"),
+            const_cast<char*>("myprefix"),
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE(config.valid);
+        REQUIRE(config.ws_send_buffer == static_cast<size_t>(123));
+        REQUIRE(config.log_prefix == "myprefix");
+    }
+
+    SECTION("Only ws flags and no prefix yields usage error", "[term_capture][args][ws][error]") {
+        char* argv[] = {
+            const_cast<char*>("term-capture"),
+            const_cast<char*>("--ws-allow-remote"),
+        };
+        int argc = sizeof(argv) / sizeof(char*);
+        Config config = parse_arguments(argc, argv);
+
+        REQUIRE_FALSE(config.valid);
+        REQUIRE(config.error_message.find("Usage: term-capture") != std::string::npos);
+    }
+
     // --- Unknown flags ---
     SECTION("Unknown flag causes parse failure", "[term_capture][args][error]") {
         char* argv[] = {
@@ -249,6 +275,57 @@ TEST_CASE("handle_winch can be invoked safely in tests", "[term_capture][signals
     // It should be a no-op aside from reading current window size from STDIN.
     handle_winch(0);
     REQUIRE(true); // No crash implies success for this smoke test
+}
+
+TEST_CASE("handle_winch wakes the event loop via self-pipe", "[term_capture][signals][winch]") {
+#ifdef BUILD_TERM_CAPTURE_AS_LIB
+    int fds[2];
+    REQUIRE(pipe(fds) == 0);
+    set_winch_pipe_fds_for_test(fds[0], fds[1]);
+
+    handle_winch(0);
+
+    char b = '\0';
+    ssize_t n = read(fds[0], &b, 1);
+    REQUIRE(n == 1);
+    REQUIRE(b == 'w');
+
+    set_winch_pipe_fds_for_test(-1, -1);
+    close(fds[0]);
+    close(fds[1]);
+#else
+    SUCCEED("Not built as LIB; test hooks unavailable.");
+#endif
+}
+
+TEST_CASE("cleanup closes internal fds when present", "[term_capture][cleanup]") {
+#ifdef BUILD_TERM_CAPTURE_AS_LIB
+    // Forward-declare the internal function (linked via term_capture_for_test.o).
+    void cleanup();
+
+    int pipe1[2];
+    int pipe2[2];
+    REQUIRE(pipe(pipe1) == 0);
+    REQUIRE(pipe(pipe2) == 0);
+
+    set_winch_pipe_fds_for_test(pipe1[0], pipe1[1]);
+    set_master_fd_for_test(pipe2[0]);
+    set_child_pid_for_test(-1);
+
+    cleanup();
+
+    int rc = fcntl(pipe1[0], F_GETFL);
+    REQUIRE(rc == -1);
+    REQUIRE(errno == EBADF);
+    rc = fcntl(pipe2[0], F_GETFL);
+    REQUIRE(rc == -1);
+    REQUIRE(errno == EBADF);
+
+    // Our test still owns the write ends (unless cleanup closed them).
+    close(pipe2[1]);
+#else
+    SUCCEED("Not built as LIB; test hooks unavailable.");
+#endif
 }
 
 TEST_CASE("signal_handler triggers cleanup on SIGCHLD when child exits", "[term_capture][signals][sigchld]") {
