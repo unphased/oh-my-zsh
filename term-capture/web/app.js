@@ -24,6 +24,7 @@ const DEFAULT_SPEED_ID = "snail";
 
 // [id, bytesPerSec]
 const SPEED_PRESETS = [
+  ["glacier", 1],
   ["snail", 10],
   ["turtle", 400],
   ["slow", 1_200],
@@ -96,6 +97,7 @@ class OutputPlayer {
     this._speedBps = 500_000;
     this._chunkBytes = 32_768;
     this._lastTs = 0;
+    this._carryBytes = 0;
   }
 
   hasLoaded() {
@@ -109,6 +111,7 @@ class OutputPlayer {
     this._buf = u8;
     this._offset = 0;
     this._lastTs = 0;
+    this._carryBytes = 0;
     this._emitProgress(0);
   }
 
@@ -128,6 +131,7 @@ class OutputPlayer {
     if (this._playing) return;
     this._playing = true;
     this._lastTs = performance.now();
+    this._carryBytes = 0;
     this._raf = requestAnimationFrame((ts) => this._tick(ts));
   }
 
@@ -141,6 +145,7 @@ class OutputPlayer {
     this._reset();
     this._decoder = new TextDecoder("utf-8", { fatal: false });
     this._offset = 0;
+    this._carryBytes = 0;
     this._emitProgress(0);
   }
 
@@ -162,10 +167,17 @@ class OutputPlayer {
 
     let budget = this._chunkBytes;
     if (Number.isFinite(this._speedBps)) {
-      budget = Math.max(this._chunkBytes, Math.floor((this._speedBps * dtMs) / 1000));
-      budget = clampInt(budget, 1024, 8 * 1024 * 1024);
+      this._carryBytes += (this._speedBps * dtMs) / 1000;
+      const whole = Math.floor(this._carryBytes);
+      if (whole <= 0) {
+        this._raf = requestAnimationFrame((nextTs) => this._tick(nextTs));
+        return;
+      }
+
+      this._carryBytes -= whole;
+      budget = clampInt(whole, 1, this._chunkBytes);
     } else {
-      budget = 8 * 1024 * 1024;
+      budget = this._chunkBytes;
     }
 
     const start = this._offset;
