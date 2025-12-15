@@ -569,6 +569,11 @@ int main(int argc, char* argv[]) {
     if (ret < 0 && errno == EINTR) {
       if (winch_pending) {
         winch_pending = 0;
+        struct winsize ws{};
+        int tty_fd = pick_controlling_tty_fd();
+        if (tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0) {
+          write_resize_event(now_mono_ns(), output_end, ws.ws_col, ws.ws_row);
+        }
         apply_winsize_to_child_pty();
       }
       continue;

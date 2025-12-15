@@ -1,5 +1,6 @@
 #include "catch_amalgamated.hpp" // Using Catch2 v3 amalgamated header
 #include "../term-capture.hpp"   // Include the header for term_capture
+#include "../tcap.hpp"
 #include <vector>
 #include <string>
 #include <csignal>
@@ -7,6 +8,8 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/wait.h>
 
 // Argument-parsing scenarios: happy paths first, then error handling.
 TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
@@ -475,6 +478,130 @@ static std::string read_all(const std::string& path) {
     return oss.str();
 }
 
+struct PtyChild {
+    pid_t pid{-1};
+    int master_fd{-1};
+};
+
+static bool set_fd_nonblocking(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) return false;
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
+}
+
+static PtyChild spawn_under_pty(const std::vector<std::string>& args) {
+    PtyChild child;
+    int master_fd = ::posix_openpt(O_RDWR | O_NOCTTY);
+    if (master_fd < 0) return child;
+    if (::grantpt(master_fd) != 0 || ::unlockpt(master_fd) != 0) {
+        ::close(master_fd);
+        return child;
+    }
+    char* slave_name = ::ptsname(master_fd);
+    if (!slave_name) {
+        ::close(master_fd);
+        return child;
+    }
+    int slave_fd = ::open(slave_name, O_RDWR);
+    if (slave_fd < 0) {
+        ::close(master_fd);
+        return child;
+    }
+
+    pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(slave_fd);
+        ::close(master_fd);
+        return child;
+    }
+    if (pid == 0) {
+        (void)::setsid();
+        (void)::ioctl(slave_fd, TIOCSCTTY, 0);
+        (void)::dup2(slave_fd, STDIN_FILENO);
+        (void)::dup2(slave_fd, STDOUT_FILENO);
+        (void)::dup2(slave_fd, STDERR_FILENO);
+        if (slave_fd > STDERR_FILENO) ::close(slave_fd);
+        ::close(master_fd);
+
+        std::vector<char*> argv;
+        argv.reserve(args.size() + 1);
+        for (const auto& s : args) argv.push_back(const_cast<char*>(s.c_str()));
+        argv.push_back(nullptr);
+        ::execvp(argv[0], argv.data());
+        _exit(127);
+    }
+
+    ::close(slave_fd);
+    child.pid = pid;
+    child.master_fd = master_fd;
+    (void)set_fd_nonblocking(master_fd);
+    return child;
+}
+
+static int wait_pid_with_timeout(pid_t pid, int timeout_ms) {
+    const int step_ms = 10;
+    int waited = 0;
+    for (;;) {
+        int status = 0;
+        pid_t rc = ::waitpid(pid, &status, WNOHANG);
+        if (rc == pid) return status;
+        if (rc < 0) return -1;
+        if (waited >= timeout_ms) return -2;
+        ::usleep(step_ms * 1000);
+        waited += step_ms;
+    }
+}
+
+static std::string drain_fd_until_eof_or_timeout(int fd, int timeout_ms) {
+    std::string out;
+    const int step_ms = 10;
+    int waited = 0;
+    for (;;) {
+        char buf[4096];
+        ssize_t n = ::read(fd, buf, sizeof(buf));
+        if (n > 0) {
+            out.append(buf, buf + n);
+            continue;
+        }
+        if (n == 0) break;
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) break;
+
+        if (waited >= timeout_ms) break;
+        ::usleep(step_ms * 1000);
+        waited += step_ms;
+    }
+    return out;
+}
+
+static size_t count_resize_events(const std::string& events_path) {
+    const std::string data = read_all(events_path);
+    if (data.size() < 13) return 0;
+    if (data.rfind("EVT1", 0) != 0) return 0;
+    size_t i = 13; // magic(4) + flags(1) + started_at_unix_ns(8)
+    size_t count = 0;
+    while (i < data.size()) {
+        const uint8_t type = static_cast<uint8_t>(data[i++]);
+        if (type != 1) return count; // unknown type => stop
+
+        uint64_t dt = 0, doff = 0, cols = 0, rows = 0;
+        auto r1 = uleb128_decode(reinterpret_cast<const uint8_t*>(data.data() + i), data.size() - i, dt);
+        if (!r1.first) return count;
+        i += r1.second;
+        auto r2 = uleb128_decode(reinterpret_cast<const uint8_t*>(data.data() + i), data.size() - i, doff);
+        if (!r2.first) return count;
+        i += r2.second;
+        auto r3 = uleb128_decode(reinterpret_cast<const uint8_t*>(data.data() + i), data.size() - i, cols);
+        if (!r3.first) return count;
+        i += r3.second;
+        auto r4 = uleb128_decode(reinterpret_cast<const uint8_t*>(data.data() + i), data.size() - i, rows);
+        if (!r4.first) return count;
+        i += r4.second;
+
+        ++count;
+    }
+    return count;
+}
+
 // Integration smoke: captures a short-lived command and checks log artifacts.
 TEST_CASE("Integration: trivial command creates logs and captures output", "[integration][term_capture]") {
     const auto& prereq = integration_prereq();
@@ -521,6 +648,91 @@ TEST_CASE("Integration: trivial command creates logs and captures output", "[int
     const std::string out = read_all(output_path);
     // PTY may transform newline to CRLF, so check substring rather than exact equality
     REQUIRE(out.find("hello") != std::string::npos);
+}
+
+TEST_CASE("Integration: PTY-attached run exercises tty code paths", "[integration][term_capture][pty]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
+
+    const std::string prefix = "debug/it_pty";
+    const std::string input_path = prefix + ".input";
+    const std::string output_path = prefix + ".output";
+    const std::string input_tidx_path = input_path + ".tidx";
+    const std::string output_tidx_path = output_path + ".tidx";
+    const std::string output_events_path = output_path + ".events";
+    const std::string meta_path = prefix + ".meta.json";
+
+    std::remove(input_path.c_str());
+    std::remove(output_path.c_str());
+    std::remove(input_tidx_path.c_str());
+    std::remove(output_tidx_path.c_str());
+    std::remove(output_events_path.c_str());
+    std::remove(meta_path.c_str());
+
+    const std::vector<std::string> args = {
+        term_capture_bin(), prefix, "/bin/echo", "pty_ok",
+    };
+    PtyChild child = spawn_under_pty(args);
+    REQUIRE(child.pid > 0);
+    REQUIRE(child.master_fd >= 0);
+
+    const int status = wait_pid_with_timeout(child.pid, 3000);
+    (void)drain_fd_until_eof_or_timeout(child.master_fd, 1000);
+    ::close(child.master_fd);
+    REQUIRE(status >= 0);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 0);
+
+    REQUIRE(file_exists(input_path));
+    REQUIRE(file_exists(output_path));
+    REQUIRE(file_exists(input_tidx_path));
+    REQUIRE(file_exists(output_tidx_path));
+    REQUIRE(file_exists(output_events_path));
+    REQUIRE(file_exists(meta_path));
+    REQUIRE(read_all(output_path).find("pty_ok") != std::string::npos);
+}
+
+TEST_CASE("Integration: SIGWINCH produces additional resize metadata", "[integration][term_capture][pty][winch]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
+
+    const std::string prefix = "debug/it_winch";
+    const std::string output_path = prefix + ".output";
+    const std::string output_events_path = output_path + ".events";
+
+    std::remove((prefix + ".input").c_str());
+    std::remove(output_path.c_str());
+    std::remove((output_path + ".tidx").c_str());
+    std::remove(output_events_path.c_str());
+    std::remove((prefix + ".meta.json").c_str());
+
+    const std::vector<std::string> args = {
+        term_capture_bin(), prefix, "/bin/sh", "-c", "sleep 0.3; echo winch_ok",
+    };
+    PtyChild child = spawn_under_pty(args);
+    REQUIRE(child.pid > 0);
+    REQUIRE(child.master_fd >= 0);
+
+    ::usleep(50 * 1000);
+    struct winsize ws{};
+    ws.ws_col = 100;
+    ws.ws_row = 40;
+    (void)::ioctl(child.master_fd, TIOCSWINSZ, &ws);
+    (void)::kill(child.pid, SIGWINCH);
+
+    const int status = wait_pid_with_timeout(child.pid, 5000);
+    (void)drain_fd_until_eof_or_timeout(child.master_fd, 1000);
+    ::close(child.master_fd);
+    REQUIRE(status >= 0);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 0);
+
+    REQUIRE(file_exists(output_path));
+    REQUIRE(file_exists(output_events_path));
+    REQUIRE(read_all(output_path).find("winch_ok") != std::string::npos);
+    REQUIRE(count_resize_events(output_events_path) >= 2);
 }
 
 // Integration variant: ensure multi-line PTY output is preserved in the log.
