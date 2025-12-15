@@ -1,5 +1,11 @@
 const ui = {
   file: document.getElementById("file"),
+  baseUrl: document.getElementById("baseUrl"),
+  scan: document.getElementById("scan"),
+  outputSelect: document.getElementById("outputSelect"),
+  inputSelect: document.getElementById("inputSelect"),
+  loadOutput: document.getElementById("loadOutput"),
+  loadInput: document.getElementById("loadInput"),
   tailBytes: document.getElementById("tailBytes"),
   chunkBytes: document.getElementById("chunkBytes"),
   speed: document.getElementById("speed"),
@@ -225,6 +231,7 @@ function createSink() {
 }
 
 let currentFile = null;
+let currentUrl = null;
 let sink = createSink();
 let player = new OutputPlayer({
   write: (s) => sink.write(s),
@@ -249,53 +256,60 @@ function xtermSourceNote() {
 
 function updateButtons() {
   const hasFile = !!currentFile;
+  const hasUrl = !!currentUrl;
   const hasLoaded = player.hasLoaded();
   ui.load.disabled = !hasFile;
   ui.play.disabled = !hasLoaded;
   ui.pause.disabled = !hasLoaded;
   ui.reset.disabled = !hasLoaded;
+  ui.loadOutput.disabled = !hasUrl || !ui.outputSelect.value;
+  ui.loadInput.disabled = !hasUrl || !ui.inputSelect.value;
+}
+
+function setupPlaybackPipeline() {
+  sink = createSink();
+  player = new OutputPlayer({
+    write: (s) => sink.write(s),
+    reset: () => sink.reset(),
+    onProgress: ({ offset, total, done }) => {
+      const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
+      ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}`;
+    },
+  });
+
+  const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
+  const speedBps = speedToBytesPerSec(ui.speed.value);
+  player.configure({ speedBps, chunkBytes });
+}
+
+function loadBytes({ name, size, startOffset, u8 }) {
+  setupPlaybackPipeline();
+
+  player.load(u8);
+
+  const tailNote =
+    typeof startOffset === "number" && startOffset > 0
+      ? ` (tail ${fmtBytes(size - startOffset)} of ${fmtBytes(size)})`
+      : "";
+  setStatus(
+    `Loaded ${name}${tailNote}. Renderer: ${sink.kind === "xterm" ? "xterm.js" : "fallback"}.${xtermSourceNote()}`,
+  );
+  updateButtons();
+
+  if (ui.speed.value === "instant") {
+    player.play();
+  }
 }
 
 async function loadSelectedFile() {
   if (!currentFile) return;
-
   try {
-    sink = createSink();
-    player = new OutputPlayer({
-      write: (s) => sink.write(s),
-      reset: () => sink.reset(),
-      onProgress: ({ offset, total, done, extraBytesWritten }) => {
-        const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
-        ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}`;
-        if (extraBytesWritten > 0) {
-          // no-op hook point for future throughput stats
-        }
-      },
-    });
-
     const tailBytes = clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
-    const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
-    const speedBps = speedToBytesPerSec(ui.speed.value);
-
-    player.configure({ speedBps, chunkBytes });
-
     const fileSize = currentFile.size;
     const start = tailBytes > 0 ? Math.max(0, fileSize - tailBytes) : 0;
     const blob = currentFile.slice(start, fileSize);
     const buf = await blob.arrayBuffer();
-    const u8 = new Uint8Array(buf);
-
-    player.load(u8);
-
-    const tailNote = start > 0 ? ` (tail ${fmtBytes(fileSize - start)} of ${fmtBytes(fileSize)})` : "";
-    setStatus(
-      `Loaded ${currentFile.name}${tailNote}. Renderer: ${sink.kind === "xterm" ? "xterm.js" : "fallback"}.${xtermSourceNote()}`,
-    );
-    updateButtons();
-
-    if (ui.speed.value === "instant") {
-      player.play();
-    }
+    loadBytes({ name: currentFile.name, size: fileSize, startOffset: start, u8: new Uint8Array(buf) });
   } catch (e) {
     setStatus(`Load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
     updateButtons();
@@ -304,6 +318,7 @@ async function loadSelectedFile() {
 
 function pickFile(file) {
   currentFile = file;
+  currentUrl = null;
   if (!file) {
     setStatus("No file loaded.");
     ui.meta.textContent = "";
@@ -345,6 +360,133 @@ ui.chunkBytes.addEventListener("change", () => {
   player.configure({ speedBps: speedToBytesPerSec(ui.speed.value), chunkBytes });
 });
 
+function resolvedBaseUrl() {
+  const raw = (ui.baseUrl && ui.baseUrl.value ? ui.baseUrl.value : "../").trim() || "../";
+  return new URL(raw, window.location.href).toString();
+}
+
+function setSelectOptions(selectEl, items, placeholder) {
+  selectEl.innerHTML = "";
+  const ph = document.createElement("option");
+  ph.value = "";
+  ph.textContent = placeholder;
+  selectEl.appendChild(ph);
+  for (const item of items) {
+    const opt = document.createElement("option");
+    opt.value = item.href;
+    opt.textContent = item.name;
+    selectEl.appendChild(opt);
+  }
+  selectEl.value = "";
+}
+
+async function scanHttpServerListing() {
+  try {
+    currentFile = null;
+    currentUrl = resolvedBaseUrl();
+
+    const res = await fetch(currentUrl, { cache: "no-store" });
+    if (!res.ok) throw new Error(`fetch ${currentUrl} failed: HTTP ${res.status}`);
+    const html = await res.text();
+
+    // Python SimpleHTTPServer emits a directory listing HTML page; parse anchor tags.
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const anchors = Array.from(doc.querySelectorAll("a[href]"));
+    const links = anchors
+      .map((a) => a.getAttribute("href"))
+      .filter((href) => href && href !== "../")
+      .map((href) => new URL(href, currentUrl));
+
+    const outputs = [];
+    const inputs = [];
+    for (const url of links) {
+      if (url.pathname.endsWith("/")) continue;
+      const name = decodeURIComponent(url.pathname.split("/").pop() || "");
+      if (name.endsWith(".output") || name.endsWith(".output.tcap")) {
+        outputs.push({ name, href: url.toString() });
+      } else if (name.endsWith(".input") || name.endsWith(".input.tcap")) {
+        inputs.push({ name, href: url.toString() });
+      }
+    }
+
+    outputs.sort((a, b) => a.name.localeCompare(b.name));
+    inputs.sort((a, b) => a.name.localeCompare(b.name));
+
+    setSelectOptions(ui.outputSelect, outputs, outputs.length ? "Select…" : "No .output found");
+    setSelectOptions(ui.inputSelect, inputs, inputs.length ? "Select…" : "No .input found");
+
+    setStatus(
+      `Scanned ${currentUrl}: ${outputs.length} output, ${inputs.length} input. Select one and click Load.`,
+    );
+    updateButtons();
+  } catch (e) {
+    currentUrl = null;
+    setSelectOptions(ui.outputSelect, [], "Scan failed");
+    setSelectOptions(ui.inputSelect, [], "Scan failed");
+    setStatus(
+      `Scan failed: ${e instanceof Error ? e.message : String(e)}. Tip: run the server from the repo root and open /web/.`,
+      { error: true },
+    );
+    updateButtons();
+  }
+}
+
+async function fetchArrayBufferWithOptionalRange(url, startByte) {
+  const headers = startByte > 0 ? { Range: `bytes=${startByte}-` } : undefined;
+  const res = await fetch(url, { cache: "no-store", headers });
+  if (!res.ok) throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
+  return await res.arrayBuffer();
+}
+
+async function loadFromUrl(url, { kind }) {
+  try {
+    const tailBytes = clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
+
+    let size = null;
+    try {
+      const head = await fetch(url, { method: "HEAD", cache: "no-store" });
+      if (head.ok) {
+        const len = head.headers.get("content-length");
+        if (len) size = Number(len);
+      }
+    } catch {
+      // ignore: HEAD might be blocked; we'll still GET
+    }
+
+    const start = size != null && tailBytes > 0 ? Math.max(0, size - tailBytes) : 0;
+    const buf = await fetchArrayBufferWithOptionalRange(url, start);
+    const u8 = new Uint8Array(buf);
+
+    const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || `${kind}`);
+    loadBytes({ name, size: size != null ? size : u8.length, startOffset: start, u8 });
+  } catch (e) {
+    setStatus(`Load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
+    updateButtons();
+  }
+}
+
+ui.scan.addEventListener("click", () => {
+  void scanHttpServerListing();
+});
+
+ui.outputSelect.addEventListener("change", () => {
+  updateButtons();
+});
+
+ui.inputSelect.addEventListener("change", () => {
+  updateButtons();
+});
+
+ui.loadOutput.addEventListener("click", () => {
+  if (!ui.outputSelect.value) return;
+  void loadFromUrl(ui.outputSelect.value, { kind: "output" });
+});
+
+ui.loadInput.addEventListener("click", () => {
+  if (!ui.inputSelect.value) return;
+  void loadFromUrl(ui.inputSelect.value, { kind: "input" });
+});
+
 ui.drop.addEventListener("dragover", (e) => {
   e.preventDefault();
   ui.drop.classList.add("dragover");
@@ -363,3 +505,8 @@ ui.drop.addEventListener("drop", (e) => {
 
 updateButtons();
 initSpeedSelect();
+
+// Best-effort auto-scan if we're being served as /web/ from the repo root.
+if (ui.baseUrl && ui.baseUrl.value) {
+  void scanHttpServerListing();
+}

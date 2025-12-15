@@ -101,6 +101,7 @@ button {
 }
 
 input[type="number"],
+input[type="text"],
 select {
   width: 110px;
   background: #0e1217;
@@ -111,6 +112,12 @@ select {
 
 select {
   width: 140px;
+}
+
+input#baseUrl {
+  width: 180px;
+  font-family: var(--mono);
+  font-size: 12px;
 }
 
 .buttons {

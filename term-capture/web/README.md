@@ -20,6 +20,16 @@ Then visit `http://127.0.0.1:8080/`.
 
 Note: Some browsers restrict ES modules when opened via `file://`. Serving `web/` over HTTP avoids that.
 
+## Auto-discovery (no drag/drop)
+If you run the server from the repo root, the viewer can scan the directory listing and auto-populate `.input` / `.output` files:
+
+```sh
+cd ..
+python3 -m http.server 7878
+```
+
+Open `http://127.0.0.1:7878/web/` and click “Scan”.
+
 ## Vendor xterm.js (optional, recommended)
 Run:
 
