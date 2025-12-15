@@ -343,7 +343,8 @@ TEST_CASE("Integration: trivial command creates logs and captures output", "[int
 
     // Run term-capture with a trivial command that exits quickly
     // Expect: logs created; output contains "hello"
-    int rc = std::system("./debug/term-capture debug/it_echo /bin/echo hello >/dev/null 2>&1");
+    // Pipe empty input so this test doesn't depend on any interactive keystrokes.
+    int rc = std::system("printf '' | ./debug/term-capture debug/it_echo /bin/echo hello >/dev/null 2>&1");
     REQUIRE(rc == 0);
 
     REQUIRE(file_exists(input_path));
@@ -371,7 +372,7 @@ TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration]
     std::remove(output_path.c_str());
 
     // Quote the printf argument so the shell interprets the newline escape
-    int rc = std::system("./debug/term-capture debug/it_printf /bin/sh -c \"printf 'a\\nb'\" >/dev/null 2>&1");
+    int rc = std::system("printf '' | ./debug/term-capture debug/it_printf /bin/sh -c \"printf 'a\\nb'\" >/dev/null 2>&1");
     REQUIRE(rc == 0);
 
     REQUIRE(file_exists(input_path));
@@ -433,7 +434,7 @@ TEST_CASE("Integration: WS flags create stub metadata and print skeleton notice"
     std::remove(stderr_path.c_str());
 
     // Place WS flags before prefix to avoid ambiguity with command args
-    int rc = std::system("./debug/term-capture --ws-listen 127.0.0.1:0 "
+    int rc = std::system("printf '' | ./debug/term-capture --ws-listen 127.0.0.1:0 "
                          "debug/it_ws /bin/echo ok 2> debug/it_ws.stderr >/dev/null");
     REQUIRE(rc == 0);
 

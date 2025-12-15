@@ -336,20 +336,26 @@ int main(int argc, char* argv[]) {
   }
 
   // 4) Relay data between real terminal and child PTY
+  bool stdin_open = true;
   while (!should_exit) {
     fd_set fds;
     FD_ZERO(&fds);
-    FD_SET(STDIN_FILENO, &fds);
+    if (stdin_open) {
+      FD_SET(STDIN_FILENO, &fds);
+    }
     FD_SET(masterFd, &fds);
 
-    int maxFd = (masterFd > STDIN_FILENO) ? masterFd : STDIN_FILENO;
+    int maxFd = masterFd;
+    if (stdin_open && STDIN_FILENO > maxFd) {
+      maxFd = STDIN_FILENO;
+    }
     int ret = ::select(maxFd + 1, &fds, NULL, NULL, NULL);
     if (ret < 0 && errno != EINTR) {
       break;
     }
 
     // Data from real terminal -> child
-    if (FD_ISSET(STDIN_FILENO, &fds)) {
+    if (stdin_open && FD_ISSET(STDIN_FILENO, &fds)) {
       char buf[1024];
       ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
       if (n > 0) {
@@ -357,6 +363,10 @@ int main(int argc, char* argv[]) {
         // Log user input
         inputFile.write(buf, n);
         inputFile.flush();
+      } else if (n == 0) {
+        // If STDIN hits EOF (e.g., piped input ends), stop monitoring it but keep
+        // capturing the PTY output until the child exits.
+        stdin_open = false;
       }
     }
 
