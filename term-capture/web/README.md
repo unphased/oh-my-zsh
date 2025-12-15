@@ -54,3 +54,10 @@ Once present, `index.html` will use them; otherwise it will fall back to loading
 ## Notes
 - Default “Tail” is 2 MiB to keep big logs snappy; set Tail=0 to load the whole file.
 - “Chunk” + “Speed” control replay batching; the point is to avoid freezing the UI on large logs.
+
+## Test report viewer
+There’s also a tiny Catch2 JSON report viewer at `web/test-report/`:
+
+1. Run `make test` (writes `debug/test-results.json`).
+2. Serve the repo root: `python3 -m http.server 7878`
+3. Open `http://127.0.0.1:7878/web/test-report/`

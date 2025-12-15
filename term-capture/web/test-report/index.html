@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>term-capture – test report</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <div class="title">
+        <h1>Test report</h1>
+        <div class="subtitle">Catch2 JSON viewer (no frameworks)</div>
+      </div>
+
+      <div class="controls">
+        <label class="row">
+          <span class="label">URL</span>
+          <input id="url" type="text" value="/debug/test-results.json" />
+        </label>
+        <div class="row buttons">
+          <button id="loadUrl">Load URL</button>
+          <label class="fileButton">
+            Load file
+            <input id="file" type="file" accept="application/json,.json" />
+          </label>
+          <button id="expandAll" class="secondary">Expand all</button>
+          <button id="collapseAll" class="secondary">Collapse all</button>
+        </div>
+        <label class="row">
+          <span class="label">Filter</span>
+          <input id="filter" type="text" placeholder="type to filter test names/tags…" />
+        </label>
+        <label class="row checkbox">
+          <input id="showPassed" type="checkbox" />
+          <span>Show passed assertions</span>
+        </label>
+      </div>
+    </header>
+
+    <main>
+      <section id="meta" class="meta"></section>
+      <section id="errors" class="errors" hidden></section>
+      <section id="cases" class="cases"></section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
+
