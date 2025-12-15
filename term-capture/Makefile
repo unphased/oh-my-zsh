@@ -209,6 +209,10 @@ coverage:
 		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --json -o $(COVERAGE_DIR)/coverage.json --gcov-ignore-errors=no_working_dir_found; \
 	fi
 
+# Print the text coverage summary (generates it first if needed).
+coverage-text: coverage
+	@cat $(COVERAGE_DIR)/coverage.txt
+
 # Convenience: open the HTML coverage report on macOS
 open-coverage: test-lite coverage
 	open $(COVERAGE_DIR)/index.html
@@ -247,6 +251,7 @@ help:
 	@echo "  make junit-summary -> print a quick summary of debug/junit.xml"
 	@echo "  make validate-reports -> sanity check JSON (jq) and XML (xmllint) if available"
 	@echo "  make coverage   -> generate coverage reports from existing debug build artifacts"
+	@echo "  make coverage-text -> print debug/coverage/coverage.txt"
 	@echo "  make open-coverage -> open HTML coverage report (macOS)"
 	@echo "  make dev        -> run python http.server on :7878"
 	@echo "  make test-open  -> run tests (JSON) and open report UI"
@@ -265,4 +270,4 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test test-lite test-unit test-integration test-verbose test-json test-json-verbose test-junit junit-summary coverage open-coverage dev test-open clean-coverage-data validate-reports help # coverage target removed
+.PHONY: all debug release clean test test-lite test-unit test-integration test-verbose test-json test-json-verbose test-junit junit-summary coverage coverage-text open-coverage dev test-open clean-coverage-data validate-reports help # coverage target removed
