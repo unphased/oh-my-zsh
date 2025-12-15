@@ -146,26 +146,36 @@ $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 	@mkdir -p $(@D)
 	$(CXX) $(DEBUG_FLAGS) $^ $(LDLIBS) -o $@
 
-# Test target: build and run tests
+# Test targets
 # Pass extra flags to Catch2 with TEST_ARGS, e.g.:
-#   make test TEST_ARGS="-s -v high --durations yes"
+#   make test-lite TEST_ARGS="-s -v high --durations yes"
+#   make test-json TEST_ARGS="--rng-seed 12345"
 TEST_ARGS ?=
 UNIT_FILTER ?= ~[integration]
 INTEGRATION_FILTER ?= [integration]
-test: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
-	@set -e; \
-	rc=0; \
-	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(UNIT_FILTER) || rc=$$?; \
-	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER) || rc=$$?; \
-	mkdir -p debug; \
-	./$(TEST_EXECUTABLE) -r JSON -o debug/test-results.json -s || true; \
-	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s || true; \
-	$(MAKE) validate-reports; \
-	./debug/term-capture debug/coverage_smoke /bin/echo ok >/dev/null 2>/dev/null || true; \
-	printf 'A' | ./debug/hexflow >/dev/null 2>/dev/null || true; \
-	$(MAKE) coverage; \
-	cat $(COVERAGE_DIR)/coverage.txt; \
-	exit $$rc
+
+# Full suite, console output only (no JSON/JUnit). This is the fastest path to
+# populate coverage data for gcovr.
+test-lite: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
+	./$(TEST_EXECUTABLE) $(TEST_ARGS)
+
+# Full suite, JSON report (single-run; no double-execution).
+test-json: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
+	@mkdir -p debug
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -o debug/test-results.json -s
+
+# Full suite, JUnit (single-run; kept for compatibility, but JSON is preferred).
+test-junit: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
+	@mkdir -p debug
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r junit -o debug/junit.xml -s
+
+# Default: generate JSON report + coverage (smoke runs help coverage reach mains).
+test: test-json
+	$(MAKE) validate-reports
+	./debug/term-capture debug/coverage_smoke /bin/echo ok >/dev/null 2>/dev/null || true
+	printf 'A' | ./debug/hexflow >/dev/null 2>/dev/null || true
+	$(MAKE) coverage
+	cat $(COVERAGE_DIR)/coverage.txt
 
 # Run only unit tests (exclude [integration] tagged tests)
 test-unit: $(TEST_EXECUTABLE)
@@ -180,13 +190,10 @@ test-integration: $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 test-verbose: $(TEST_EXECUTABLE)
 	./$(TEST_EXECUTABLE) -s -v high --durations yes
 
-test-json: $(TEST_EXECUTABLE)
+# Verbose JSON (useful for debugging the report itself)
+test-json-verbose: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	@mkdir -p debug
-	./$(TEST_EXECUTABLE) -r JSON -o debug/test-results.json -s -v high
-
-test-junit: $(TEST_EXECUTABLE)
-	@mkdir -p debug
-	./$(TEST_EXECUTABLE) -r junit -o debug/junit.xml -s
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -o debug/test-results.json -s -v high
 
 # Generate coverage reports (HTML + text summary) after tests
 
@@ -203,13 +210,15 @@ coverage:
 	fi
 
 # Convenience: open the HTML coverage report on macOS
-open-coverage: coverage
+coverage-run: test-lite coverage
+
+open-coverage: coverage-run
 	open $(COVERAGE_DIR)/index.html
 
 # Validate machine-readable test reports if tools are present
 validate-reports:
-	@sh -c 'command -v jq >/dev/null 2>&1 && jq -e . debug/test-results.json >/dev/null 2>&1 && echo "Validated JSON report: debug/test-results.json" || echo "Skipping JSON validation: install jq to validate (brew install jq)";'
-	@sh -c 'command -v xmllint >/dev/null 2>&1 && xmllint --noout debug/junit.xml >/dev/null 2>&1 && echo "Validated JUnit XML: debug/junit.xml" || echo "Skipping JUnit XML validation: install xmllint (libxml2) to validate";'
+	@sh -c '[ -f debug/test-results.json ] && command -v jq >/dev/null 2>&1 && jq -e . debug/test-results.json >/dev/null 2>&1 && echo "Validated JSON report: debug/test-results.json" || echo "Skipping JSON validation: missing debug/test-results.json or install jq (brew install jq)";'
+	@sh -c '[ -f debug/junit.xml ] && command -v xmllint >/dev/null 2>&1 && xmllint --noout debug/junit.xml >/dev/null 2>&1 && echo "Validated JUnit XML: debug/junit.xml" || echo "Skipping JUnit XML validation: missing debug/junit.xml or install xmllint (libxml2)";'
 
 # Human-friendly JUnit review helpers
 junit-summary: test-junit
@@ -221,17 +230,17 @@ help:
 	@echo "  make            -> same as 'make all' (builds debug and release)"
 	@echo "  make debug      -> build debug binaries (with coverage flags)"
 	@echo "  make release    -> build release binaries (optimized)"
-	@echo "  make test       -> build test runner + debug binaries, run unit and integration tests,"
-	@echo "                     emit JSON (debug/test-results.json) and JUnit (debug/junit.xml) reports,"
-	@echo "                     smoke-run main() of debug/term-capture and debug/hexflow,"
+	@echo "  make test       -> run full suite once (JSON report), smoke-run debug mains,"
 	@echo "                     then generate and print coverage summary"
+	@echo "  make test-lite  -> run full suite (console only; fastest way to populate coverage data)"
+	@echo "  make test-json  -> run full suite and write JSON to debug/test-results.json"
 	@echo "  make test-unit  -> run only unit tests (exclude [integration] tagged tests)"
 	@echo "  make test-integration -> run only [integration]-tagged tests"
-	@echo "  make test-json  -> run tests and write JSON report to debug/test-results.json"
 	@echo "  make test-junit -> run tests and write JUnit XML to debug/junit.xml"
 	@echo "  make junit-summary -> print a quick summary of debug/junit.xml"
 	@echo "  make validate-reports -> sanity check JSON (jq) and XML (xmllint) if available"
-	@echo "  make coverage   -> generate coverage reports from debug build artifacts"
+	@echo "  make coverage   -> generate coverage reports from existing debug build artifacts"
+	@echo "  make coverage-run -> run full suite then generate coverage"
 	@echo "  make open-coverage -> open HTML coverage report (macOS)"
 	@echo "  make clean      -> remove build artifacts (debug/, release/)"
 	@echo "  make clean-coverage-data -> remove stale coverage data files (*.gcda)"
@@ -248,4 +257,4 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test test-unit test-integration test-verbose test-json test-junit junit-summary coverage open-coverage clean-coverage-data validate-reports help # coverage target removed
+.PHONY: all debug release clean test test-lite test-unit test-integration test-verbose test-json test-json-verbose test-junit junit-summary coverage coverage-run open-coverage clean-coverage-data validate-reports help # coverage target removed

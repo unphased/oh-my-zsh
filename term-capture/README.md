@@ -128,11 +128,13 @@ The `hexflow` program uses standard C++ iostreams and cctype.
 
 The test suite is built with Catch2 v3. Useful targets include:
 
-- `make -C term-capture test` – default run, emits JSON/JUnit reports under `debug/`
-- `make -C term-capture test-verbose` – verbose output with durations
+- `make -C term-capture test` – default run, writes JSON to `debug/test-results.json` and generates coverage
+- `make -C term-capture test-lite` – run the full suite with console output only (fastest for iterating)
+- `make -C term-capture test-verbose` – verbose console output with durations
 - `make -C term-capture test-unit` / `make -C term-capture test-integration`
 - `make -C term-capture test TEST_ARGS="--rng-seed 12345"` – reproduce runs with a fixed RNG seed
-- `make -C term-capture junit-summary` – quick summary of `debug/junit.xml`
+- `make -C term-capture test-junit` – write JUnit XML to `debug/junit.xml`
+- `make -C term-capture junit-summary` – quick summary of `debug/junit.xml` (runs `test-junit`)
 
 Coverage artifacts land in `debug/coverage/`. On macOS, `make -C term-capture open-coverage` opens the HTML report.
 
