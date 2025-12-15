@@ -35,9 +35,9 @@ std::vector<const char*> build_exec_argv(const std::vector<std::string>& args);
 
 /**
  * Selected functions we can safely call in tests
- * Note: handle_winch will read the current window size from STDIN_FILENO
- * and attempt to propagate it if an internal master FD is valid. In library
- * builds, master FD is typically invalid, so this is a no-op after ioctl read.
+ * Note: handle_winch is a SIGWINCH handler that schedules window-size
+ * propagation for the main event loop. In library builds, there is no running
+ * loop, so calling it is effectively a no-op beyond toggling internal flags.
  */
 void signal_handler(int sig);
 void handle_winch(int);

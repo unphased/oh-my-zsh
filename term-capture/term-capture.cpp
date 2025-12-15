@@ -21,6 +21,8 @@ static bool have_orig_termios = false;
 static int masterFd = -1;
 static pid_t child_pid = -1;
 static volatile bool did_cleanup = false;
+static volatile sig_atomic_t winch_pending = 0;
+static int winch_pipe_fds[2] = {-1, -1};
 
 // Restore parent terminal to original settings
 void restore_terminal() {
@@ -31,6 +33,14 @@ void restore_terminal() {
 
 void cleanup() {
   restore_terminal();
+  if (winch_pipe_fds[0] >= 0) {
+    close(winch_pipe_fds[0]);
+    winch_pipe_fds[0] = -1;
+  }
+  if (winch_pipe_fds[1] >= 0) {
+    close(winch_pipe_fds[1]);
+    winch_pipe_fds[1] = -1;
+  }
   if (masterFd >= 0) {
     close(masterFd);
     masterFd = -1;
@@ -53,6 +63,31 @@ void cleanup_and_exit(int code) {
 #endif
 }
 
+#ifndef BUILD_TERM_CAPTURE_AS_LIB
+static int pick_controlling_tty_fd() {
+  if (isatty(STDIN_FILENO)) return STDIN_FILENO;
+  if (isatty(STDOUT_FILENO)) return STDOUT_FILENO;
+  if (isatty(STDERR_FILENO)) return STDERR_FILENO;
+  return -1;
+}
+
+static void apply_winsize_to_child_pty() {
+  if (masterFd < 0) return;
+  int tty_fd = pick_controlling_tty_fd();
+  if (tty_fd < 0) return;
+  struct winsize ws;
+  if (ioctl(tty_fd, TIOCGWINSZ, &ws) != 0) return;
+  (void)ioctl(masterFd, TIOCSWINSZ, &ws);
+
+  pid_t fg_pgrp = tcgetpgrp(masterFd);
+  if (fg_pgrp > 0) {
+    (void)kill(-fg_pgrp, SIGWINCH);
+  } else if (child_pid > 0) {
+    (void)kill(child_pid, SIGWINCH);
+  }
+}
+#endif // BUILD_TERM_CAPTURE_AS_LIB
+
 // Handle Ctrl+C, SIGTERM, etc.
 void signal_handler(int sig) {
   should_exit = true;
@@ -67,9 +102,10 @@ void signal_handler(int sig) {
 
 // Propagate window size changes to the child PTY
 void handle_winch(int) {
-  struct winsize ws;
-  if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == 0 && masterFd >= 0) {
-    ioctl(masterFd, TIOCSWINSZ, &ws);
+  winch_pending = 1;
+  if (winch_pipe_fds[1] >= 0) {
+    const char b = 'w';
+    (void)write(winch_pipe_fds[1], &b, 1);
   }
 }
 
@@ -303,8 +339,18 @@ int main(int argc, char* argv[]) {
   // Forward window size changes to the child
   signal(SIGWINCH, handle_winch);
 
+  // Self-pipe so resize events wake select() immediately (not just on next IO).
+  if (pipe(winch_pipe_fds) == 0) {
+    for (int i = 0; i < 2; ++i) {
+      int flags = fcntl(winch_pipe_fds[i], F_GETFL, 0);
+      if (flags >= 0) {
+        (void)fcntl(winch_pipe_fds[i], F_SETFL, flags | O_NONBLOCK);
+      }
+    }
+  }
+
   // Initialize child PTY with correct window size
-  handle_winch(0);
+  apply_winsize_to_child_pty();
 
   std::cerr << "Started capturing shell (PID " << child_pid << ")\n"
             << "Logging input to: " << input_path << "\n"
@@ -344,14 +390,37 @@ int main(int argc, char* argv[]) {
       FD_SET(STDIN_FILENO, &fds);
     }
     FD_SET(masterFd, &fds);
+    if (winch_pipe_fds[0] >= 0) {
+      FD_SET(winch_pipe_fds[0], &fds);
+    }
 
     int maxFd = masterFd;
     if (stdin_open && STDIN_FILENO > maxFd) {
       maxFd = STDIN_FILENO;
     }
+    if (winch_pipe_fds[0] > maxFd) {
+      maxFd = winch_pipe_fds[0];
+    }
     int ret = ::select(maxFd + 1, &fds, NULL, NULL, NULL);
     if (ret < 0 && errno != EINTR) {
       break;
+    }
+    if (ret < 0 && errno == EINTR) {
+      if (winch_pending) {
+        winch_pending = 0;
+        apply_winsize_to_child_pty();
+      }
+      continue;
+    }
+
+    if (winch_pipe_fds[0] >= 0 && FD_ISSET(winch_pipe_fds[0], &fds)) {
+      char drain[64];
+      while (read(winch_pipe_fds[0], drain, sizeof(drain)) > 0) {
+      }
+    }
+    if (winch_pending) {
+      winch_pending = 0;
+      apply_winsize_to_child_pty();
     }
 
     // Data from real terminal -> child
