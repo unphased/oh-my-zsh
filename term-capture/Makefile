@@ -220,6 +220,16 @@ validate-reports:
 	@sh -c 'command -v jq >/dev/null 2>&1 && jq -e . debug/test-results.json >/dev/null 2>&1 && echo "Validated JSON report: debug/test-results.json" || echo "Skipping JSON validation: install jq to validate (brew install jq)";'
 	@sh -c 'command -v xmllint >/dev/null 2>&1 && xmllint --noout debug/junit.xml >/dev/null 2>&1 && echo "Validated JUnit XML: debug/junit.xml" || echo "Skipping JUnit XML validation: install xmllint (libxml2) to validate";'
 
+# Human-friendly JUnit review helpers
+junit-summary:
+	@python3 tools/junit_summary.py debug/junit.xml
+
+junit-html:
+	@python3 tools/junit_summary.py debug/junit.xml --html debug/junit.html
+
+open-junit: junit-html
+	open debug/junit.html
+
 # Help: explain common targets and their relationships
 help:
 	@echo "Common targets:"
@@ -234,6 +244,8 @@ help:
 	@echo "  make test-integration -> run only [integration]-tagged tests"
 	@echo "  make test-json  -> run tests and write JSON report to debug/test-results.json"
 	@echo "  make test-junit -> run tests and write JUnit XML to debug/junit.xml"
+	@echo "  make junit-summary -> print a quick summary of debug/junit.xml"
+	@echo "  make open-junit -> generate and open debug/junit.html (macOS)"
 	@echo "  make validate-reports -> sanity check JSON (jq) and XML (xmllint) if available"
 	@echo "  make coverage   -> generate coverage reports from debug build artifacts"
 	@echo "  make open-coverage -> open HTML coverage report (macOS)"
@@ -252,4 +264,4 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test test-unit test-integration test-verbose test-json test-junit coverage open-coverage clean-coverage-data help # coverage target removed
+.PHONY: all debug release clean test test-unit test-integration test-verbose test-json test-junit junit-summary junit-html open-junit coverage open-coverage clean-coverage-data validate-reports help # coverage target removed
