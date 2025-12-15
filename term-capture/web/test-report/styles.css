@@ -222,6 +222,10 @@ details > summary::-webkit-details-marker {
   gap: 10px;
 }
 
+.assertion.clickable {
+  cursor: pointer;
+}
+
 .assertion .status {
   width: 20px;
   text-align: center;
@@ -237,10 +241,33 @@ details > summary::-webkit-details-marker {
   color: var(--muted);
 }
 
+.code {
+  margin-top: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.code .ln {
+  color: rgba(255, 255, 255, 0.45);
+  margin-right: 10px;
+}
+
+.hint {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
 .indent {
   margin-left: 14px;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   padding-left: 10px;
   margin-top: 4px;
 }
-

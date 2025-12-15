@@ -18,6 +18,7 @@ const els = {
 };
 
 let report = null;
+const fileCache = new Map(); // filename -> Promise<string[]>
 
 function asText(v) {
   if (v === null || v === undefined) return "";
@@ -91,6 +92,36 @@ function hideError() {
   clear(els.errors);
 }
 
+async function getFileLines(filename) {
+  if (!filename) return null;
+  if (!fileCache.has(filename)) {
+    fileCache.set(
+      filename,
+      fetch(`/${filename}`, { cache: "no-store" })
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status} for /${filename}`);
+          return r.text();
+        })
+        .then((t) => t.replace(/\r\n/g, "\n").split("\n"))
+        .catch(() => null)
+    );
+  }
+  return fileCache.get(filename);
+}
+
+function buildCodeSnippet(lines, line1, context = 1) {
+  if (!lines || !Number.isFinite(line1) || line1 <= 0) return null;
+  const idx = line1 - 1;
+  const start = Math.max(0, idx - context);
+  const end = Math.min(lines.length - 1, idx + context);
+  const out = [];
+  for (let i = start; i <= end; i++) {
+    const ln = String(i + 1).padStart(5, " ");
+    out.push(`${ln}  ${lines[i] ?? ""}`);
+  }
+  return out.join("\n");
+}
+
 function matchesFilter(testInfo, q) {
   if (!q) return true;
   q = q.toLowerCase();
@@ -128,7 +159,7 @@ function renderAssertionsTree(container, nodes, indent, showPassed) {
       const ok = !!node.status;
       if (ok && !showPassed) continue;
       const row = document.createElement("div");
-      row.className = `assertion ${ok ? "ok" : "bad"}`;
+      row.className = `assertion clickable ${ok ? "ok" : "bad"}`;
       row.style.marginLeft = `${indent}px`;
 
       const status = document.createElement("div");
@@ -143,6 +174,25 @@ function renderAssertionsTree(container, nodes, indent, showPassed) {
       row.appendChild(status);
       row.appendChild(msg);
       container.appendChild(row);
+
+      const code = document.createElement("div");
+      code.className = "code";
+      code.style.display = "none";
+      container.appendChild(code);
+
+      let loaded = false;
+      row.addEventListener("click", async () => {
+        const showing = code.style.display !== "none";
+        code.style.display = showing ? "none" : "block";
+        if (showing) return;
+        if (loaded) return;
+        loaded = true;
+        const filename = safeGet(node, ["source-location", "filename"], "");
+        const line = Number(safeGet(node, ["source-location", "line"], 0));
+        const lines = await getFileLines(filename);
+        const snippet = buildCodeSnippet(lines, line, 2);
+        code.textContent = snippet || "(source unavailable)";
+      });
       continue;
     }
 
@@ -229,6 +279,12 @@ function renderCases(obj) {
       const tree = document.createElement("div");
       tree.className = "indent";
       renderAssertionsTree(tree, pathNodes, 0, showPassed);
+      if (!showPassed && failed === 0 && passed > 0) {
+        const hint = document.createElement("div");
+        hint.className = "hint";
+        hint.textContent = "passed assertions hidden (toggle “Show passed assertions” to see file/line + source)";
+        tree.appendChild(hint);
+      }
       runEl.appendChild(tree);
 
       details.appendChild(runEl);
