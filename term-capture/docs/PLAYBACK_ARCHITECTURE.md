@@ -83,3 +83,38 @@ Checkpoint representation options:
 - Resize semantics: apply resize “before next bytes” vs “after current chunk”; define precisely using stream_offset ties.
 - How to handle viewing at different window sizes than recorded (reflow is hard; likely “play at recorded size”).
 - How input stream participates in playback (typically only output needed to render; input useful for annotations/search/UI).
+
+## Capture robustness checklist (pitfalls)
+term-capture sits between a real controlling TTY and a PTY session; a lot of “just works” terminal behavior only happens because the kernel + job control deliver events to the *foreground job*. The wrapper must often proxy that behavior explicitly.
+
+### Foreground process group matters
+- Prefer targeting the PTY foreground process group (`tcgetpgrp(masterFd)`) rather than only the initial child PID (jobs can change).
+
+### Stop/continue hygiene
+- If the wrapper ever receives `SIGTSTP`/`SIGSTOP`, restore the user’s terminal settings before stopping.
+- On `SIGCONT`, re-enter raw mode and re-sync window size (or the user’s terminal can be left “broken”).
+
+### Resize propagation
+- Set the PTY size (`TIOCSWINSZ`) and ensure the foreground job sees `SIGWINCH`.
+- Ensure the event loop wakes on resize (self-pipe or similar); do not wait for “next keystroke” IO.
+
+### Session teardown policy (HUP/disconnect)
+- Decide what should happen if the outer terminal disappears (SIGHUP/SSH drop):
+  - Kill the session (simple, current behavior), or
+  - Keep it running detached (tmux-like; requires new design).
+
+### Backpressure / blocking IO
+- Writes to `STDOUT_FILENO` can block (slow pipe/terminal); if blocked while also reading the PTY, the whole session can stall.
+- Robust pattern: nonblocking fds + bounded buffers + `select`/`poll` on writability.
+
+### Signal handling strategy
+- Prefer `sigaction()` over `signal()` for predictable semantics.
+- Keep signal handlers async-signal-safe; use flags + a wake mechanism (self-pipe) to do real work in the main loop.
+
+### TERM + environment fidelity
+- Avoid forcing `TERM` unless necessary; it’s a common source of subtle app behavior differences.
+- When in doubt: inherit the parent env and only override when explicitly configured.
+
+### PTY lifecycle edges
+- Handle child exit and slave close cleanly (`read(masterFd) == 0` or `EIO` on some platforms).
+- Decide how long to drain buffered PTY output after child exit.
