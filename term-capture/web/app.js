@@ -14,16 +14,23 @@ const ui = {
   meta: document.getElementById("meta"),
 };
 
+const DEFAULT_SPEED_ID = "snail";
+
+// [id, bytesPerSec]
 const SPEED_PRESETS = [
-  { id: "snail", label: "snail", bytesPerSec: 10, default: true },
-  { id: "turtle", label: "turtle", bytesPerSec: 400 },
-  { id: "slow", label: "slow", bytesPerSec: 1_200 },
-  { id: "fast", label: "fast", bytesPerSec: 50_000 },
-  { id: "turbo", label: "turbo", bytesPerSec: 400_000 },
-  { id: "instant", label: "instant", bytesPerSec: Number.POSITIVE_INFINITY },
+  ["snail", 10],
+  ["turtle", 400],
+  ["slow", 1_200],
+  ["fast", 50_000],
+  ["turbo", 400_000],
+  ["instant", Number.POSITIVE_INFINITY],
 ];
 
-const SPEED_BY_ID = new Map(SPEED_PRESETS.map((p) => [p.id, p]));
+const SPEED_LABEL_OVERRIDES = new Map([
+  // e.g. ["realtime", "realtime-ish"],
+]);
+
+const SPEED_BYTES_PER_SEC_BY_ID = new Map(SPEED_PRESETS);
 
 function fmtBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -45,30 +52,29 @@ function isXtermAvailable() {
 }
 
 function speedToBytesPerSec(speed) {
-  const preset = SPEED_BY_ID.get(speed);
-  if (preset) return preset.bytesPerSec;
-  const def = SPEED_PRESETS.find((p) => p.default);
-  return def ? def.bytesPerSec : 50_000;
+  const bps = SPEED_BYTES_PER_SEC_BY_ID.get(speed);
+  if (bps != null) return bps;
+  const def = SPEED_BYTES_PER_SEC_BY_ID.get(DEFAULT_SPEED_ID);
+  return def != null ? def : 50_000;
 }
 
 function initSpeedSelect() {
   const existing = ui.speed.value;
   ui.speed.innerHTML = "";
 
-  for (const preset of SPEED_PRESETS) {
+  for (const [id] of SPEED_PRESETS) {
     const opt = document.createElement("option");
-    opt.value = preset.id;
-    opt.textContent = preset.label;
+    opt.value = id;
+    opt.textContent = SPEED_LABEL_OVERRIDES.get(id) || id;
     ui.speed.appendChild(opt);
   }
 
-  if (existing && SPEED_BY_ID.has(existing)) {
+  if (existing && SPEED_BYTES_PER_SEC_BY_ID.has(existing)) {
     ui.speed.value = existing;
     return;
   }
 
-  const def = SPEED_PRESETS.find((p) => p.default) || SPEED_PRESETS[0];
-  if (def) ui.speed.value = def.id;
+  ui.speed.value = SPEED_BYTES_PER_SEC_BY_ID.has(DEFAULT_SPEED_ID) ? DEFAULT_SPEED_ID : SPEED_PRESETS[0][0];
 }
 
 class OutputPlayer {
