@@ -175,7 +175,6 @@ test: test-json
 	./debug/term-capture debug/coverage_smoke /bin/echo ok >/dev/null 2>/dev/null || true
 	printf 'A' | ./debug/hexflow >/dev/null 2>/dev/null || true
 	$(MAKE) coverage
-	cat $(COVERAGE_DIR)/coverage.txt
 
 # Run only unit tests (exclude [integration] tagged tests)
 test-unit: $(TEST_EXECUTABLE)
@@ -205,16 +204,29 @@ coverage:
 	else \
 		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --html --html-details -o $(COVERAGE_DIR)/index.html --gcov-ignore-errors=no_working_dir_found; \
 		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found; \
-		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --xml -o $(COVERAGE_DIR)/coverage.xml --gcov-ignore-errors=no_working_dir_found; \
-		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --json -o $(COVERAGE_DIR)/coverage.json --gcov-ignore-errors=no_working_dir_found; \
+		cat $(COVERAGE_DIR)/coverage.txt; \
 	fi
 
-# Print the text coverage summary (generates it first if needed).
-coverage-text: coverage
-	@cat $(COVERAGE_DIR)/coverage.txt
+## Commented out these other coverage products. there just does not appear to be significant need for them with how good the html report already is.
+# gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --xml -o $(COVERAGE_DIR)/coverage.xml --gcov-ignore-errors=no_working_dir_found; \
+# gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --json -o $(COVERAGE_DIR)/coverage.json --gcov-ignore-errors=no_working_dir_found; \
+
+# Text-only coverage summary (fast). Uses existing gcov data.
+coverage-text:
+	@mkdir -p $(COVERAGE_DIR)
+	@if ! command -v gcovr >/dev/null 2>&1; then \
+		echo "gcovr not found. Install with: brew install gcovr (or pip install gcovr)"; \
+		echo "gcovr not found. Coverage reports were skipped." > $(COVERAGE_DIR)/coverage.txt; \
+	else \
+		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found; \
+		cat $(COVERAGE_DIR)/coverage.txt; \
+	fi
+
+# Fresh coverage from a clean test run.
+coverage-fresh: test-lite coverage
 
 # Convenience: open the HTML coverage report on macOS
-open-coverage: test-lite coverage
+open-coverage: coverage-fresh
 	open $(COVERAGE_DIR)/index.html
 
 # Dev helpers (macOS-oriented)
@@ -251,8 +263,9 @@ help:
 	@echo "  make junit-summary -> print a quick summary of debug/junit.xml"
 	@echo "  make validate-reports -> sanity check JSON (jq) and XML (xmllint) if available"
 	@echo "  make coverage   -> generate coverage reports from existing debug build artifacts"
-	@echo "  make coverage-text -> print debug/coverage/coverage.txt"
-	@echo "  make open-coverage -> open HTML coverage report (macOS)"
+	@echo "  make coverage-text -> generate/print text-only coverage summary"
+	@echo "  make coverage-fresh -> run tests then generate coverage reports"
+	@echo "  make open-coverage -> run coverage-fresh and open HTML report (macOS)"
 	@echo "  make dev        -> run python http.server on :7878"
 	@echo "  make test-open  -> run tests (JSON) and open report UI"
 	@echo "  make clean      -> remove build artifacts (debug/, release/)"
@@ -270,4 +283,4 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-.PHONY: all debug release clean test test-lite test-unit test-integration test-verbose test-json test-json-verbose test-junit junit-summary coverage coverage-text open-coverage dev test-open clean-coverage-data validate-reports help # coverage target removed
+	.PHONY: all debug release clean test test-lite test-unit test-integration test-verbose test-json test-json-verbose test-junit junit-summary coverage coverage-text coverage-fresh open-coverage dev test-open clean-coverage-data validate-reports help # coverage target removed
