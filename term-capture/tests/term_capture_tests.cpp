@@ -376,9 +376,13 @@ TEST_CASE("cleanup closes internal fds when present", "[term_capture][cleanup]")
 
 TEST_CASE("restore_terminal attempts tcsetattr when orig termios is available", "[term_capture][termios]") {
 #ifdef BUILD_TERM_CAPTURE_AS_LIB
-    // In typical CI/unit-test environments STDIN is not a TTY, so tcsetattr may fail with ENOTTY.
-    // The purpose of this test is to cover the have_orig_termios=true branch without crashing.
-    set_orig_termios_zeroed_for_test();
+    // Never scribble random termios onto the user's terminal:
+    // capture the current settings and "restore" them back.
+    if (!set_orig_termios_from_stdin_for_test()) {
+        SUCCEED("STDIN is not a TTY; skipping restore_terminal branch coverage.");
+        return;
+    }
+
     set_have_orig_termios_for_test(true);
     call_restore_terminal_for_test();
     set_have_orig_termios_for_test(false);

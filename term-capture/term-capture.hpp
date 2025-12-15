@@ -53,8 +53,8 @@ void set_child_pid_for_test(pid_t pid);
 void set_master_fd_for_test(int fd);
 void set_winch_pipe_fds_for_test(int read_fd, int write_fd);
 void set_have_orig_termios_for_test(bool v);
-void set_orig_termios_zeroed_for_test();
 void call_restore_terminal_for_test();
+bool set_orig_termios_from_stdin_for_test();
 #endif
 
 #endif // TERM_CAPTURE_HPP
