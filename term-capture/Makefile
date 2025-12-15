@@ -66,6 +66,16 @@ debug: $(patsubst %,debug/%,$(TARGETS))
 
 release: $(patsubst %,release/%,$(TARGETS))
 
+# Coverage-instrumented binaries for "full runtime" coverage (do not use for dogfooding).
+# These exist so we can get coverage in `main()` without re-introducing gcda corruption
+# from repeated interactive runs of debug binaries.
+debug/term-capture_cov: debug/term-capture_cov.o
+	$(CXX) $(COVERAGE_DEBUG_FLAGS) $^ $(LDLIBS) -o $@
+
+debug/term-capture_cov.o: term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
+	@mkdir -p $(@D)
+	$(CXX) $(COVERAGE_DEBUG_FLAGS) -c term-capture.cpp -o $@
+
 # coverage target is removed
 
 debug/%: debug/%.o
@@ -172,6 +182,16 @@ test-json: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexfl
 test-junit: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
 	@mkdir -p debug
 	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r junit -o debug/junit.xml -s
+
+# Full runtime coverage (includes `main()` and PTY runtime paths). This will generally
+# report lower percentages because it includes TTY-dependent branches.
+test-json-fullcov: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture_cov
+	@mkdir -p debug
+	TERM_CAPTURE_BIN=./debug/term-capture_cov ./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -s > debug/test-results.json
+
+test-fullcov: test-json-fullcov
+	$(MAKE) validate-reports
+	$(MAKE) coverage
 
 # Default: generate JSON report + coverage.
 test: test-json

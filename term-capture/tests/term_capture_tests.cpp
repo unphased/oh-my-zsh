@@ -431,14 +431,21 @@ static bool file_exists(const std::string& path) {
     return ::stat(path.c_str(), &st) == 0;
 }
 
+static std::string term_capture_bin() {
+    const char* v = std::getenv("TERM_CAPTURE_BIN");
+    if (v && *v) return std::string(v);
+    return "./debug/term-capture";
+}
+
 struct IntegrationPrereq {
     bool ready;
     std::string message;
 };
 
 static IntegrationPrereq compute_integration_prereq() {
-    if (!file_exists("debug/term-capture")) {
-        return {false, "Integration tests require debug/term-capture. Run `make debug` before executing them."};
+    const std::string bin = term_capture_bin();
+    if (!file_exists(bin)) {
+        return {false, "Integration tests require " + bin + ". Run `make debug` before executing them."};
     }
     int fd = ::posix_openpt(O_RDWR | O_NOCTTY);
     if (fd < 0) {
@@ -493,7 +500,8 @@ TEST_CASE("Integration: trivial command creates logs and captures output", "[int
     // Run term-capture with a trivial command that exits quickly
     // Expect: logs created; output contains "hello"
     // Pipe empty input so this test doesn't depend on any interactive keystrokes.
-    int rc = std::system("printf '' | ./debug/term-capture debug/it_echo /bin/echo hello >/dev/null 2>&1");
+    const std::string cmd = "printf '' | " + term_capture_bin() + " debug/it_echo /bin/echo hello >/dev/null 2>&1";
+    int rc = std::system(cmd.c_str());
     REQUIRE(rc == 0);
 
     REQUIRE(file_exists(input_path));
@@ -532,7 +540,9 @@ TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration]
     std::remove(output_events_path.c_str());
 
     // Quote the printf argument so the shell interprets the newline escape
-    int rc = std::system("printf '' | ./debug/term-capture debug/it_printf /bin/sh -c \"printf 'a\\nb'\" >/dev/null 2>&1");
+    const std::string cmd =
+        "printf '' | " + term_capture_bin() + " debug/it_printf /bin/sh -c \"printf 'a\\nb'\" >/dev/null 2>&1";
+    int rc = std::system(cmd.c_str());
     REQUIRE(rc == 0);
 
     REQUIRE(file_exists(input_path));
@@ -577,7 +587,9 @@ TEST_CASE("Integration: fallback to zsh when no command is provided", "[integrat
 
     // Pipe commands into term-capture's STDIN so the interactive shell exits automatically.
     // We emit a marker and then exit to keep the test bounded.
-    int rc = std::system("printf 'echo fallback_ok\\nexit\\n' | ./debug/term-capture debug/it_fallback >/dev/null 2>&1");
+    const std::string cmd =
+        "printf 'echo fallback_ok\\nexit\\n' | " + term_capture_bin() + " debug/it_fallback >/dev/null 2>&1";
+    int rc = std::system(cmd.c_str());
     REQUIRE(rc == 0);
 
     REQUIRE(file_exists(input_path));
@@ -616,8 +628,9 @@ TEST_CASE("Integration: WS flags create stub metadata and print skeleton notice"
     std::remove(stderr_path.c_str());
 
     // Place WS flags before prefix to avoid ambiguity with command args
-    int rc = std::system("printf '' | ./debug/term-capture --ws-listen 127.0.0.1:0 "
-                         "debug/it_ws /bin/echo ok 2> debug/it_ws.stderr >/dev/null");
+    const std::string cmd = "printf '' | " + term_capture_bin() + " --ws-listen 127.0.0.1:0 "
+                            "debug/it_ws /bin/echo ok 2> debug/it_ws.stderr >/dev/null";
+    int rc = std::system(cmd.c_str());
     REQUIRE(rc == 0);
 
     REQUIRE(file_exists(input_path));
@@ -638,7 +651,8 @@ TEST_CASE("Integration: invalid log directory causes failure to open logs", "[in
     INFO(prereq.message);
     REQUIRE(prereq.ready);
     // Use a prefix that points into a non-existent directory
-    int rc = std::system("./debug/term-capture debug/does-not-exist/subdir/log /bin/echo ok >/dev/null 2>&1");
+    const std::string cmd = term_capture_bin() + " debug/does-not-exist/subdir/log /bin/echo ok >/dev/null 2>&1";
+    int rc = std::system(cmd.c_str());
     REQUIRE(rc != 0);
 }
 
