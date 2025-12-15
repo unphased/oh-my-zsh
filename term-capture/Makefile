@@ -167,58 +167,49 @@ $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 TEST_ARGS ?=
 UNIT_FILTER ?= ~[integration]
 INTEGRATION_FILTER ?= [integration]
+TERM_CAPTURE_COV_BIN = ./debug/term-capture_cov
 
-# Full suite, console output only (no JSON/JUnit). This is the fastest path to
-# populate coverage data for gcovr.
-test-lite: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
-	./$(TEST_EXECUTABLE) $(TEST_ARGS)
+# Full suite, console output only (no JSON/JUnit).
+# Uses the coverage-instrumented runtime binary so coverage is comprehensive.
+test-lite: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture_cov
+	TERM_CAPTURE_BIN=$(TERM_CAPTURE_COV_BIN) ./$(TEST_EXECUTABLE) $(TEST_ARGS)
 
 # Full suite, JSON report (single-run; no double-execution).
-test-json: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
+test-json: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture_cov
 	@mkdir -p debug
-	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -s > debug/test-results.json
+	TERM_CAPTURE_BIN=$(TERM_CAPTURE_COV_BIN) ./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -s > debug/test-results.json
 
 # Full suite, JUnit (single-run; kept for compatibility, but JSON is preferred).
-test-junit: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
+test-junit: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture_cov
 	@mkdir -p debug
-	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r junit -o debug/junit.xml -s
+	TERM_CAPTURE_BIN=$(TERM_CAPTURE_COV_BIN) ./$(TEST_EXECUTABLE) $(TEST_ARGS) -r junit -o debug/junit.xml -s
 
-# Full runtime coverage (includes `main()` and PTY runtime paths). This will generally
-# report lower percentages because it includes TTY-dependent branches.
-test-json-fullcov: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture_cov
-	@mkdir -p debug
-	TERM_CAPTURE_BIN=./debug/term-capture_cov ./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -s > debug/test-results.json
-
-test-fullcov: test-json-fullcov
-	$(MAKE) validate-reports
-	$(MAKE) coverage
-
-# Default: generate JSON report + coverage.
+# Default: run full suite (JSON) + validate + coverage.
 test: test-json
 	$(MAKE) validate-reports
-	$(MAKE) coverage
+	$(MAKE) coverage-report
 
 # Run only unit tests (exclude [integration] tagged tests)
 test-unit: $(TEST_EXECUTABLE)
 	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(UNIT_FILTER)
 
 # Run only integration tests (only [integration] tagged tests)
-# Ensure the debug binaries exist because integration tests invoke them.
-test-integration: $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
-	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER)
+# Ensure the runtime binary exists because integration tests invoke it.
+test-integration: $(TEST_EXECUTABLE) debug/term-capture_cov
+	TERM_CAPTURE_BIN=$(TERM_CAPTURE_COV_BIN) ./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER)
 
 # Convenience targets for richer output or machine-readable reports
 test-verbose: $(TEST_EXECUTABLE)
 	./$(TEST_EXECUTABLE) -s -v high --durations yes
 
 # Verbose JSON (useful for debugging the report itself)
-test-json-verbose: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexflow
+test-json-verbose: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture_cov
 	@mkdir -p debug
-	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -s -v high > debug/test-results.json
+	TERM_CAPTURE_BIN=$(TERM_CAPTURE_COV_BIN) ./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -s -v high > debug/test-results.json
 
 # Generate coverage reports (HTML + text summary) after tests
 
-coverage:
+coverage-report:
 	@mkdir -p $(COVERAGE_DIR)
 	@if ! command -v gcovr >/dev/null 2>&1; then \
 		echo "gcovr not found. Install with: brew install gcovr (or pip install gcovr)"; \
@@ -229,26 +220,18 @@ coverage:
 		cat $(COVERAGE_DIR)/coverage.txt; \
 	fi
 
+coverage: test
+
 ## Commented out these other coverage products. there just does not appear to be significant need for them with how good the html report already is.
 # gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --xml -o $(COVERAGE_DIR)/coverage.xml --gcov-ignore-errors=no_working_dir_found; \
 # gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) --json -o $(COVERAGE_DIR)/coverage.json --gcov-ignore-errors=no_working_dir_found; \
 
 # Text-only coverage summary (fast). Uses existing gcov data.
-coverage-text:
-	@mkdir -p $(COVERAGE_DIR)
-	@if ! command -v gcovr >/dev/null 2>&1; then \
-		echo "gcovr not found. Install with: brew install gcovr (or pip install gcovr)"; \
-		echo "gcovr not found. Coverage reports were skipped." > $(COVERAGE_DIR)/coverage.txt; \
-	else \
-		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) $(GCOVR_BRANCH_FILTERS) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found; \
-		cat $(COVERAGE_DIR)/coverage.txt; \
-	fi
-
-# Fresh coverage from a clean test run.
-coverage-fresh: test-lite coverage
+coverage-text: coverage
+	@cat $(COVERAGE_DIR)/coverage.txt
 
 # Convenience: open the HTML coverage report on macOS
-open-coverage: coverage-fresh
+open-coverage: coverage
 	open $(COVERAGE_DIR)/index.html
 
 # Dev helpers (macOS-oriented)
@@ -275,19 +258,19 @@ help:
 	@echo "  make            -> same as 'make all' (builds debug and release)"
 	@echo "  make debug      -> build debug binaries (with coverage flags)"
 	@echo "  make release    -> build release binaries (optimized)"
-	@echo "  make test       -> run full suite once (JSON report), smoke-run debug mains,"
-	@echo "                     then generate and print coverage summary"
-	@echo "  make test-lite  -> run full suite (console only; fastest way to populate coverage data)"
+	@echo "  make test       -> run full suite once (JSON report) using the coverage runtime,"
+	@echo "                     validate reports, then generate and print coverage summary"
+	@echo "  make test-lite  -> run full suite (console only) using the coverage runtime"
 	@echo "  make test-json  -> run full suite and write JSON to debug/test-results.json"
 	@echo "  make test-unit  -> run only unit tests (exclude [integration] tagged tests)"
 	@echo "  make test-integration -> run only [integration]-tagged tests"
 	@echo "  make test-junit -> run tests and write JUnit XML to debug/junit.xml"
 	@echo "  make junit-summary -> print a quick summary of debug/junit.xml"
 	@echo "  make validate-reports -> sanity check JSON (jq) and XML (xmllint) if available"
-	@echo "  make coverage   -> generate coverage reports from existing debug build artifacts"
-	@echo "  make coverage-text -> generate/print text-only coverage summary"
-	@echo "  make coverage-fresh -> run tests then generate coverage reports"
-	@echo "  make open-coverage -> run coverage-fresh and open HTML report (macOS)"
+	@echo "  make coverage   -> alias for 'make test' (comprehensive coverage)"
+	@echo "  make coverage-report -> generate coverage reports from existing artifacts"
+	@echo "  make coverage-text -> alias for 'make coverage' then print coverage.txt"
+	@echo "  make open-coverage -> run coverage and open HTML report (macOS)"
 	@echo "  make dev        -> run python http.server on :7878"
 	@echo "  make test-open  -> run tests (JSON) and open report UI"
 	@echo "  make clean      -> remove build artifacts (debug/, release/)"
@@ -312,4 +295,4 @@ clean:
 	rm -f debug/tests/*.gcda debug/tests/*.gcno # Remove gcov data files from debug/tests directory
 
 
-	.PHONY: all debug release clean test test-lite test-unit test-integration test-verbose test-json test-json-verbose test-junit junit-summary coverage coverage-text coverage-fresh open-coverage dev test-open clean-coverage-data validate-reports help # coverage target removed
+	.PHONY: all debug release clean test test-lite test-unit test-integration test-verbose test-json test-json-verbose test-junit junit-summary coverage coverage-report coverage-text open-coverage dev test-open clean-coverage-data validate-reports help # coverage target removed
