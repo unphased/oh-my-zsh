@@ -212,10 +212,10 @@ validate-reports:
 	@sh -c 'command -v xmllint >/dev/null 2>&1 && xmllint --noout debug/junit.xml >/dev/null 2>&1 && echo "Validated JUnit XML: debug/junit.xml" || echo "Skipping JUnit XML validation: install xmllint (libxml2) to validate";'
 
 # Human-friendly JUnit review helpers
-junit-summary:
+junit-summary: test-junit
 	@python3 tools/junit_summary.py debug/junit.xml
 
-junit-html:
+junit-html: test-junit
 	@python3 tools/junit_summary.py debug/junit.xml --html debug/junit.html
 
 open-junit: junit-html
