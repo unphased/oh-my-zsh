@@ -297,6 +297,10 @@ help:
 clean-coverage-data:
 	@find debug -name '*.gcda' -delete 2>/dev/null || true
 	@find release -name '*.gcda' -delete 2>/dev/null || true
+	# If we previously built full-coverage binaries, force them to recompile so the
+	# corresponding .gcno files are regenerated (Make doesn't track gcno outputs).
+	@find debug -maxdepth 1 -name '*_cov.o' -delete 2>/dev/null || true
+	@find debug -maxdepth 1 -name '*_cov' -delete 2>/dev/null || true
 	# Remove stale top-level gcno files from older coverage-instrumented debug binaries.
 	# Coverage is now produced via *_for_test.o objects and debug/tests/*.o.
 	@find debug -maxdepth 1 -name '*.gcno' ! -name '*_for_test.gcno' -delete 2>/dev/null || true
