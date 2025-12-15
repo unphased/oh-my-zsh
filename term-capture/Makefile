@@ -1,6 +1,6 @@
 # Makefile overview
-# - debug: builds debug binaries (with coverage flags) -> debug/term-capture, debug/hexflow
-#           Includes debug symbols and coverage instrumentation; ideal for GDB/lldb and tests.
+# - debug: builds debug binaries -> debug/term-capture, debug/hexflow
+#           Includes debug symbols; no coverage instrumentation (safe for dogfooding / multi-session).
 # - release: builds optimized binaries -> release/term-capture, release/hexflow
 #            Lean: no debug symbols, no -DDEBUG, no coverage/test instrumentation.
 # - test: builds and runs unit tests (Catch2 runner), then smoke-runs debug binaries,
@@ -12,9 +12,9 @@
 # - help: prints a summary of common targets
 CXX = g++
 COMMON_FLAGS = -Wall -Wextra -std=c++14 # Specify C++14 standard for Catch2 v3
-DEBUG_FLAGS = $(COMMON_FLAGS) -g -O0 -DDEBUG -fprofile-arcs -ftest-coverage # Use gcov-compatible coverage flags
+DEBUG_FLAGS = $(COMMON_FLAGS) -g -O0 -DDEBUG
+COVERAGE_FLAGS = -fprofile-arcs -ftest-coverage # Use gcov-compatible coverage flags (tests/coverage only)
 RELEASE_FLAGS = $(COMMON_FLAGS) -O2 -DNDEBUG # Lean release: no -g, no -DDEBUG, no coverage flags
-# COVERAGE_FLAGS is removed
 
 TARGETS = term-capture hexflow
 
@@ -52,8 +52,11 @@ HEXFLOW_FOR_TEST_OBJ = debug/hexflow_for_test.o # Object file in debug/
 TERM_CAPTURE_FOR_TEST_OBJ = debug/term_capture_for_test.o # Object file in debug/
 APP_OBJ_FOR_TESTS = $(HEXFLOW_FOR_TEST_OBJ) $(TERM_CAPTURE_FOR_TEST_OBJ)
 
-# Add include path for catch.hpp and use debug (now with coverage) flags for tests
-TEST_COMPILE_FLAGS = $(DEBUG_FLAGS) -I$(TEST_DIR) -DBUILD_TERM_CAPTURE_AS_LIB
+# Coverage-instrumented debug flags (for tests/coverage only)
+COVERAGE_DEBUG_FLAGS = $(DEBUG_FLAGS) $(COVERAGE_FLAGS)
+
+# Add include path for catch.hpp and use coverage-instrumented flags for tests
+TEST_COMPILE_FLAGS = $(COVERAGE_DEBUG_FLAGS) -I$(TEST_DIR) -DBUILD_TERM_CAPTURE_AS_LIB
 
 
 all: debug release
@@ -132,19 +135,19 @@ debug/$(TEST_DIR)/select_link_tests.o: $(TEST_DIR)/select_link_tests.cpp $(TEST_
 # Output directory changed to debug/, uses DEBUG_FLAGS
 $(HEXFLOW_FOR_TEST_OBJ): hexflow.cpp $(HEXFLOW_HPP) Makefile
 	@mkdir -p $(@D)
-	$(CXX) $(DEBUG_FLAGS) -DBUILD_HEXFLOW_AS_LIB -c hexflow.cpp -o $@
+	$(CXX) $(COVERAGE_DEBUG_FLAGS) -DBUILD_HEXFLOW_AS_LIB -c hexflow.cpp -o $@
 
 # Rule to compile term-capture.cpp as a library for tests (without its main function)
 # Output directory changed to debug/, uses DEBUG_FLAGS
 $(TERM_CAPTURE_FOR_TEST_OBJ): term-capture.cpp $(TERM_CAPTURE_HPP) Makefile
 	@mkdir -p $(@D)
-	$(CXX) $(DEBUG_FLAGS) -DBUILD_TERM_CAPTURE_AS_LIB -c term-capture.cpp -o $@
+	$(CXX) $(COVERAGE_DEBUG_FLAGS) -DBUILD_TERM_CAPTURE_AS_LIB -c term-capture.cpp -o $@
 
 # Rule to link the test runner
 # Uses DEBUG_FLAGS
 $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 	@mkdir -p $(@D)
-	$(CXX) $(DEBUG_FLAGS) $^ $(LDLIBS) -o $@
+	$(CXX) $(COVERAGE_DEBUG_FLAGS) $^ $(LDLIBS) -o $@
 
 # Test targets
 # Pass extra flags to Catch2 with TEST_ARGS, e.g.:
@@ -169,11 +172,9 @@ test-junit: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture debug/hexf
 	@mkdir -p debug
 	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r junit -o debug/junit.xml -s
 
-# Default: generate JSON report + coverage (smoke runs help coverage reach mains).
+# Default: generate JSON report + coverage.
 test: test-json
 	$(MAKE) validate-reports
-	./debug/term-capture debug/coverage_smoke /bin/echo ok >/dev/null 2>/dev/null || true
-	printf 'A' | ./debug/hexflow >/dev/null 2>/dev/null || true
 	$(MAKE) coverage
 
 # Run only unit tests (exclude [integration] tagged tests)
@@ -275,6 +276,9 @@ help:
 clean-coverage-data:
 	@find debug -name '*.gcda' -delete 2>/dev/null || true
 	@find release -name '*.gcda' -delete 2>/dev/null || true
+	# Remove stale top-level gcno files from older coverage-instrumented debug binaries.
+	# Coverage is now produced via *_for_test.o objects and debug/tests/*.o.
+	@find debug -maxdepth 1 -name '*.gcno' ! -name '*_for_test.gcno' -delete 2>/dev/null || true
 
 clean:
 	rm -rf debug release # coverage directory removed from clean
