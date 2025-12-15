@@ -413,10 +413,18 @@ TEST_CASE("Integration: trivial command creates logs and captures output", "[int
     const std::string prefix = "debug/it_echo";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
+    const std::string input_tidx_path = input_path + ".tidx";
+    const std::string output_tidx_path = output_path + ".tidx";
+    const std::string output_events_path = output_path + ".events";
+    const std::string meta_path = prefix + ".meta.json";
 
     // Clean up any leftovers
     std::remove(input_path.c_str());
     std::remove(output_path.c_str());
+    std::remove(input_tidx_path.c_str());
+    std::remove(output_tidx_path.c_str());
+    std::remove(output_events_path.c_str());
+    std::remove(meta_path.c_str());
 
     // Run term-capture with a trivial command that exits quickly
     // Expect: logs created; output contains "hello"
@@ -426,10 +434,17 @@ TEST_CASE("Integration: trivial command creates logs and captures output", "[int
 
     REQUIRE(file_exists(input_path));
     REQUIRE(file_exists(output_path));
+    REQUIRE(file_exists(input_tidx_path));
+    REQUIRE(file_exists(output_tidx_path));
+    REQUIRE(file_exists(output_events_path));
+    REQUIRE(file_exists(meta_path));
 
     // For this run we didn't type anything, so input log should usually be empty
     // (It may not be strictly required, but is expected.)
     CHECK(file_size(input_path) == 0);
+    CHECK(file_size(input_tidx_path) >= 14);  // header-only is OK
+    CHECK(file_size(output_tidx_path) > 14);  // should have at least one record
+    CHECK(file_size(output_events_path) >= 13); // header-only is OK in non-tty runs
 
     const std::string out = read_all(output_path);
     // PTY may transform newline to CRLF, so check substring rather than exact equality
@@ -444,9 +459,13 @@ TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration]
     const std::string prefix = "debug/it_printf";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
+    const std::string output_tidx_path = output_path + ".tidx";
+    const std::string output_events_path = output_path + ".events";
 
     std::remove(input_path.c_str());
     std::remove(output_path.c_str());
+    std::remove(output_tidx_path.c_str());
+    std::remove(output_events_path.c_str());
 
     // Quote the printf argument so the shell interprets the newline escape
     int rc = std::system("printf '' | ./debug/term-capture debug/it_printf /bin/sh -c \"printf 'a\\nb'\" >/dev/null 2>&1");
@@ -454,6 +473,8 @@ TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration]
 
     REQUIRE(file_exists(input_path));
     REQUIRE(file_exists(output_path));
+    REQUIRE(file_exists(output_tidx_path));
+    REQUIRE(file_exists(output_events_path));
 
     const std::string out = read_all(output_path);
     // Expect both 'a' and 'b' present, with some newline/CRLF between
@@ -478,9 +499,17 @@ TEST_CASE("Integration: fallback to zsh when no command is provided", "[integrat
     const std::string prefix = "debug/it_fallback";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
+    const std::string input_tidx_path = input_path + ".tidx";
+    const std::string output_tidx_path = output_path + ".tidx";
+    const std::string output_events_path = output_path + ".events";
+    const std::string meta_path = prefix + ".meta.json";
 
     std::remove(input_path.c_str());
     std::remove(output_path.c_str());
+    std::remove(input_tidx_path.c_str());
+    std::remove(output_tidx_path.c_str());
+    std::remove(output_events_path.c_str());
+    std::remove(meta_path.c_str());
 
     // Pipe commands into term-capture's STDIN so the interactive shell exits automatically.
     // We emit a marker and then exit to keep the test bounded.
@@ -489,6 +518,10 @@ TEST_CASE("Integration: fallback to zsh when no command is provided", "[integrat
 
     REQUIRE(file_exists(input_path));
     REQUIRE(file_exists(output_path));
+    REQUIRE(file_exists(input_tidx_path));
+    REQUIRE(file_exists(output_tidx_path));
+    REQUIRE(file_exists(output_events_path));
+    REQUIRE(file_exists(meta_path));
 
     const std::string out = read_all(output_path);
     REQUIRE(out.find("fallback_ok") != std::string::npos);
@@ -502,11 +535,19 @@ TEST_CASE("Integration: WS flags create stub metadata and print skeleton notice"
     const std::string prefix = "debug/it_ws";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
+    const std::string input_tidx_path = input_path + ".tidx";
+    const std::string output_tidx_path = output_path + ".tidx";
+    const std::string output_events_path = output_path + ".events";
+    const std::string meta_path = prefix + ".meta.json";
     const std::string ws_meta = prefix + ".ws.json";
     const std::string stderr_path = "debug/it_ws.stderr";
 
     std::remove(input_path.c_str());
     std::remove(output_path.c_str());
+    std::remove(input_tidx_path.c_str());
+    std::remove(output_tidx_path.c_str());
+    std::remove(output_events_path.c_str());
+    std::remove(meta_path.c_str());
     std::remove(ws_meta.c_str());
     std::remove(stderr_path.c_str());
 
@@ -517,6 +558,10 @@ TEST_CASE("Integration: WS flags create stub metadata and print skeleton notice"
 
     REQUIRE(file_exists(input_path));
     REQUIRE(file_exists(output_path));
+    REQUIRE(file_exists(input_tidx_path));
+    REQUIRE(file_exists(output_tidx_path));
+    REQUIRE(file_exists(output_events_path));
+    REQUIRE(file_exists(meta_path));
     REQUIRE(file_exists(ws_meta));
 
     const std::string err = read_all(stderr_path);

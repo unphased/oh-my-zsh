@@ -98,6 +98,9 @@ class OutputPlayer {
     this._chunkBytes = 32_768;
     this._lastTs = 0;
     this._carryBytes = 0;
+    this._events = null;
+    this._eventIndex = 0;
+    this._onEvent = null;
   }
 
   hasLoaded() {
@@ -112,6 +115,8 @@ class OutputPlayer {
     this._offset = 0;
     this._lastTs = 0;
     this._carryBytes = 0;
+    this._eventIndex = 0;
+    this._applyEventsUpTo(0);
     this._emitProgress(0);
   }
 
@@ -146,7 +151,30 @@ class OutputPlayer {
     this._decoder = new TextDecoder("utf-8", { fatal: false });
     this._offset = 0;
     this._carryBytes = 0;
+    this._eventIndex = 0;
+    this._applyEventsUpTo(0);
     this._emitProgress(0);
+  }
+
+  setEvents(events, { onEvent } = {}) {
+    this._events = Array.isArray(events) ? events : null;
+    this._onEvent = typeof onEvent === "function" ? onEvent : null;
+    this._eventIndex = 0;
+    this._applyEventsUpTo(this._offset);
+  }
+
+  _applyEventsUpTo(offset) {
+    if (!this._events || !this._onEvent) return;
+    while (this._eventIndex < this._events.length) {
+      const ev = this._events[this._eventIndex];
+      if (!ev || typeof ev.offset !== "number") {
+        this._eventIndex++;
+        continue;
+      }
+      if (ev.offset > offset) break;
+      this._onEvent(ev);
+      this._eventIndex++;
+    }
   }
 
   _emitProgress(extraBytesWritten) {
@@ -182,6 +210,7 @@ class OutputPlayer {
 
     const start = this._offset;
     const end = Math.min(this._buf.length, start + budget);
+    this._applyEventsUpTo(start);
     const chunk = this._buf.subarray(start, end);
     this._offset = end;
 
@@ -218,10 +247,14 @@ function createSink() {
     term.open(ui.terminal);
     term.focus();
 
+    // For debugging in devtools.
+    window.__TERM_CAPTURE_XTERM_TERM = term;
+
     return {
       kind: "xterm",
       write: (s) => term.write(s),
       reset: () => term.reset(),
+      resize: (cols, rows) => term.resize(cols, rows),
     };
   }
 
@@ -239,18 +272,24 @@ function createSink() {
     reset: () => {
       ui.fallback.textContent = "";
     },
+    resize: () => {},
   };
 }
 
 let currentFile = null;
 let currentUrl = null;
 let sink = createSink();
+let currentTcap = null;
 let player = new OutputPlayer({
   write: (s) => sink.write(s),
   reset: () => sink.reset(),
   onProgress: ({ offset, total, done }) => {
     const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
-    ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}`;
+    const timeNote =
+      currentTcap && currentTcap.outputTidx
+        ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, offset))}`
+        : "";
+    ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote}`;
   },
 });
 
@@ -285,7 +324,11 @@ function setupPlaybackPipeline() {
     reset: () => sink.reset(),
     onProgress: ({ offset, total, done }) => {
       const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
-      ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}`;
+      const timeNote =
+        currentTcap && currentTcap.outputTidx
+          ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, offset))}`
+          : "";
+      ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote}`;
     },
   });
 
@@ -294,10 +337,18 @@ function setupPlaybackPipeline() {
   player.configure({ speedBps, chunkBytes });
 }
 
-function loadBytes({ name, size, startOffset, u8 }) {
+function loadBytes({ name, size, startOffset, u8, tcap }) {
   setupPlaybackPipeline();
+  currentTcap = tcap || null;
 
   player.load(u8);
+  if (currentTcap && currentTcap.outputEvents) {
+    player.setEvents(currentTcap.outputEvents, {
+      onEvent: (ev) => {
+        if (ev.type === "resize") sink.resize(ev.cols, ev.rows);
+      },
+    });
+  }
 
   const tailNote =
     typeof startOffset === "number" && startOffset > 0
@@ -321,7 +372,7 @@ async function loadSelectedFile() {
     const start = tailBytes > 0 ? Math.max(0, fileSize - tailBytes) : 0;
     const blob = currentFile.slice(start, fileSize);
     const buf = await blob.arrayBuffer();
-    loadBytes({ name: currentFile.name, size: fileSize, startOffset: start, u8: new Uint8Array(buf) });
+    loadBytes({ name: currentFile.name, size: fileSize, startOffset: start, u8: new Uint8Array(buf), tcap: null });
   } catch (e) {
     setStatus(`Load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
     updateButtons();
@@ -469,12 +520,130 @@ async function loadFromUrl(url, { kind }) {
     const buf = await fetchArrayBufferWithOptionalRange(url, start);
     const u8 = new Uint8Array(buf);
 
+    const tcap = kind === "output" && start === 0 ? await loadTcapSidecarsFromUrl(url) : null;
+
     const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || `${kind}`);
-    loadBytes({ name, size: size != null ? size : u8.length, startOffset: start, u8 });
+    loadBytes({ name, size: size != null ? size : u8.length, startOffset: start, u8, tcap });
   } catch (e) {
     setStatus(`Load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
     updateButtons();
   }
+}
+
+function fmtNs(ns) {
+  if (!Number.isFinite(ns)) return "?";
+  const s = ns / 1e9;
+  if (s < 60) return `${s.toFixed(3)}s`;
+  const m = Math.floor(s / 60);
+  const rem = s - m * 60;
+  return `${m}m${rem.toFixed(1)}s`;
+}
+
+function readU64LE(u8, off) {
+  let v = 0n;
+  for (let i = 0; i < 8; i++) v |= BigInt(u8[off + i]) << BigInt(i * 8);
+  return v;
+}
+
+function readUleb128(u8, off) {
+  let result = 0;
+  let shift = 0;
+  let i = off;
+  for (; i < u8.length; i++) {
+    const byte = u8[i];
+    result += (byte & 0x7f) * 2 ** shift;
+    if ((byte & 0x80) === 0) {
+      if (!Number.isSafeInteger(result)) throw new Error("uleb128 too large");
+      return { value: result, next: i + 1 };
+    }
+    shift += 7;
+    if (shift >= 63) throw new Error("uleb128 too large");
+  }
+  throw new Error("uleb128 truncated");
+}
+
+function parseTidx(u8) {
+  const magic = new TextDecoder().decode(u8.subarray(0, 5));
+  if (magic !== "TIDX1") throw new Error("bad tidx magic");
+  const startedUnixNs = readU64LE(u8, 6);
+  let off = 14;
+  let t = 0;
+  let end = 0;
+  const tNs = [];
+  const endOffsets = [];
+  while (off < u8.length) {
+    const a = readUleb128(u8, off);
+    off = a.next;
+    const b = readUleb128(u8, off);
+    off = b.next;
+    t += a.value;
+    end += b.value;
+    tNs.push(t);
+    endOffsets.push(end);
+  }
+  return { startedUnixNs, tNs, endOffsets };
+}
+
+function parseOutputEvents(u8) {
+  const magic = new TextDecoder().decode(u8.subarray(0, 4));
+  if (magic !== "EVT1") throw new Error("bad events magic");
+  const startedUnixNs = readU64LE(u8, 5);
+  let off = 13;
+  let t = 0;
+  let o = 0;
+  const events = [];
+  while (off < u8.length) {
+    const type = u8[off++];
+    if (type === 1) {
+      const a = readUleb128(u8, off);
+      off = a.next;
+      const b = readUleb128(u8, off);
+      off = b.next;
+      const c = readUleb128(u8, off);
+      off = c.next;
+      const d = readUleb128(u8, off);
+      off = d.next;
+      t += a.value;
+      o += b.value;
+      events.push({ type: "resize", tNs: t, offset: o, cols: c.value, rows: d.value });
+    } else {
+      throw new Error(`unknown event type ${type}`);
+    }
+  }
+  return { startedUnixNs, events };
+}
+
+function timeAtOffsetNs(tidx, offset) {
+  const arr = tidx.endOffsets;
+  if (!arr.length) return 0;
+  let lo = 0;
+  let hi = arr.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] >= offset) hi = mid;
+    else lo = mid + 1;
+  }
+  return tidx.tNs[lo] || 0;
+}
+
+async function loadTcapSidecarsFromUrl(outputUrl) {
+  const tidxUrl = `${outputUrl}.tidx`;
+  const eventsUrl = `${outputUrl}.events`;
+  const out = {};
+  try {
+    const buf = await fetchArrayBufferWithOptionalRange(tidxUrl, 0);
+    out.outputTidx = parseTidx(new Uint8Array(buf));
+  } catch {
+    out.outputTidx = null;
+  }
+  try {
+    const buf = await fetchArrayBufferWithOptionalRange(eventsUrl, 0);
+    const parsed = parseOutputEvents(new Uint8Array(buf));
+    out.outputEvents = parsed.events;
+  } catch {
+    out.outputEvents = null;
+  }
+  return out.outputTidx || out.outputEvents ? out : null;
 }
 
 ui.scan.addEventListener("click", () => {

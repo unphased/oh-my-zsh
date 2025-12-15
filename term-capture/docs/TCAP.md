@@ -16,6 +16,7 @@ Given a capture prefix `<prefix>`:
 ### Output stream (PTY → user)
 - Raw bytes: `<prefix>.output`
 - Time index sidecar: `<prefix>.output.tidx`
+- Events sidecar (output metadata like resize): `<prefix>.output.events`
 
 ### Input stream (user → PTY)
 - Raw bytes: `<prefix>.input`
@@ -69,3 +70,24 @@ Once the layout is stable, a single-file packaging format can wrap it:
 - optional compression applied **per stream** (raw bytes and metadata separately) to preserve good compressibility and allow selective decoding
 
 This bundling layer should be optional and tooling-driven; the capture hot path should remain the layout-first append-only writer.
+
+## Output events sidecar (`*.output.events`)
+`*.output.events` is an append-only stream of non-byte events that affect terminal rendering.
+
+### Header
+- magic: ASCII `EVT1` (4 bytes)
+- reserved: u8 flags (0 for now)
+- started_at_unix_ns: u64 little-endian
+
+### Record encoding (binary, compact)
+Each record begins with:
+- `type`: u8
+
+Then type-specific payload, using ULEB128 for integers.
+
+MVP types:
+- `type=1` resize
+  - `dt_ns`: ULEB128 (delta from previous event time; first is absolute since start)
+  - `doff`: ULEB128 (delta from previous event stream offset; first is absolute)
+  - `cols`: ULEB128
+  - `rows`: ULEB128

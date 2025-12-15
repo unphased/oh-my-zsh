@@ -15,6 +15,8 @@
 #include <chrono>
 #include <sstream>
 
+#include "tcap.hpp"
+
 static volatile bool should_exit = false;
 static struct termios orig_termios;
 static bool have_orig_termios = false;
@@ -317,13 +319,149 @@ int main(int argc, char* argv[]) {
   std::string input_path = log_path + ".input";
   std::string output_path = log_path + ".output";
   
-  std::ofstream inputFile(input_path, std::ios::app | std::ios::binary);
-  std::ofstream outputFile(output_path, std::ios::app | std::ios::binary);
+  std::ofstream inputFile(input_path, std::ios::out | std::ios::trunc | std::ios::binary);
+  std::ofstream outputFile(output_path, std::ios::out | std::ios::trunc | std::ios::binary);
   
   if (!inputFile.is_open() || !outputFile.is_open()) {
     std::cerr << "Failed to open log files\n";
     return 1;
   }
+
+  // TCAP sidecars (v1): timestamps + output events (resize)
+  const std::string input_tidx_path = input_path + ".tidx";
+  const std::string output_tidx_path = output_path + ".tidx";
+  const std::string output_events_path = output_path + ".events";
+  const std::string meta_json_path = log_path + ".meta.json";
+
+  auto write_all = [](int fd, const void* buf, size_t len) -> bool {
+    const uint8_t* p = static_cast<const uint8_t*>(buf);
+    size_t n = len;
+    while (n > 0) {
+      ssize_t w = ::write(fd, p, n);
+      if (w < 0) {
+        if (errno == EINTR) continue;
+        return false;
+      }
+      if (w == 0) return false;
+      p += static_cast<size_t>(w);
+      n -= static_cast<size_t>(w);
+    }
+    return true;
+  };
+
+  auto write_u64_le = [&](int fd, uint64_t v) -> bool {
+    uint8_t b[8];
+    for (int i = 0; i < 8; ++i) {
+      b[i] = static_cast<uint8_t>((v >> (i * 8)) & 0xFFu);
+    }
+    return write_all(fd, b, sizeof(b));
+  };
+
+  auto open_trunc = [](const std::string& path) -> int {
+    return ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  };
+
+  int input_tidx_fd = open_trunc(input_tidx_path);
+  int output_tidx_fd = open_trunc(output_tidx_path);
+  int output_events_fd = open_trunc(output_events_path);
+
+  auto tidx_header = [&](int fd, uint64_t started_at_unix_ns) -> bool {
+    const char magic[] = "TIDX1";
+    const uint8_t flags = 0;
+    return write_all(fd, magic, 5) && write_all(fd, &flags, 1) && write_u64_le(fd, started_at_unix_ns);
+  };
+
+  auto events_header = [&](int fd, uint64_t started_at_unix_ns) -> bool {
+    const char magic[] = "EVT1";
+    const uint8_t flags = 0;
+    return write_all(fd, magic, 4) && write_all(fd, &flags, 1) && write_u64_le(fd, started_at_unix_ns);
+  };
+
+  const auto started_unix_ns = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count());
+  const auto started_mono = std::chrono::steady_clock::now();
+
+  auto now_mono_ns = [&]() -> uint64_t {
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started_mono).count());
+  };
+
+  const bool tidx_ok = input_tidx_fd >= 0 && output_tidx_fd >= 0;
+  const bool events_ok = output_events_fd >= 0;
+  if (tidx_ok) {
+    if (!tidx_header(input_tidx_fd, started_unix_ns) || !tidx_header(output_tidx_fd, started_unix_ns)) {
+      std::cerr << "TCAP: warning: failed writing tidx headers; timestamps disabled\n";
+      if (input_tidx_fd >= 0) ::close(input_tidx_fd);
+      if (output_tidx_fd >= 0) ::close(output_tidx_fd);
+      input_tidx_fd = -1;
+      output_tidx_fd = -1;
+    }
+  } else {
+    std::cerr << "TCAP: warning: failed to open tidx sidecars; timestamps disabled\n";
+  }
+  if (events_ok) {
+    if (!events_header(output_events_fd, started_unix_ns)) {
+      std::cerr << "TCAP: warning: failed writing events header; resize metadata disabled\n";
+      ::close(output_events_fd);
+      output_events_fd = -1;
+    }
+  } else {
+    std::cerr << "TCAP: warning: failed to open output events sidecar; resize metadata disabled\n";
+  }
+
+  // Minimal session meta JSON (debug-friendly; not performance critical).
+  {
+    std::ofstream meta(meta_json_path, std::ios::out | std::ios::trunc | std::ios::binary);
+    if (meta.is_open()) {
+      meta << "{\n"
+           << "  \"pid\": " << child_pid << ",\n"
+           << "  \"prefix\": " << "\"" << log_path << "\"" << ",\n"
+           << "  \"started_at_unix_ns\": " << started_unix_ns << "\n"
+           << "}\n";
+    }
+  }
+
+  uint64_t input_prev_t_ns = 0;
+  uint64_t output_prev_t_ns = 0;
+  uint64_t input_prev_end = 0;
+  uint64_t output_prev_end = 0;
+  uint64_t input_end = 0;
+  uint64_t output_end = 0;
+  uint64_t events_prev_t_ns = 0;
+  uint64_t events_prev_off = 0;
+
+  auto write_tidx_record = [&](int fd, uint64_t t_ns, uint64_t end_off,
+                               uint64_t& prev_t, uint64_t& prev_end) {
+    const uint64_t dt = (prev_t == 0) ? t_ns : (t_ns - prev_t);
+    const uint64_t dend = (prev_end == 0) ? end_off : (end_off - prev_end);
+    const auto dt_enc = uleb128_encode(dt);
+    const auto de_enc = uleb128_encode(dend);
+    if (!write_all(fd, dt_enc.data(), dt_enc.size())) return;
+    if (!write_all(fd, de_enc.data(), de_enc.size())) return;
+    prev_t = t_ns;
+    prev_end = end_off;
+  };
+
+  auto write_resize_event = [&](uint64_t t_ns, uint64_t out_off, uint16_t cols, uint16_t rows) {
+    if (output_events_fd < 0) return;
+    // type=1 (resize), then dt_ns, doff, cols, rows as ULEB128.
+    const uint8_t type = 1;
+    if (!write_all(output_events_fd, &type, 1)) return;
+    const uint64_t dt = (events_prev_t_ns == 0) ? t_ns : (t_ns - events_prev_t_ns);
+    const uint64_t doff = (events_prev_off == 0) ? out_off : (out_off - events_prev_off);
+    const auto dt_enc = uleb128_encode(dt);
+    const auto do_enc = uleb128_encode(doff);
+    const auto c_enc = uleb128_encode(static_cast<uint64_t>(cols));
+    const auto r_enc = uleb128_encode(static_cast<uint64_t>(rows));
+    (void)write_all(output_events_fd, dt_enc.data(), dt_enc.size());
+    (void)write_all(output_events_fd, do_enc.data(), do_enc.size());
+    (void)write_all(output_events_fd, c_enc.data(), c_enc.size());
+    (void)write_all(output_events_fd, r_enc.data(), r_enc.size());
+    events_prev_t_ns = t_ns;
+    events_prev_off = out_off;
+  };
 
   // Put parent terminal in raw mode so keys flow properly
   struct termios raw;
@@ -356,6 +494,13 @@ int main(int argc, char* argv[]) {
 
   // Initialize child PTY with correct window size
   apply_winsize_to_child_pty();
+  {
+    struct winsize ws{};
+    int tty_fd = pick_controlling_tty_fd();
+    if (tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0) {
+      write_resize_event(now_mono_ns(), 0, ws.ws_col, ws.ws_row);
+    }
+  }
 
   std::cerr << "Started capturing shell (PID " << child_pid << ")\n"
             << "Logging input to: " << input_path << "\n"
@@ -425,6 +570,11 @@ int main(int argc, char* argv[]) {
     }
     if (winch_pending) {
       winch_pending = 0;
+      struct winsize ws{};
+      int tty_fd = pick_controlling_tty_fd();
+      if (tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0) {
+        write_resize_event(now_mono_ns(), output_end, ws.ws_col, ws.ws_row);
+      }
       apply_winsize_to_child_pty();
     }
 
@@ -437,6 +587,10 @@ int main(int argc, char* argv[]) {
         // Log user input
         inputFile.write(buf, n);
         inputFile.flush();
+        input_end += static_cast<uint64_t>(n);
+        if (input_tidx_fd >= 0) {
+          write_tidx_record(input_tidx_fd, now_mono_ns(), input_end, input_prev_t_ns, input_prev_end);
+        }
       } else if (n == 0) {
         // If STDIN hits EOF (e.g., piped input ends), stop monitoring it but keep
         // capturing the PTY output until the child exits.
@@ -454,12 +608,19 @@ int main(int argc, char* argv[]) {
         // Log shell output
         outputFile.write(buf, n);
         outputFile.flush();
+        output_end += static_cast<uint64_t>(n);
+        if (output_tidx_fd >= 0) {
+          write_tidx_record(output_tidx_fd, now_mono_ns(), output_end, output_prev_t_ns, output_prev_end);
+        }
       }
     }
   }
 
   inputFile.close();
   outputFile.close();
+  if (input_tidx_fd >= 0) ::close(input_tidx_fd);
+  if (output_tidx_fd >= 0) ::close(output_tidx_fd);
+  if (output_events_fd >= 0) ::close(output_events_fd);
   cleanup_and_exit(0);
   return 0; // Never reached
 }
