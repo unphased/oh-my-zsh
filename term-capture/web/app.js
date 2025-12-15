@@ -35,20 +35,18 @@ function isXtermAvailable() {
 
 function speedToBytesPerSec(speed) {
   switch (speed) {
+    case "snail":
+      return 10;
     case "turtle":
-      return 4_000;
+      return 400;
     case "slow":
-      return 12_000;
-    case "realtime":
-      return 40_000;
+      return 1_200;
     case "fast":
-      return 500_000;
+      return 50_000;
     case "turbo":
-      return 4_000_000;
+      return 400_000;
     case "instant":
       return Number.POSITIVE_INFINITY;
-    default:
-      return 500_000;
   }
 }
 
@@ -251,6 +249,7 @@ async function loadSelectedFile() {
     const tailBytes = clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
     const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
     const speedBps = speedToBytesPerSec(ui.speed.value);
+    console.log('speedBps:', speedBps);
 
     player.configure({ speedBps, chunkBytes });
 
