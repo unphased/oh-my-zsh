@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 
 // Argument-parsing scenarios: happy paths first, then error handling.
 TEST_CASE("TermCapture Argument Parsing", "[term_capture][args]") {
@@ -424,7 +425,6 @@ TEST_CASE("signal_handler triggers cleanup on SIGCHLD when child exits", "[term_
 //
 // Integration tests
 //
-#include <sys/stat.h>
 #include <cstdio>
 #include <fstream>
 #include <cstdlib>
@@ -432,6 +432,18 @@ TEST_CASE("signal_handler triggers cleanup on SIGCHLD when child exits", "[term_
 static bool file_exists(const std::string& path) {
     struct stat st{};
     return ::stat(path.c_str(), &st) == 0;
+}
+
+static bool is_directory(const std::string& path) {
+    struct stat st{};
+    if (::stat(path.c_str(), &st) != 0) return false;
+    return S_ISDIR(st.st_mode);
+}
+
+static bool is_regular_file(const std::string& path) {
+    struct stat st{};
+    if (::stat(path.c_str(), &st) != 0) return false;
+    return S_ISREG(st.st_mode);
 }
 
 static std::string term_capture_bin() {
@@ -481,6 +493,7 @@ static std::string read_all(const std::string& path) {
 struct PtyChild {
     pid_t pid{-1};
     int master_fd{-1};
+    int stdin_write_fd{-1};
 };
 
 static bool set_fd_nonblocking(int fd) {
@@ -489,8 +502,19 @@ static bool set_fd_nonblocking(int fd) {
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
 }
 
-static PtyChild spawn_under_pty(const std::vector<std::string>& args) {
+struct PtyStdioConfig {
+    bool pipe_stdin{false};        // make STDIN non-tty (pipe)
+    bool devnull_stdout{false};    // make STDOUT non-tty (/dev/null)
+    bool keep_stderr_tty{true};    // keep STDERR connected to the PTY
+};
+
+static PtyChild spawn_under_pty(const std::vector<std::string>& args, const PtyStdioConfig& cfg = {}) {
     PtyChild child;
+    int stdin_pipe[2] = {-1, -1};
+    if (cfg.pipe_stdin) {
+        if (::pipe(stdin_pipe) != 0) return child;
+    }
+
     int master_fd = ::posix_openpt(O_RDWR | O_NOCTTY);
     if (master_fd < 0) return child;
     if (::grantpt(master_fd) != 0 || ::unlockpt(master_fd) != 0) {
@@ -512,16 +536,47 @@ static PtyChild spawn_under_pty(const std::vector<std::string>& args) {
     if (pid < 0) {
         ::close(slave_fd);
         ::close(master_fd);
+        if (stdin_pipe[0] >= 0) ::close(stdin_pipe[0]);
+        if (stdin_pipe[1] >= 0) ::close(stdin_pipe[1]);
         return child;
     }
     if (pid == 0) {
         (void)::setsid();
         (void)::ioctl(slave_fd, TIOCSCTTY, 0);
-        (void)::dup2(slave_fd, STDIN_FILENO);
-        (void)::dup2(slave_fd, STDOUT_FILENO);
-        (void)::dup2(slave_fd, STDERR_FILENO);
+
+        if (cfg.pipe_stdin) {
+            (void)::dup2(stdin_pipe[0], STDIN_FILENO);
+        } else {
+            (void)::dup2(slave_fd, STDIN_FILENO);
+        }
+
+        if (cfg.devnull_stdout) {
+            int dn = ::open("/dev/null", O_WRONLY);
+            if (dn >= 0) {
+                (void)::dup2(dn, STDOUT_FILENO);
+                ::close(dn);
+            } else {
+                (void)::dup2(slave_fd, STDOUT_FILENO);
+            }
+        } else {
+            (void)::dup2(slave_fd, STDOUT_FILENO);
+        }
+
+        if (cfg.keep_stderr_tty) {
+            (void)::dup2(slave_fd, STDERR_FILENO);
+        } else {
+            int dn = ::open("/dev/null", O_WRONLY);
+            if (dn >= 0) {
+                (void)::dup2(dn, STDERR_FILENO);
+                ::close(dn);
+            } else {
+                (void)::dup2(slave_fd, STDERR_FILENO);
+            }
+        }
         if (slave_fd > STDERR_FILENO) ::close(slave_fd);
         ::close(master_fd);
+        if (stdin_pipe[0] >= 0) ::close(stdin_pipe[0]);
+        if (stdin_pipe[1] >= 0) ::close(stdin_pipe[1]);
 
         std::vector<char*> argv;
         argv.reserve(args.size() + 1);
@@ -535,6 +590,10 @@ static PtyChild spawn_under_pty(const std::vector<std::string>& args) {
     child.pid = pid;
     child.master_fd = master_fd;
     (void)set_fd_nonblocking(master_fd);
+    if (cfg.pipe_stdin) {
+        ::close(stdin_pipe[0]);
+        child.stdin_write_fd = stdin_pipe[1];
+    }
     return child;
 }
 
@@ -733,6 +792,137 @@ TEST_CASE("Integration: SIGWINCH produces additional resize metadata", "[integra
     REQUIRE(file_exists(output_events_path));
     REQUIRE(read_all(output_path).find("winch_ok") != std::string::npos);
     REQUIRE(count_resize_events(output_events_path) >= 2);
+}
+
+TEST_CASE("Integration: controlling tty falls back to STDOUT when stdin is not a tty", "[integration][term_capture][pty][tty]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
+
+    const std::string prefix = "debug/it_tty_stdout";
+    const std::string output_events_path = prefix + ".output.events";
+
+    std::remove((prefix + ".input").c_str());
+    std::remove((prefix + ".output").c_str());
+    std::remove((prefix + ".output.tidx").c_str());
+    std::remove(output_events_path.c_str());
+    std::remove((prefix + ".meta.json").c_str());
+
+    PtyStdioConfig cfg;
+    cfg.pipe_stdin = true;       // isatty(stdin)=false
+    cfg.devnull_stdout = false;  // isatty(stdout)=true
+    cfg.keep_stderr_tty = true;
+    const std::vector<std::string> args = {
+        term_capture_bin(), prefix, "/bin/echo", "tty_stdout_ok",
+    };
+    PtyChild child = spawn_under_pty(args, cfg);
+    REQUIRE(child.pid > 0);
+    REQUIRE(child.master_fd >= 0);
+    REQUIRE(child.stdin_write_fd >= 0);
+
+    // Close stdin to force EOF inside term-capture.
+    ::close(child.stdin_write_fd);
+    child.stdin_write_fd = -1;
+
+    const int status = wait_pid_with_timeout(child.pid, 3000);
+    (void)drain_fd_until_eof_or_timeout(child.master_fd, 1000);
+    ::close(child.master_fd);
+    REQUIRE(status >= 0);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 0);
+
+    // If it properly picked STDOUT as controlling tty, it should have written a resize event.
+    REQUIRE(is_regular_file(output_events_path));
+    REQUIRE(count_resize_events(output_events_path) >= 1);
+}
+
+TEST_CASE("Integration: controlling tty falls back to STDERR when stdin/stdout are not ttys", "[integration][term_capture][pty][tty]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
+
+    const std::string prefix = "debug/it_tty_stderr";
+    const std::string output_events_path = prefix + ".output.events";
+
+    std::remove((prefix + ".input").c_str());
+    std::remove((prefix + ".output").c_str());
+    std::remove((prefix + ".output.tidx").c_str());
+    std::remove(output_events_path.c_str());
+    std::remove((prefix + ".meta.json").c_str());
+
+    PtyStdioConfig cfg;
+    cfg.pipe_stdin = true;        // isatty(stdin)=false
+    cfg.devnull_stdout = true;    // isatty(stdout)=false
+    cfg.keep_stderr_tty = true;   // isatty(stderr)=true
+    const std::vector<std::string> args = {
+        term_capture_bin(), prefix, "/bin/echo", "tty_stderr_ok",
+    };
+    PtyChild child = spawn_under_pty(args, cfg);
+    REQUIRE(child.pid > 0);
+    REQUIRE(child.master_fd >= 0);
+    REQUIRE(child.stdin_write_fd >= 0);
+
+    ::close(child.stdin_write_fd);
+    child.stdin_write_fd = -1;
+
+    const int status = wait_pid_with_timeout(child.pid, 3000);
+    (void)drain_fd_until_eof_or_timeout(child.master_fd, 1000);
+    ::close(child.master_fd);
+    REQUIRE(status >= 0);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 0);
+
+    REQUIRE(is_regular_file(output_events_path));
+    REQUIRE(count_resize_events(output_events_path) >= 1);
+}
+
+TEST_CASE("Integration: sidecar failures disable metadata but capture still succeeds", "[integration][term_capture][tcap][errors]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
+
+    const std::string prefix = "debug/it_sidecar_fail";
+    const std::string input_path = prefix + ".input";
+    const std::string output_path = prefix + ".output";
+    const std::string input_tidx_path = input_path + ".tidx";
+    const std::string output_tidx_path = output_path + ".tidx";
+    const std::string output_events_path = output_path + ".events";
+    const std::string meta_path = prefix + ".meta.json";
+    const std::string stderr_path = "debug/it_sidecar_fail.stderr";
+
+    std::remove(input_path.c_str());
+    std::remove(output_path.c_str());
+    std::remove(input_tidx_path.c_str());
+    std::remove(output_tidx_path.c_str());
+    std::remove(output_events_path.c_str());
+    std::remove(meta_path.c_str());
+    std::remove(stderr_path.c_str());
+    // Remove and replace with directories so open_trunc() fails but logs still open.
+    ::rmdir(input_tidx_path.c_str());
+    ::rmdir(output_tidx_path.c_str());
+    ::rmdir(output_events_path.c_str());
+    REQUIRE(::mkdir(input_tidx_path.c_str(), 0755) == 0);
+    REQUIRE(::mkdir(output_tidx_path.c_str(), 0755) == 0);
+    REQUIRE(::mkdir(output_events_path.c_str(), 0755) == 0);
+    REQUIRE(is_directory(input_tidx_path));
+    REQUIRE(is_directory(output_tidx_path));
+    REQUIRE(is_directory(output_events_path));
+
+    const std::string cmd =
+        "printf '' | " + term_capture_bin() + " " + prefix + " /bin/echo sidecar_ok 2> " + stderr_path + " >/dev/null";
+    int rc = std::system(cmd.c_str());
+    REQUIRE(rc == 0);
+
+    REQUIRE(is_regular_file(input_path));
+    REQUIRE(is_regular_file(output_path));
+    REQUIRE(is_regular_file(meta_path));
+    // Sidecars remain directories (not created as regular files).
+    REQUIRE(is_directory(input_tidx_path));
+    REQUIRE(is_directory(output_tidx_path));
+    REQUIRE(is_directory(output_events_path));
+
+    const std::string err = read_all(stderr_path);
+    REQUIRE(err.find("TCAP: warning") != std::string::npos);
 }
 
 // Integration variant: ensure multi-line PTY output is preserved in the log.
