@@ -925,6 +925,104 @@ TEST_CASE("Integration: sidecar failures disable metadata but capture still succ
     REQUIRE(err.find("TCAP: warning") != std::string::npos);
 }
 
+TEST_CASE("Integration: missing args prints usage and exits non-zero", "[integration][term_capture][args]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
+
+    const std::string cmd = term_capture_bin() + " >/dev/null 2>&1";
+    int rc = std::system(cmd.c_str());
+    REQUIRE(rc != 0);
+}
+
+TEST_CASE("Integration: stdin EOF stops input but capture continues", "[integration][term_capture][pty][stdin]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
+
+    const std::string prefix = "debug/it_stdin_eof";
+    const std::string output_path = prefix + ".output";
+
+    std::remove((prefix + ".input").c_str());
+    std::remove(output_path.c_str());
+    std::remove((prefix + ".input.tidx").c_str());
+    std::remove((output_path + ".tidx").c_str());
+    std::remove((output_path + ".events").c_str());
+    std::remove((prefix + ".meta.json").c_str());
+
+    PtyStdioConfig cfg;
+    cfg.pipe_stdin = true; // make stdin non-tty so we can force EOF deterministically
+    cfg.devnull_stdout = false;
+    cfg.keep_stderr_tty = true;
+    const std::vector<std::string> args = {
+        term_capture_bin(), prefix, "/bin/sh", "-c", "echo before; sleep 0.2; echo after",
+    };
+    PtyChild child = spawn_under_pty(args, cfg);
+    REQUIRE(child.pid > 0);
+    REQUIRE(child.master_fd >= 0);
+    REQUIRE(child.stdin_write_fd >= 0);
+
+    // Force EOF on stdin immediately.
+    ::close(child.stdin_write_fd);
+    child.stdin_write_fd = -1;
+
+    const int status = wait_pid_with_timeout(child.pid, 5000);
+    (void)drain_fd_until_eof_or_timeout(child.master_fd, 1000);
+    ::close(child.master_fd);
+    REQUIRE(status >= 0);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 0);
+
+    REQUIRE(is_regular_file(output_path));
+    const std::string out = read_all(output_path);
+    REQUIRE(out.find("before") != std::string::npos);
+    REQUIRE(out.find("after") != std::string::npos);
+}
+
+TEST_CASE("Integration: SIGINT triggers graceful teardown path", "[integration][term_capture][pty][signals]") {
+    const auto& prereq = integration_prereq();
+    INFO(prereq.message);
+    REQUIRE(prereq.ready);
+
+    const std::string prefix = "debug/it_sigint";
+    const std::string input_path = prefix + ".input";
+    const std::string output_path = prefix + ".output";
+    const std::string input_tidx_path = input_path + ".tidx";
+    const std::string output_tidx_path = output_path + ".tidx";
+    const std::string output_events_path = output_path + ".events";
+
+    std::remove(input_path.c_str());
+    std::remove(output_path.c_str());
+    std::remove(input_tidx_path.c_str());
+    std::remove(output_tidx_path.c_str());
+    std::remove(output_events_path.c_str());
+    std::remove((prefix + ".meta.json").c_str());
+
+    const std::vector<std::string> args = {
+        term_capture_bin(), prefix, "/bin/sh", "-c", "sleep 5",
+    };
+    PtyChild child = spawn_under_pty(args);
+    REQUIRE(child.pid > 0);
+    REQUIRE(child.master_fd >= 0);
+
+    ::usleep(100 * 1000);
+    REQUIRE(::kill(child.pid, SIGINT) == 0);
+
+    const int status = wait_pid_with_timeout(child.pid, 5000);
+    (void)drain_fd_until_eof_or_timeout(child.master_fd, 1000);
+    ::close(child.master_fd);
+    REQUIRE(status >= 0);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 0);
+
+    // These should exist and (importantly) the process should have reached the close() path.
+    REQUIRE(is_regular_file(input_path));
+    REQUIRE(is_regular_file(output_path));
+    REQUIRE(is_regular_file(input_tidx_path));
+    REQUIRE(is_regular_file(output_tidx_path));
+    REQUIRE(is_regular_file(output_events_path));
+}
+
 // Integration variant: ensure multi-line PTY output is preserved in the log.
 TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration][term_capture]") {
     const auto& prereq = integration_prereq();
