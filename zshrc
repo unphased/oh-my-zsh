@@ -329,9 +329,9 @@ color_tmux_pane() {
 # Add it to the precmd hooks, which is a robust way to handle this.
 autoload -U add-zsh-hook
 add-zsh-hook precmd handle_execution_duration
-add-zsh-hook precmd color_tmux_pane
 
-color_tmux_pane
+source ~/.vim/nvim/shell/nvim-bgcolor.zsh
+add-zsh-hook precmd nvim_bgcolor_hook
 
 echo "Finished loading my .zshrc"
 
