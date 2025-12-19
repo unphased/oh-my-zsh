@@ -14,6 +14,9 @@ typeset -g PM_HOST_ALIAS_FALLBACK=${PM_HOST_ALIAS_FALLBACK:-short}
 typeset -gA PM_HOST_LABELS
 typeset -gA PM_HOST_ROLES
 typeset -ga PM_HOST_ROLE_GLOBS
+typeset -gA PM_HOST_VARIANTS
+typeset -ga PM_HOST_VARIANT_GLOBS
+typeset -gA PM_ROLE_VARIANTS
 
 typeset -g PM_SEG_HOST=''
 typeset -g PM_SEG_VCS=''
@@ -84,6 +87,35 @@ function pm_role_for_host() {
   else
     print -r -- local
   fi
+}
+
+function pm_variant_for_host() {
+  local host variant rule pattern value role
+  host=$(pm_host_raw)
+
+  variant=${PM_HOST_VARIANTS[$host]-}
+  if [[ -n $variant ]]; then
+    print -r -- "$variant"
+    return 0
+  fi
+
+  for rule in "${PM_HOST_VARIANT_GLOBS[@]}"; do
+    pattern=${rule%%=*}
+    value=${rule#*=}
+    if [[ $host == ${~pattern} ]]; then
+      print -r -- "$value"
+      return 0
+    fi
+  done
+
+  role=$(pm_role_for_host)
+  variant=${PM_ROLE_VARIANTS[$role]-}
+  if [[ -n $variant ]]; then
+    print -r -- "$variant"
+    return 0
+  fi
+
+  print -r -- dense
 }
 
 function pm_role_style() {
@@ -183,11 +215,16 @@ function pm_build_prompt_minimal() {
 }
 
 function pm_apply_prompt() {
-  case $PM_PROMPT_VARIANT in
+  local variant=$PM_PROMPT_VARIANT
+  if [[ $variant == auto ]]; then
+    variant=$(pm_variant_for_host)
+  fi
+
+  case $variant in
     (dense)    pm_build_prompt_dense ;;
     (two-line) pm_build_prompt_two_line ;;
     (minimal)  pm_build_prompt_minimal ;;
-    (*)        PM_PROMPT_VARIANT=dense; pm_build_prompt_dense ;;
+    (*)        pm_build_prompt_dense ;;
   esac
   PROMPT="$PM_SEG_LEFT"
   RPROMPT="$PM_SEG_RIGHT"
@@ -219,6 +256,11 @@ function pm_list_variants() {
 
 function pm_setup() {
   setopt prompt_subst
+  : ${PM_ROLE_VARIANTS[local]:=dense}
+  : ${PM_ROLE_VARIANTS[remote]:=two-line}
+  : ${PM_ROLE_VARIANTS[prod]:=two-line}
+  : ${PM_ROLE_VARIANTS[staging]:=dense}
+  : ${PM_ROLE_VARIANTS[dev]:=dense}
   pm_configure_vcs_info
   add-zsh-hook precmd pm_precmd
   pm_precmd

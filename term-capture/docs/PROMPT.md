@@ -18,6 +18,12 @@ pm_use two-line
 pm_use minimal
 ```
 
+If you want one synced config that auto-selects by hostname, set:
+
+```zsh
+PM_PROMPT_VARIANT=auto
+```
+
 ## Machine mapping (recommended)
 
 Exact host → label/role:
@@ -34,6 +40,15 @@ PM_HOST_ROLES=(
 )
 ```
 
+Exact host → prompt variant (optional):
+
+```zsh
+PM_HOST_VARIANTS=(
+  my-mbp dense
+  ip-10-0-0-12 two-line
+)
+```
+
 Glob rules (first match wins):
 
 ```zsh
@@ -43,6 +58,20 @@ PM_HOST_ROLE_GLOBS=(
   '*.dev=dev'
 )
 ```
+
+Glob rules for variants (first match wins):
+
+```zsh
+PM_HOST_VARIANT_GLOBS=(
+  '*prod*=two-line'
+  'ip-10-0-*=two-line'
+)
+```
+
+Role → prompt variant defaults (used when `PM_PROMPT_VARIANT=auto` and no host match):
+- `prod` → `two-line`
+- `remote` → `two-line`
+- `staging|dev|local` → `dense`
 
 Built-in fallback when SSH'd (if you don’t configure anything):
 - host contains `prod|production|prd` → `prod`
@@ -60,4 +89,3 @@ PM_PROMPT_CHAR_ROOT='#'
 PM_ENABLE_VCS=1
 PM_VCS_CHECK_CHANGES=1
 ```
-
