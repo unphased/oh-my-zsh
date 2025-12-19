@@ -331,7 +331,7 @@ autoload -U add-zsh-hook
 add-zsh-hook precmd handle_execution_duration
 
 source ~/.vim/nvim/shell/nvim-bgcolor.zsh
-add-zsh-hook precmd nvim_bgcolor_hook
+add-zsh-hook precmd __nvim_bgcolor_update
 
 echo "Finished loading my .zshrc"
 
