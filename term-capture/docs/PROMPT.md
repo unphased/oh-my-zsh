@@ -7,7 +7,7 @@ This repo includes an optional prompt helper that makes the machine/role highly 
 Add to `~/.zshrc`:
 
 ```zsh
-source "$HOME/.oh-my-zsh/term-capture/zsh/prompt-machine.zsh"
+source "$HOME/.oh-my-zsh/term-capture/zsh/prompt-machine.rc.zsh"
 ```
 
 Pick a variant:
