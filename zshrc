@@ -335,8 +335,8 @@ add-zsh-hook precmd __nvim_bgcolor_update
 
 echo "Finished loading my .zshrc"
 
-# load fuzzyfind bindings etc
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+# load fzf if available
+source <(fzf --zsh)
 
 emscriptenv () {
   # load emsdk env if present
