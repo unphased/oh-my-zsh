@@ -20,6 +20,12 @@ PS4='+$EPOCHREALTIME> '
 # Optionally, if you set this to "random", it'll load a random theme each
 # time that oh-my-zsh is loaded.
 ZSH_THEME="lust"
+
+# Per-machine theme override (not checked into git).
+# Create: ~/.zshrc.machine
+# Example: ZSH_THEME="lust"
+[[ -r "$HOME/.zshrc.machine" ]] && source "$HOME/.zshrc.machine"
+: ${ZSH_THEME:=lust}
 export LANG=en_US.UTF-8
 
 # Example aliases
