@@ -53,6 +53,16 @@ ifeq ($(UNAME_S),Linux)
 LDLIBS += -ldl
 endif
 
+# Platform-friendly "open" helper for docs/coverage URLs.
+OPEN_CMD :=
+ifeq ($(UNAME_S),Darwin)
+OPEN_CMD = open
+else ifeq ($(UNAME_S),Linux)
+OPEN_CMD = xdg-open
+else
+OPEN_CMD = xdg-open
+endif
+
 # Application object files needed for linking tests
 # We'll use special versions of .o files compiled without their main()
 HEXFLOW_FOR_TEST_OBJ = debug/hexflow_for_test.o # Object file in debug/
@@ -238,7 +248,15 @@ coverage-text: coverage
 
 # Convenience: open the HTML coverage report on macOS
 open-coverage: coverage
-	open $(COVERAGE_DIR)/index.html
+	@if [ -f "$(COVERAGE_DIR)/index.html" ]; then \
+		if command -v $(OPEN_CMD) >/dev/null 2>&1; then \
+			$(OPEN_CMD) "$(COVERAGE_DIR)/index.html"; \
+		else \
+			echo "$(OPEN_CMD) not found; open $(COVERAGE_DIR)/index.html manually"; \
+		fi; \
+	else \
+		echo "Coverage HTML not found at $(COVERAGE_DIR)/index.html (install gcovr and run: make coverage)"; \
+	fi
 
 # Dev helpers (macOS-oriented)
 dev:
@@ -247,7 +265,11 @@ dev:
 test-open: test-json
 	@echo "Opening: http://127.0.0.1:7878/web/test-report/"
 	@echo "If it doesn't load, start the server first: make dev"
-	open http://127.0.0.1:7878/web/test-report/
+	@if command -v $(OPEN_CMD) >/dev/null 2>&1; then \
+		$(OPEN_CMD) "http://127.0.0.1:7878/web/test-report/"; \
+	else \
+		echo "$(OPEN_CMD) not found; open the URL manually"; \
+	fi
 
 # Validate machine-readable test reports if tools are present
 validate-reports:

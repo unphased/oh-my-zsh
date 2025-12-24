@@ -138,7 +138,7 @@ The test suite is built with Catch2 v3. Useful targets include:
 - `make test-junit` – write JUnit XML to `debug/junit.xml`
 - `make junit-summary` – quick summary of `debug/junit.xml` (runs `test-junit`)
 
-Coverage artifacts land in `debug/coverage/`. On macOS, `make open-coverage` opens the HTML report.
+Coverage artifacts land in `debug/coverage/`. On macOS and Linux, `make open-coverage` opens the HTML report.
 
 ## Documentation
 
