@@ -519,16 +519,19 @@ async function scanHttpServerListing() {
       const name = decodeURIComponent(url.pathname.split("/").pop() || "");
       const info = byName.get(name) || { name, href: url.toString(), lastModifiedText: null, sizeBytes: null };
       if (name.endsWith(".output") || name.endsWith(".output.tcap")) {
+        const prefix = name.endsWith(".output") ? name.slice(0, -".output".length) : name.slice(0, -".output.tcap".length);
         const hasTidx = nameSet.has(`${name}.tidx`);
-        const hasEvents = nameSet.has(`${name}.events`);
-        const sidecarNote = hasTidx || hasEvents ? `sidecars:${hasTidx ? " tidx" : ""}${hasEvents ? " events" : ""}`.trim() : "";
+        const eventsName = `${prefix}.events.jsonl`;
+        const hasEvents = nameSet.has(eventsName);
+        const sidecarNote =
+          hasTidx || hasEvents ? `sidecars:${hasTidx ? " tidx" : ""}${hasEvents ? " events" : ""}`.trim() : "";
         const label = fmtListingLabel({ ...info, sidecarNote });
         const titleParts = [
           info.name,
           info.lastModifiedText ? `modified: ${info.lastModifiedText}` : null,
           Number.isFinite(info.sizeBytes) ? `size: ${info.sizeBytes} bytes` : null,
           hasTidx ? `${name}.tidx` : null,
-          hasEvents ? `${name}.events` : null,
+          hasEvents ? eventsName : null,
         ].filter(Boolean);
         outputs.push({ ...info, label, title: titleParts.join("\n") });
       } else if (name.endsWith(".input") || name.endsWith(".input.tcap")) {
@@ -655,33 +658,27 @@ function parseTidx(u8) {
   return { startedUnixNs, tNs, endOffsets };
 }
 
-function parseOutputEvents(u8) {
-  const magic = new TextDecoder().decode(u8.subarray(0, 4));
-  if (magic !== "EVT1") throw new Error("bad events magic");
-  const startedUnixNs = readU64LE(u8, 5);
-  let off = 13;
-  let t = 0;
-  let o = 0;
+function parseOutputEventsJsonl(text) {
   const events = [];
-  while (off < u8.length) {
-    const type = u8[off++];
-    if (type === 1) {
-      const a = readUleb128(u8, off);
-      off = a.next;
-      const b = readUleb128(u8, off);
-      off = b.next;
-      const c = readUleb128(u8, off);
-      off = c.next;
-      const d = readUleb128(u8, off);
-      off = d.next;
-      t += a.value;
-      o += b.value;
-      events.push({ type: "resize", tNs: t, offset: o, cols: c.value, rows: d.value });
-    } else {
-      throw new Error(`unknown event type ${type}`);
-    }
+  const lines = text.split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const obj = JSON.parse(line);
+    if (!obj || typeof obj !== "object") continue;
+    if (obj.type !== "resize") continue;
+    if (obj.stream !== "output") continue;
+    if (!Number.isFinite(obj.t_ns) || !Number.isFinite(obj.stream_offset)) continue;
+    if (!Number.isFinite(obj.cols) || !Number.isFinite(obj.rows)) continue;
+    events.push({
+      type: "resize",
+      tNs: obj.t_ns,
+      offset: obj.stream_offset,
+      cols: obj.cols,
+      rows: obj.rows,
+    });
   }
-  return { startedUnixNs, events };
+  return events;
 }
 
 function timeAtOffsetNs(tidx, offset) {
@@ -698,8 +695,14 @@ function timeAtOffsetNs(tidx, offset) {
 }
 
 async function loadTcapSidecarsFromUrl(outputUrl) {
+  const urlObj = new URL(outputUrl);
+  const path = urlObj.pathname;
+  let prefixUrl = null;
+  if (path.endsWith(".output")) prefixUrl = outputUrl.slice(0, -".output".length);
+  else if (path.endsWith(".output.tcap")) prefixUrl = outputUrl.slice(0, -".output.tcap".length);
+
   const tidxUrl = `${outputUrl}.tidx`;
-  const eventsUrl = `${outputUrl}.events`;
+  const eventsUrl = prefixUrl ? `${prefixUrl}.events.jsonl` : null;
   const out = {};
   try {
     const buf = await fetchArrayBufferWithOptionalRange(tidxUrl, 0);
@@ -707,11 +710,16 @@ async function loadTcapSidecarsFromUrl(outputUrl) {
   } catch {
     out.outputTidx = null;
   }
-  try {
-    const buf = await fetchArrayBufferWithOptionalRange(eventsUrl, 0);
-    const parsed = parseOutputEvents(new Uint8Array(buf));
-    out.outputEvents = parsed.events;
-  } catch {
+  if (eventsUrl) {
+    try {
+      const res = await fetch(eventsUrl, { cache: "no-store" });
+      if (!res.ok) throw new Error(`fetch ${eventsUrl} failed: HTTP ${res.status}`);
+      const text = await res.text();
+      out.outputEvents = parseOutputEventsJsonl(text);
+    } catch {
+      out.outputEvents = null;
+    }
+  } else {
     out.outputEvents = null;
   }
   return out.outputTidx || out.outputEvents ? out : null;

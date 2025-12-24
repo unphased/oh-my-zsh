@@ -5,6 +5,7 @@
 #include <string>
 #include <csignal>
 #include <unistd.h>
+#include <cstdlib>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -634,45 +635,131 @@ static std::string drain_fd_until_eof_or_timeout(int fd, int timeout_ms) {
 
 static size_t count_resize_events(const std::string& events_path) {
     const std::string data = read_all(events_path);
-    if (data.size() < 13) return 0;
-    if (data.rfind("EVT1", 0) != 0) return 0;
-    size_t i = 13; // magic(4) + flags(1) + started_at_unix_ns(8)
+    auto parse_u64_field = [](const std::string& line, const std::string& key, uint64_t& out) -> bool {
+        const size_t pos = line.find(key);
+        if (pos == std::string::npos) return false;
+        const size_t start = pos + key.size();
+        if (start >= line.size()) return false;
+        if (line[start] < '0' || line[start] > '9') return false;
+        char* end = nullptr;
+        errno = 0;
+        unsigned long long v = std::strtoull(line.c_str() + start, &end, 10);
+        if (errno != 0) return false;
+        if (end == nullptr || end == line.c_str() + start) return false;
+        out = static_cast<uint64_t>(v);
+        return true;
+    };
+
     size_t count = 0;
-    while (i < data.size()) {
-        const uint8_t type = static_cast<uint8_t>(data[i++]);
-        if (type != 1) return count; // unknown type => stop
+    uint64_t prev_t_ns = 0;
+    uint64_t prev_off = 0;
+    bool have_prev = false;
 
-        uint64_t dt = 0, doff = 0, cols = 0, rows = 0;
-        auto r1 = uleb128_decode(reinterpret_cast<const uint8_t*>(data.data() + i), data.size() - i, dt);
-        if (!r1.first) return count;
-        i += r1.second;
-        auto r2 = uleb128_decode(reinterpret_cast<const uint8_t*>(data.data() + i), data.size() - i, doff);
-        if (!r2.first) return count;
-        i += r2.second;
-        auto r3 = uleb128_decode(reinterpret_cast<const uint8_t*>(data.data() + i), data.size() - i, cols);
-        if (!r3.first) return count;
-        i += r3.second;
-        auto r4 = uleb128_decode(reinterpret_cast<const uint8_t*>(data.data() + i), data.size() - i, rows);
-        if (!r4.first) return count;
-        i += r4.second;
+    size_t start = 0;
+    while (start <= data.size()) {
+        size_t end = data.find('\n', start);
+        if (end == std::string::npos) end = data.size();
+        std::string line = data.substr(start, end - start);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        start = end + 1;
 
+        if (line.empty()) continue;
+        if (line.find("\"type\":\"resize\"") == std::string::npos) continue;
+        if (line.find("\"stream\":\"output\"") == std::string::npos) continue;
+
+        uint64_t t_ns = 0, stream_offset = 0, cols = 0, rows = 0;
+        if (!parse_u64_field(line, "\"t_ns\":", t_ns)) return 0;
+        if (!parse_u64_field(line, "\"stream_offset\":", stream_offset)) return 0;
+        if (!parse_u64_field(line, "\"cols\":", cols)) return 0;
+        if (!parse_u64_field(line, "\"rows\":", rows)) return 0;
+
+        if (have_prev) {
+            if (t_ns < prev_t_ns) return 0;
+            if (stream_offset < prev_off) return 0;
+        }
+        prev_t_ns = t_ns;
+        prev_off = stream_offset;
+        have_prev = true;
         ++count;
     }
     return count;
+}
+
+struct TidxParsed {
+    uint8_t flags = 0;
+    uint64_t started_at_unix_ns = 0;
+    std::vector<uint64_t> t_ns;
+    std::vector<uint64_t> end_offsets;
+};
+
+static bool parse_u64_le(const std::string& data, size_t offset, uint64_t& out) {
+    if (offset + 8 > data.size()) return false;
+    uint64_t v = 0;
+    for (int i = 0; i < 8; ++i) {
+        v |= static_cast<uint64_t>(static_cast<uint8_t>(data[offset + static_cast<size_t>(i)])) << (i * 8);
+    }
+    out = v;
+    return true;
+}
+
+static bool parse_tidx_file(const std::string& tidx_path, TidxParsed& out) {
+    const std::string data = read_all(tidx_path);
+    if (data.size() < 14) return false;
+    if (data.rfind("TIDX1", 0) != 0) return false;
+    out.flags = static_cast<uint8_t>(data[5]);
+    if (!parse_u64_le(data, 6, out.started_at_unix_ns)) return false;
+
+    size_t i = 14; // magic(5) + flags(1) + started_at_unix_ns(8)
+    uint64_t t = 0;
+    uint64_t end = 0;
+    while (i < data.size()) {
+        uint64_t dt = 0;
+        auto r1 = uleb128_decode(reinterpret_cast<const uint8_t*>(data.data() + i), data.size() - i, dt);
+        if (!r1.first) return false;
+        i += r1.second;
+
+        uint64_t dend = 0;
+        auto r2 = uleb128_decode(reinterpret_cast<const uint8_t*>(data.data() + i), data.size() - i, dend);
+        if (!r2.first) return false;
+        i += r2.second;
+
+        t += dt;
+        end += dend;
+        out.t_ns.push_back(t);
+        out.end_offsets.push_back(end);
+    }
+    return true;
+}
+
+static bool parse_meta_started_at_unix_ns(const std::string& meta_path, uint64_t& out) {
+    const std::string s = read_all(meta_path);
+    const std::string key = "\"started_at_unix_ns\":";
+    size_t pos = s.find(key);
+    if (pos == std::string::npos) return false;
+    pos += key.size();
+    while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t')) pos++;
+    if (pos >= s.size() || s[pos] < '0' || s[pos] > '9') return false;
+    char* end = nullptr;
+    errno = 0;
+    unsigned long long v = std::strtoull(s.c_str() + pos, &end, 10);
+    if (errno != 0) return false;
+    if (end == nullptr || end == s.c_str() + pos) return false;
+    out = static_cast<uint64_t>(v);
+    return true;
 }
 
 // Integration smoke: captures a short-lived command and checks log artifacts.
 TEST_CASE("Integration: trivial command creates logs and captures output", "[integration][term_capture]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
     // Prefix under debug/ to keep artifacts in build dir
     const std::string prefix = "debug/it_echo";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
     const std::string input_tidx_path = input_path + ".tidx";
     const std::string output_tidx_path = output_path + ".tidx";
-    const std::string output_events_path = output_path + ".events";
+    const std::string output_events_path = prefix + ".events.jsonl";
     const std::string meta_path = prefix + ".meta.json";
 
     // Clean up any leftovers
@@ -702,7 +789,26 @@ TEST_CASE("Integration: trivial command creates logs and captures output", "[int
     CHECK(file_size(input_path) == 0);
     CHECK(file_size(input_tidx_path) >= 14);  // header-only is OK
     CHECK(file_size(output_tidx_path) > 14);  // should have at least one record
-    CHECK(file_size(output_events_path) >= 13); // header-only is OK in non-tty runs
+    // If no controlling TTY is available, the events JSONL may be empty (but the file should exist).
+    CHECK(is_regular_file(output_events_path));
+
+    uint64_t meta_started = 0;
+    REQUIRE(parse_meta_started_at_unix_ns(meta_path, meta_started));
+
+    TidxParsed input_tidx{};
+    TidxParsed output_tidx{};
+    REQUIRE(parse_tidx_file(input_tidx_path, input_tidx));
+    REQUIRE(parse_tidx_file(output_tidx_path, output_tidx));
+    REQUIRE(input_tidx.flags == 0);
+    REQUIRE(output_tidx.flags == 0);
+    REQUIRE(input_tidx.started_at_unix_ns == meta_started);
+    REQUIRE(output_tidx.started_at_unix_ns == meta_started);
+
+    if (!input_tidx.end_offsets.empty()) {
+        REQUIRE(input_tidx.end_offsets.back() == file_size(input_path));
+    }
+    REQUIRE(!output_tidx.end_offsets.empty());
+    REQUIRE(output_tidx.end_offsets.back() == file_size(output_path));
 
     const std::string out = read_all(output_path);
     // PTY may transform newline to CRLF, so check substring rather than exact equality
@@ -712,14 +818,14 @@ TEST_CASE("Integration: trivial command creates logs and captures output", "[int
 TEST_CASE("Integration: PTY-attached run exercises tty code paths", "[integration][term_capture][pty]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
 
     const std::string prefix = "debug/it_pty";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
     const std::string input_tidx_path = input_path + ".tidx";
     const std::string output_tidx_path = output_path + ".tidx";
-    const std::string output_events_path = output_path + ".events";
+    const std::string output_events_path = prefix + ".events.jsonl";
     const std::string meta_path = prefix + ".meta.json";
 
     std::remove(input_path.c_str());
@@ -750,16 +856,17 @@ TEST_CASE("Integration: PTY-attached run exercises tty code paths", "[integratio
     REQUIRE(file_exists(output_events_path));
     REQUIRE(file_exists(meta_path));
     REQUIRE(read_all(output_path).find("pty_ok") != std::string::npos);
+    REQUIRE(count_resize_events(output_events_path) >= 1);
 }
 
 TEST_CASE("Integration: SIGWINCH produces additional resize metadata", "[integration][term_capture][pty][winch]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
 
     const std::string prefix = "debug/it_winch";
     const std::string output_path = prefix + ".output";
-    const std::string output_events_path = output_path + ".events";
+    const std::string output_events_path = prefix + ".events.jsonl";
 
     std::remove((prefix + ".input").c_str());
     std::remove(output_path.c_str());
@@ -797,10 +904,10 @@ TEST_CASE("Integration: SIGWINCH produces additional resize metadata", "[integra
 TEST_CASE("Integration: controlling tty falls back to STDOUT when stdin is not a tty", "[integration][term_capture][pty][tty]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
 
     const std::string prefix = "debug/it_tty_stdout";
-    const std::string output_events_path = prefix + ".output.events";
+    const std::string output_events_path = prefix + ".events.jsonl";
 
     std::remove((prefix + ".input").c_str());
     std::remove((prefix + ".output").c_str());
@@ -839,10 +946,10 @@ TEST_CASE("Integration: controlling tty falls back to STDOUT when stdin is not a
 TEST_CASE("Integration: controlling tty falls back to STDERR when stdin/stdout are not ttys", "[integration][term_capture][pty][tty]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
 
     const std::string prefix = "debug/it_tty_stderr";
-    const std::string output_events_path = prefix + ".output.events";
+    const std::string output_events_path = prefix + ".events.jsonl";
 
     std::remove((prefix + ".input").c_str());
     std::remove((prefix + ".output").c_str());
@@ -879,14 +986,14 @@ TEST_CASE("Integration: controlling tty falls back to STDERR when stdin/stdout a
 TEST_CASE("Integration: sidecar failures disable metadata but capture still succeeds", "[integration][term_capture][tcap][errors]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
 
     const std::string prefix = "debug/it_sidecar_fail";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
     const std::string input_tidx_path = input_path + ".tidx";
     const std::string output_tidx_path = output_path + ".tidx";
-    const std::string output_events_path = output_path + ".events";
+    const std::string output_events_path = prefix + ".events.jsonl";
     const std::string meta_path = prefix + ".meta.json";
     const std::string stderr_path = "debug/it_sidecar_fail.stderr";
 
@@ -928,7 +1035,7 @@ TEST_CASE("Integration: sidecar failures disable metadata but capture still succ
 TEST_CASE("Integration: missing args prints usage and exits non-zero", "[integration][term_capture][args]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
 
     const std::string cmd = term_capture_bin() + " >/dev/null 2>&1";
     int rc = std::system(cmd.c_str());
@@ -938,7 +1045,7 @@ TEST_CASE("Integration: missing args prints usage and exits non-zero", "[integra
 TEST_CASE("Integration: stdin EOF stops input but capture continues", "[integration][term_capture][pty][stdin]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
 
     const std::string prefix = "debug/it_stdin_eof";
     const std::string output_path = prefix + ".output";
@@ -947,7 +1054,7 @@ TEST_CASE("Integration: stdin EOF stops input but capture continues", "[integrat
     std::remove(output_path.c_str());
     std::remove((prefix + ".input.tidx").c_str());
     std::remove((output_path + ".tidx").c_str());
-    std::remove((output_path + ".events").c_str());
+    std::remove((prefix + ".events.jsonl").c_str());
     std::remove((prefix + ".meta.json").c_str());
 
     PtyStdioConfig cfg;
@@ -982,14 +1089,14 @@ TEST_CASE("Integration: stdin EOF stops input but capture continues", "[integrat
 TEST_CASE("Integration: SIGINT triggers graceful teardown path", "[integration][term_capture][pty][signals]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
 
     const std::string prefix = "debug/it_sigint";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
     const std::string input_tidx_path = input_path + ".tidx";
     const std::string output_tidx_path = output_path + ".tidx";
-    const std::string output_events_path = output_path + ".events";
+    const std::string output_events_path = prefix + ".events.jsonl";
 
     std::remove(input_path.c_str());
     std::remove(output_path.c_str());
@@ -1027,12 +1134,12 @@ TEST_CASE("Integration: SIGINT triggers graceful teardown path", "[integration][
 TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration][term_capture]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
     const std::string prefix = "debug/it_printf";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
     const std::string output_tidx_path = output_path + ".tidx";
-    const std::string output_events_path = output_path + ".events";
+    const std::string output_events_path = prefix + ".events.jsonl";
 
     std::remove(input_path.c_str());
     std::remove(output_path.c_str());
@@ -1061,7 +1168,7 @@ TEST_CASE("Integration: sh -c printf captures multi-line output", "[integration]
 TEST_CASE("Integration: fallback to zsh when no command is provided", "[integration][term_capture][shell]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
     // Skip if zsh is not installed
     int has_zsh = std::system("command -v zsh >/dev/null 2>&1");
     if (has_zsh != 0) {
@@ -1075,7 +1182,7 @@ TEST_CASE("Integration: fallback to zsh when no command is provided", "[integrat
     const std::string output_path = prefix + ".output";
     const std::string input_tidx_path = input_path + ".tidx";
     const std::string output_tidx_path = output_path + ".tidx";
-    const std::string output_events_path = output_path + ".events";
+    const std::string output_events_path = prefix + ".events.jsonl";
     const std::string meta_path = prefix + ".meta.json";
 
     std::remove(input_path.c_str());
@@ -1107,13 +1214,13 @@ TEST_CASE("Integration: fallback to zsh when no command is provided", "[integrat
 TEST_CASE("Integration: WS flags create stub metadata and print skeleton notice", "[integration][term_capture][ws]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
     const std::string prefix = "debug/it_ws";
     const std::string input_path = prefix + ".input";
     const std::string output_path = prefix + ".output";
     const std::string input_tidx_path = input_path + ".tidx";
     const std::string output_tidx_path = output_path + ".tidx";
-    const std::string output_events_path = output_path + ".events";
+    const std::string output_events_path = prefix + ".events.jsonl";
     const std::string meta_path = prefix + ".meta.json";
     const std::string ws_meta = prefix + ".ws.json";
     const std::string stderr_path = "debug/it_ws.stderr";
@@ -1149,7 +1256,7 @@ TEST_CASE("Integration: WS flags create stub metadata and print skeleton notice"
 TEST_CASE("Integration: invalid log directory causes failure to open logs", "[integration][term_capture][errors]") {
     const auto& prereq = integration_prereq();
     INFO(prereq.message);
-    REQUIRE(prereq.ready);
+    if (!prereq.ready) SKIP(prereq.message);
     // Use a prefix that points into a non-existent directory
     const std::string cmd = term_capture_bin() + " debug/does-not-exist/subdir/log /bin/echo ok >/dev/null 2>&1";
     int rc = std::system(cmd.c_str());

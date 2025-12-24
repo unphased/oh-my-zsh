@@ -346,10 +346,10 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  // TCAP sidecars (v1): timestamps + output events (resize)
+  // TCAP sidecars (v1): timestamps + events (resize)
   const std::string input_tidx_path = input_path + ".tidx";
   const std::string output_tidx_path = output_path + ".tidx";
-  const std::string output_events_path = output_path + ".events";
+  const std::string events_jsonl_path = log_path + ".events.jsonl";
   const std::string meta_json_path = log_path + ".meta.json";
 
   auto write_all = [](int fd, const void* buf, size_t len) -> bool {
@@ -382,18 +382,11 @@ int main(int argc, char* argv[]) {
 
   int input_tidx_fd = open_trunc(input_tidx_path);
   int output_tidx_fd = open_trunc(output_tidx_path);
-  int output_events_fd = open_trunc(output_events_path);
 
   auto tidx_header = [&](int fd, uint64_t started_at_unix_ns) -> bool {
     const char magic[] = "TIDX1";
     const uint8_t flags = 0;
     return write_all(fd, magic, 5) && write_all(fd, &flags, 1) && write_u64_le(fd, started_at_unix_ns);
-  };
-
-  auto events_header = [&](int fd, uint64_t started_at_unix_ns) -> bool {
-    const char magic[] = "EVT1";
-    const uint8_t flags = 0;
-    return write_all(fd, magic, 4) && write_all(fd, &flags, 1) && write_u64_le(fd, started_at_unix_ns);
   };
 
   const auto started_unix_ns = static_cast<uint64_t>(
@@ -408,7 +401,8 @@ int main(int argc, char* argv[]) {
   };
 
   const bool tidx_ok = input_tidx_fd >= 0 && output_tidx_fd >= 0;
-  const bool events_ok = output_events_fd >= 0;
+  std::ofstream events_jsonl(events_jsonl_path, std::ios::out | std::ios::trunc | std::ios::binary);
+  const bool events_ok = events_jsonl.is_open();
   if (tidx_ok) {
     if (!tidx_header(input_tidx_fd, started_unix_ns) || !tidx_header(output_tidx_fd, started_unix_ns)) {
       std::cerr << "TCAP: warning: failed writing tidx headers; timestamps disabled\n";
@@ -421,13 +415,9 @@ int main(int argc, char* argv[]) {
     std::cerr << "TCAP: warning: failed to open tidx sidecars; timestamps disabled\n";
   }
   if (events_ok) {
-    if (!events_header(output_events_fd, started_unix_ns)) {
-      std::cerr << "TCAP: warning: failed writing events header; resize metadata disabled\n";
-      ::close(output_events_fd);
-      output_events_fd = -1;
-    }
+    // No header for JSONL; file is ready.
   } else {
-    std::cerr << "TCAP: warning: failed to open output events sidecar; resize metadata disabled\n";
+    std::cerr << "TCAP: warning: failed to open events sidecar; resize metadata disabled\n";
   }
 
   // Minimal session meta JSON (debug-friendly; not performance critical).
@@ -450,13 +440,11 @@ int main(int argc, char* argv[]) {
   uint64_t output_prev_end = 0;
   uint64_t input_end = 0;
   uint64_t output_end = 0;
-  uint64_t events_prev_t_ns = 0;
-  uint64_t events_prev_off = 0;
 
   auto write_tidx_record = [&](int fd, uint64_t t_ns, uint64_t end_off,
                                uint64_t& prev_t, uint64_t& prev_end) {
-    const uint64_t dt = (prev_t == 0) ? t_ns : (t_ns - prev_t);
-    const uint64_t dend = (prev_end == 0) ? end_off : (end_off - prev_end);
+    const uint64_t dt = t_ns - prev_t;
+    const uint64_t dend = end_off - prev_end;
     const auto dt_enc = uleb128_encode(dt);
     const auto de_enc = uleb128_encode(dend);
     if (!write_all(fd, dt_enc.data(), dt_enc.size())) return;
@@ -466,22 +454,13 @@ int main(int argc, char* argv[]) {
   };
 
   auto write_resize_event = [&](uint64_t t_ns, uint64_t out_off, uint16_t cols, uint16_t rows) {
-    if (output_events_fd < 0) return;
-    // type=1 (resize), then dt_ns, doff, cols, rows as ULEB128.
-    const uint8_t type = 1;
-    if (!write_all(output_events_fd, &type, 1)) return;
-    const uint64_t dt = (events_prev_t_ns == 0) ? t_ns : (t_ns - events_prev_t_ns);
-    const uint64_t doff = (events_prev_off == 0) ? out_off : (out_off - events_prev_off);
-    const auto dt_enc = uleb128_encode(dt);
-    const auto do_enc = uleb128_encode(doff);
-    const auto c_enc = uleb128_encode(static_cast<uint64_t>(cols));
-    const auto r_enc = uleb128_encode(static_cast<uint64_t>(rows));
-    (void)write_all(output_events_fd, dt_enc.data(), dt_enc.size());
-    (void)write_all(output_events_fd, do_enc.data(), do_enc.size());
-    (void)write_all(output_events_fd, c_enc.data(), c_enc.size());
-    (void)write_all(output_events_fd, r_enc.data(), r_enc.size());
-    events_prev_t_ns = t_ns;
-    events_prev_off = out_off;
+    if (!events_jsonl.is_open()) return;
+    // TCAP v1: JSONL, one object per line.
+    // Example:
+    // {"type":"resize","t_ns":512345678,"stream":"output","stream_offset":1048576,"cols":120,"rows":32}
+    events_jsonl << "{\"type\":\"resize\",\"t_ns\":" << t_ns << ",\"stream\":\"output\",\"stream_offset\":"
+                 << out_off << ",\"cols\":" << cols << ",\"rows\":" << rows << "}\n";
+    events_jsonl.flush();
   };
 
   // Put parent terminal in raw mode so keys flow properly
@@ -648,7 +627,7 @@ int main(int argc, char* argv[]) {
   outputFile.close();
   if (input_tidx_fd >= 0) ::close(input_tidx_fd);
   if (output_tidx_fd >= 0) ::close(output_tidx_fd);
-  if (output_events_fd >= 0) ::close(output_events_fd);
+  if (events_jsonl.is_open()) events_jsonl.close();
   cleanup_and_exit(0);
   return 0; // Never reached
 }

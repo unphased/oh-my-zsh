@@ -1,6 +1,6 @@
 # Playback & Scrubbing Architecture (planning doc)
 
-This document is a scratchpad to refine the browser playback architecture (xterm.js) for term-capture.
+This document is a scratchpad to refine the browser playback architecture (xterm.js) for termplex (term-capture capture artifacts).
 
 **Status:** planning only; not yet implemented.
 
@@ -37,7 +37,7 @@ Notes:
 - Records are per “chunk” (whatever we write per PTY read / stdin read).
 - Encoding should be cheap and append-only (varint deltas recommended).
 
-### `*.events` (resize metadata)
+### `*.events.jsonl` (resize metadata)
 Purpose: store non-byte events that affect terminal state.
 
 MVP event types:
@@ -48,9 +48,7 @@ Each event record must include:
 - `stream_offset` (the output byte offset that the resize should be applied “before/at”)
   - This ties events to the exact playback point even if timestamps are coarse.
 
-Encoding options (pick one for v1; can evolve later):
-- Binary, varint deltas (preferred for size/CPU).
-- JSONL for early debugging (human-editable; slower/larger).
+Encoding (v1): JSONL (one JSON object per line); see `docs/TCAP.md`.
 
 ## Playback model (future)
 
