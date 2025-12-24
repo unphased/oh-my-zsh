@@ -17,6 +17,14 @@
 
 #include "tcap.hpp"
 
+#ifndef TERM_CAPTURE_BUILD_GIT_SHA
+#define TERM_CAPTURE_BUILD_GIT_SHA "unknown"
+#endif
+
+#ifndef TERM_CAPTURE_BUILD_GIT_DIRTY
+#define TERM_CAPTURE_BUILD_GIT_DIRTY 0
+#endif
+
 static volatile bool should_exit = false;
 static struct termios orig_termios;
 static bool have_orig_termios = false;
@@ -428,6 +436,8 @@ int main(int argc, char* argv[]) {
     if (meta.is_open()) {
       meta << "{\n"
            << "  \"pid\": " << child_pid << ",\n"
+           << "  \"build_git_sha\": " << "\"" << TERM_CAPTURE_BUILD_GIT_SHA << "\"" << ",\n"
+           << "  \"build_git_dirty\": " << (TERM_CAPTURE_BUILD_GIT_DIRTY ? "true" : "false") << ",\n"
            << "  \"prefix\": " << "\"" << log_path << "\"" << ",\n"
            << "  \"started_at_unix_ns\": " << started_unix_ns << "\n"
            << "}\n";
@@ -533,6 +543,8 @@ int main(int argc, char* argv[]) {
       wsmeta << "{\n"
              << "  \"id\": \"" << id_ss.str() << "\",\n"
              << "  \"pid\": " << child_pid << ",\n"
+             << "  \"build_git_sha\": " << "\"" << TERM_CAPTURE_BUILD_GIT_SHA << "\"" << ",\n"
+             << "  \"build_git_dirty\": " << (TERM_CAPTURE_BUILD_GIT_DIRTY ? "true" : "false") << ",\n"
              << "  \"prefix\": " << "\"" << log_path << "\"" << ",\n"
              << "  \"started_at_unix_ns\": " << now_ns << "\n"
              << "}\n";

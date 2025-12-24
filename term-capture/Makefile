@@ -11,10 +11,16 @@
 # - clean-coverage-data: removes stale .gcda files to avoid gcov merge errors
 # - help: prints a summary of common targets
 CXX = g++
+
+# Build provenance (best-effort; used for troubleshooting).
+GIT_SHA := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+GIT_DIRTY := $(shell test -n "$$(git status --porcelain 2>/dev/null)" && echo 1 || echo 0)
+BUILD_INFO_FLAGS := -DTERM_CAPTURE_BUILD_GIT_SHA=\"$(GIT_SHA)\" -DTERM_CAPTURE_BUILD_GIT_DIRTY=$(GIT_DIRTY)
+
 COMMON_FLAGS = -Wall -Wextra -std=c++14 # Specify C++14 standard for Catch2 v3
-DEBUG_FLAGS = $(COMMON_FLAGS) -g -O0 -DDEBUG
+DEBUG_FLAGS = $(COMMON_FLAGS) $(BUILD_INFO_FLAGS) -g -O0 -DDEBUG
 COVERAGE_FLAGS = -fprofile-arcs -ftest-coverage # Use gcov-compatible coverage flags (tests/coverage only)
-RELEASE_FLAGS = $(COMMON_FLAGS) -O2 -DNDEBUG # Lean release: no -g, no -DDEBUG, no coverage flags
+RELEASE_FLAGS = $(COMMON_FLAGS) $(BUILD_INFO_FLAGS) -O2 -DNDEBUG # Lean release: no -g, no -DDEBUG, no coverage flags
 
 TARGETS = term-capture hexflow
 
