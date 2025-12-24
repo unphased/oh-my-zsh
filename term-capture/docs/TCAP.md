@@ -38,13 +38,26 @@ All sidecars that carry time are expected to use the same session start and `t_n
 `*.tidx` is an append-only index that maps time to positions in the corresponding raw file.
 
 ### Semantics
-Each record corresponds to a “commit point” in the raw file: typically one `read()` chunk (PTY output) or one `read()` chunk from stdin (input). The time index does **not** attempt per-byte timestamps; it timestamps *chunk boundaries*.
+Each record corresponds to a “commit point” in the raw file: a contiguous run of bytes appended to the raw stream, typically from a single `read()` call (PTY output) or a single `read()` call from stdin (input).
+
+In the current implementation, a record is appended once per main-loop iteration that reads bytes and appends them to `<prefix>.output` or `<prefix>.input`.
+
+The time index does **not** attempt per-byte timestamps; it timestamps *chunk boundaries*.
 
 ### Record fields (logical)
 - `t_ns`: monotonic time in nanoseconds since session start.
 - `end_offset`: byte offset in the raw file **after** appending the chunk (i.e., the raw file size at that point).
 
 Using `end_offset` (instead of start+len) makes the index self-healing for “tail replay”: if you know the prior record’s end_offset, you can derive the byte range.
+
+### How `end_offset` partitions the stream
+Let the reconstructed records be `(t_1, end_1), (t_2, end_2), ...`, with implied `(t_0=0, end_0=0)`.
+
+Interpretation:
+- At time `t_i`, the raw stream length is `end_i`, meaning bytes in the range `[0, end_i)` have been appended to the raw stream by `t_i`.
+- The specific bytes appended “during record `i`” are exactly the half-open range `[end_{i-1}, end_i)`.
+
+This is the core seek invariant: for a given time `T`, find the first record with `t_i >= T`; the corresponding `end_i` is the smallest offset such that bytes `[0, end_i)` represent the stream “up to time `T`” (at chunk granularity).
 
 ### Encoding (binary, compact)
 To keep the sidecar small and CPU-cheap, encode as varint deltas:
