@@ -437,10 +437,42 @@ function setSelectOptions(selectEl, items, placeholder) {
   for (const item of items) {
     const opt = document.createElement("option");
     opt.value = item.href;
-    opt.textContent = item.name;
+    opt.textContent = item.label || item.name;
+    if (item.title) opt.title = item.title;
     selectEl.appendChild(opt);
   }
   selectEl.value = "";
+}
+
+function parsePyHttpServerListingRowMeta(rowEl) {
+  const tds = rowEl ? Array.from(rowEl.querySelectorAll("td")) : [];
+  if (tds.length < 3) return { lastModifiedText: null, sizeBytes: null };
+
+  const lastModifiedText = (tds[1].textContent || "").trim() || null;
+  const sizeText = (tds[2].textContent || "").trim();
+  const sizeBytes = /^\d+$/.test(sizeText) ? Number(sizeText) : null;
+  return { lastModifiedText, sizeBytes };
+}
+
+function parseLegacyListingMeta(anchorEl) {
+  // Best-effort parsing for older `http.server` HTML that doesn't render a table.
+  // Typically: "<a>name</a>  2025-01-01 12:34  1234"
+  const parentText = anchorEl && anchorEl.parentElement ? anchorEl.parentElement.textContent || "" : "";
+  const nameText = anchorEl ? anchorEl.textContent || "" : "";
+  const rest = parentText.replace(nameText, " ").trim();
+  const m = rest.match(/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s+(\d+)\b/);
+  return {
+    lastModifiedText: m ? m[1] : null,
+    sizeBytes: m ? Number(m[2]) : null,
+  };
+}
+
+function fmtListingLabel({ name, lastModifiedText, sizeBytes, sidecarNote }) {
+  const parts = [name];
+  if (lastModifiedText) parts.push(lastModifiedText);
+  if (Number.isFinite(sizeBytes)) parts.push(fmtBytes(sizeBytes));
+  if (sidecarNote) parts.push(sidecarNote);
+  return parts.join(" — ");
 }
 
 async function scanHttpServerListing() {
@@ -452,7 +484,7 @@ async function scanHttpServerListing() {
     if (!res.ok) throw new Error(`fetch ${currentUrl} failed: HTTP ${res.status}`);
     const html = await res.text();
 
-    // Python SimpleHTTPServer emits a directory listing HTML page; parse anchor tags.
+    // Python SimpleHTTPServer emits a directory listing HTML page; parse anchor tags + best-effort metadata.
     const doc = new DOMParser().parseFromString(html, "text/html");
     const anchors = Array.from(doc.querySelectorAll("a[href]"));
     const links = anchors
@@ -460,20 +492,59 @@ async function scanHttpServerListing() {
       .filter((href) => href && href !== "../")
       .map((href) => new URL(href, currentUrl));
 
+    const byName = new Map();
+    for (const a of anchors) {
+      const href = a.getAttribute("href");
+      if (!href || href === "../") continue;
+      const url = new URL(href, currentUrl);
+      if (url.pathname.endsWith("/")) continue;
+      const name = decodeURIComponent(url.pathname.split("/").pop() || "");
+      const row = a.closest("tr");
+      const metaFromTable = row ? parsePyHttpServerListingRowMeta(row) : { lastModifiedText: null, sizeBytes: null };
+      const meta =
+        metaFromTable.lastModifiedText || metaFromTable.sizeBytes != null ? metaFromTable : parseLegacyListingMeta(a);
+      byName.set(name, {
+        name,
+        href: url.toString(),
+        lastModifiedText: meta.lastModifiedText,
+        sizeBytes: meta.sizeBytes,
+      });
+    }
+
+    const nameSet = new Set(Array.from(byName.keys()));
     const outputs = [];
     const inputs = [];
     for (const url of links) {
       if (url.pathname.endsWith("/")) continue;
       const name = decodeURIComponent(url.pathname.split("/").pop() || "");
+      const info = byName.get(name) || { name, href: url.toString(), lastModifiedText: null, sizeBytes: null };
       if (name.endsWith(".output") || name.endsWith(".output.tcap")) {
-        outputs.push({ name, href: url.toString() });
+        const hasTidx = nameSet.has(`${name}.tidx`);
+        const hasEvents = nameSet.has(`${name}.events`);
+        const sidecarNote = hasTidx || hasEvents ? `sidecars:${hasTidx ? " tidx" : ""}${hasEvents ? " events" : ""}`.trim() : "";
+        const label = fmtListingLabel({ ...info, sidecarNote });
+        const titleParts = [
+          info.name,
+          info.lastModifiedText ? `modified: ${info.lastModifiedText}` : null,
+          Number.isFinite(info.sizeBytes) ? `size: ${info.sizeBytes} bytes` : null,
+          hasTidx ? `${name}.tidx` : null,
+          hasEvents ? `${name}.events` : null,
+        ].filter(Boolean);
+        outputs.push({ ...info, label, title: titleParts.join("\n") });
       } else if (name.endsWith(".input") || name.endsWith(".input.tcap")) {
-        inputs.push({ name, href: url.toString() });
+        const label = fmtListingLabel({ ...info, sidecarNote: "" });
+        const titleParts = [
+          info.name,
+          info.lastModifiedText ? `modified: ${info.lastModifiedText}` : null,
+          Number.isFinite(info.sizeBytes) ? `size: ${info.sizeBytes} bytes` : null,
+        ].filter(Boolean);
+        inputs.push({ ...info, label, title: titleParts.join("\n") });
       }
     }
 
-    outputs.sort((a, b) => a.name.localeCompare(b.name));
-    inputs.sort((a, b) => a.name.localeCompare(b.name));
+    const sortKey = (x) => x.lastModifiedText || "";
+    outputs.sort((a, b) => sortKey(b).localeCompare(sortKey(a)) || a.name.localeCompare(b.name));
+    inputs.sort((a, b) => sortKey(b).localeCompare(sortKey(a)) || a.name.localeCompare(b.name));
 
     setSelectOptions(ui.outputSelect, outputs, outputs.length ? "Select…" : "No .output found");
     setSelectOptions(ui.inputSelect, inputs, inputs.length ? "Select…" : "No .input found");

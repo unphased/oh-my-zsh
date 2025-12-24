@@ -114,6 +114,12 @@ select {
   width: 140px;
 }
 
+select#outputSelect,
+select#inputSelect {
+  width: 360px;
+  max-width: 70vw;
+}
+
 input#baseUrl {
   width: 180px;
   font-family: var(--mono);
