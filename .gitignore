@@ -21,3 +21,6 @@ term-capture/*.output
 
 # zcompile cached files
 *.zwc
+
+# place i keep scratch capture files for now
+captures/
