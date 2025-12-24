@@ -118,8 +118,6 @@ Example line:
 {"type":"resize","t_ns":512345678,"stream":"output","stream_offset":1048576,"cols":120,"rows":32}
 ```
 
-### Legacy note
-Older implementations may write a binary output event stream at `<prefix>.output.events` (magic `EVT1`). Prefer `*.events.jsonl` for new tooling and writers.
 
 ## Session metadata sidecar (`*.meta.json`)
 `*.meta.json` is a small JSON document intended for low-frequency facts and debugging. It is not used in the hot PTY loop.
