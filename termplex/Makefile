@@ -232,7 +232,13 @@ coverage-report:
 		echo "gcovr not found. Coverage reports were skipped." > $(COVERAGE_DIR)/coverage.txt; \
 	else \
 		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) $(GCOVR_BRANCH_FILTERS) --html --html-details -o $(COVERAGE_DIR)/index.html --gcov-ignore-errors=no_working_dir_found; \
-		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) $(GCOVR_BRANCH_FILTERS) --txt -o $(COVERAGE_DIR)/coverage.txt --txt-metric=branch --gcov-ignore-errors=no_working_dir_found; \
+		TXT_METRIC_FLAG=""; \
+		if gcovr --help 2>/dev/null | grep -q -- '--txt-metric'; then \
+			TXT_METRIC_FLAG="--txt-metric=branch"; \
+		else \
+			TXT_METRIC_FLAG="--branches"; \
+		fi; \
+		gcovr --root . $(GCOVR_EXCLUDES) --object-directory $(GCOVR_OBJECT_DIR) $(GCOVR_GCOV) $(GCOVR_BRANCH_FILTERS) --txt -o $(COVERAGE_DIR)/coverage.txt $$TXT_METRIC_FLAG --gcov-ignore-errors=no_working_dir_found; \
 		cat $(COVERAGE_DIR)/coverage.txt; \
 	fi
 
