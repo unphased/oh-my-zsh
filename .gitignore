@@ -18,6 +18,20 @@ term-capture/release/
 term-capture/*.o
 term-capture/*.input
 term-capture/*.output
+term-capture/*.tidx
+term-capture/*.events.jsonl
+term-capture/*.meta.json
+term-capture/*.ws.json
+
+termplex/debug/
+termplex/release/
+termplex/*.o
+termplex/*.input
+termplex/*.output
+termplex/*.tidx
+termplex/*.events.jsonl
+termplex/*.meta.json
+termplex/*.ws.json
 
 # zcompile cached files
 *.zwc
