@@ -10,6 +10,12 @@ Add to `~/.zshrc`:
 source "$HOME/.oh-my-zsh/term-capture/zsh/prompt-machine.rc.zsh"
 ```
 
+Recommended: keep shared config + per-machine overrides in `~/.config/term-capture/` (or set `PM_CONFIG_DIR`):
+
+- `prompt-machine.zsh` (shared across machines)
+- `prompt-machine.$HOST.zsh` (per-host; `$HOST` without the domain)
+- `prompt-machine.local.zsh` (per-machine, usually untracked)
+
 Pick a variant:
 
 ```zsh
