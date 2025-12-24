@@ -6,10 +6,6 @@ This project provides two command-line utilities: `term-capture` and `hexflow`.
 
 If you keep this repo under `~/.oh-my-zsh/`, there’s also a machine-aware prompt helper in `zsh/prompt-machine.zsh` (docs: `docs/PROMPT.md`).
 
-## Oh-my-zsh theme (machine-specific)
-
-If you sync a shared `~/.zshrc` across machines but want different `ZSH_THEME`s per machine, use `zsh/omz-theme-machine.rc.zsh` (docs: `docs/OMZ_THEME.md`).
-
 ## Vision (what this is building toward)
 
 The long-term goal is to keep the terminal workflow, but add a light client/server-style layer (similar “level” to tmux, but with different primitives) so terminal input/output become durable, queryable data streams.
