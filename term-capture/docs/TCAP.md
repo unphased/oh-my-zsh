@@ -22,7 +22,7 @@ These are the only files whose contents are “the terminal”: they contain exa
 ### Sidecars (recommended)
 - Time index sidecar for output: `<prefix>.output.tidx`
 - Time index sidecar for input: `<prefix>.input.tidx`
-- Output events sidecar (non-byte events like resize): `<prefix>.output.events`
+- Events sidecar (non-byte events like resize): `<prefix>.events.jsonl`
 - Session metadata (small JSON, low-frequency facts): `<prefix>.meta.json`
 
 Each raw stream has its own `*.tidx` because offsets are per-file and the streams advance independently.
@@ -86,28 +86,40 @@ To avoid index entries pointing past durable raw bytes:
 
 If a crash happens, a reader should treat any trailing index record that points beyond the raw file length as invalid and truncate it (or ignore it).
 
-## Output events sidecar (`*.output.events`)
-`*.output.events` is an append-only stream of non-byte events that affect terminal rendering.
+## Events sidecar (`*.events.jsonl`)
+`*.events.jsonl` is an append-only stream of low-frequency, out-of-band events that affect terminal rendering. It is newline-delimited JSON (JSONL): UTF-8 text, one JSON object per line.
 
-### Header
-- magic: ASCII `EVT1` (4 bytes)
-- reserved: u8 flags (0 for now)
-- started_at_unix_ns: u64 little-endian
+Rationale: these events are not expected to be high-rate, and JSONL is easy to inspect and extend while remaining robust to partial writes (readers can ignore a trailing incomplete line).
 
-### Record encoding (binary, compact)
-Each record begins with:
-- `type`: u8
+### Schema (v1)
+Readers should ignore unknown keys and unknown `type` values.
 
-Then type-specific payload, using ULEB128 for integers.
+Required fields for all events:
+- `type` (string): event type name.
+- `t_ns` (number): monotonic nanoseconds since session start (same basis as `*.tidx`).
 
-MVP types:
-- `type=1` resize
-  - `dt_ns`: ULEB128 (delta from previous event time; first event is a delta from `t_ns=0`)
-  - `doff`: ULEB128 (delta from previous event stream offset; first event is a delta from `stream_offset=0`)
-  - `cols`: ULEB128
-  - `rows`: ULEB128
+#### `resize` (v1)
+Resize events record PTY window size changes and tie them to the output stream timeline.
 
-`stream_offset` is an output byte offset in `<prefix>.output` that the resize should be applied “at/before” during playback.
+Fields:
+- `type`: `"resize"`
+- `t_ns`: number (monotonic ns since start)
+- `stream`: `"output"` (reserved for future multi-stream events; v1 only uses `"output"`)
+- `stream_offset`: number (absolute byte offset in `<prefix>.output`)
+- `cols`: number
+- `rows`: number
+
+Semantics:
+- A resize event applies “at/before” `stream_offset` during playback: apply the resize before rendering the byte at `stream_offset` (if any).
+- `t_ns` and `stream_offset` should be non-decreasing across events.
+
+Example line:
+```json
+{"type":"resize","t_ns":512345678,"stream":"output","stream_offset":1048576,"cols":120,"rows":32}
+```
+
+### Legacy note
+Older implementations may write a binary output event stream at `<prefix>.output.events` (magic `EVT1`). Prefer `*.events.jsonl` for new tooling and writers.
 
 ## Session metadata sidecar (`*.meta.json`)
 `*.meta.json` is a small JSON document intended for low-frequency facts and debugging. It is not used in the hot PTY loop.
