@@ -10,12 +10,6 @@ Add to `~/.zshrc`:
 source "$HOME/.oh-my-zsh/term-capture/zsh/prompt-machine.rc.zsh"
 ```
 
-Recommended: keep shared config + per-machine overrides in `~/.config/term-capture/` (or set `PM_CONFIG_DIR`):
-
-- `prompt-machine.zsh` (shared across machines)
-- `prompt-machine.$HOST.zsh` (per-host; `$HOST` without the domain)
-- `prompt-machine.local.zsh` (per-machine, usually untracked)
-
 Pick a variant:
 
 ```zsh
@@ -28,6 +22,14 @@ If you want one synced config that auto-selects by hostname, set:
 
 ```zsh
 PM_PROMPT_VARIANT=auto
+```
+
+If you want the *simplest* machine-specific setup (no hostname dependence), set these in your per-machine local file (e.g. `~/.zshrc.machine`, sourced by your `~/.zshrc`):
+
+```zsh
+PM_PROMPT_VARIANT=two-line
+PM_MACHINE_LABEL="mbp"
+PM_MACHINE_ROLE="local"   # local|remote|dev|staging|prod|...
 ```
 
 ## Machine mapping (recommended)

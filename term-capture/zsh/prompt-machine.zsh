@@ -10,6 +10,8 @@ typeset -g PM_VCS_CHECK_CHANGES=${PM_VCS_CHECK_CHANGES:-1}
 typeset -g PM_PROMPT_CHAR=${PM_PROMPT_CHAR:-'❯'}
 typeset -g PM_PROMPT_CHAR_ROOT=${PM_PROMPT_CHAR_ROOT:-'#'}
 typeset -g PM_HOST_ALIAS_FALLBACK=${PM_HOST_ALIAS_FALLBACK:-short}
+typeset -g PM_MACHINE_LABEL=${PM_MACHINE_LABEL:-}
+typeset -g PM_MACHINE_ROLE=${PM_MACHINE_ROLE:-}
 
 typeset -gA PM_HOST_LABELS
 typeset -gA PM_HOST_ROLES
@@ -42,6 +44,9 @@ function pm_host_short() {
 
 function pm_host_label() {
   local host label
+  if [[ -n ${PM_MACHINE_LABEL-} ]]; then
+    label=$PM_MACHINE_LABEL
+  else
   host=$(pm_host_raw)
   label=${PM_HOST_LABELS[$host]-}
   if [[ -z $label ]]; then
@@ -50,6 +55,7 @@ function pm_host_label() {
     else
       label=$(pm_host_short)
     fi
+  fi
   fi
 
   if (( ${#label} > PM_HOST_MAXLEN )); then
@@ -60,6 +66,10 @@ function pm_host_label() {
 
 function pm_role_for_host() {
   local host role rule pattern value
+  if [[ -n ${PM_MACHINE_ROLE-} ]]; then
+    print -r -- "$PM_MACHINE_ROLE"
+    return 0
+  fi
   host=$(pm_host_raw)
 
   role=${PM_HOST_ROLES[$host]-}
