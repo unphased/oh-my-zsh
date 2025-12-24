@@ -2,42 +2,47 @@
 
 TCAP is the on-disk representation for a captured terminal session.
 
-**Definition (committed):** TCAP is a *layout* of files: per stream, a raw bytestream plus a separate metadata/index stream. A future “bundle/container” (single-file packaging, compression) may wrap this layout, but the raw stream remains the ground-truth payload.
+**Definition:** TCAP is a *layout* of files: per stream, a raw bytestream plus one or more sidecars for timing and metadata. A future “bundle/container” (single-file packaging, compression) may wrap this layout, but the raw streams remain the ground-truth payload.
 
 ## Goals
-- Preserve terminal I/O **as raw bytes** (human-inspectable with `xxd`, streamable with `tail -f`, etc).
-- Add **timestamps and metadata** without contaminating the raw byte stream.
+- Preserve terminal I/O **as raw bytes** (inspectable with `xxd`, streamable with `tail -f`, etc).
+- Add **timestamps and metadata** without contaminating the raw byte streams.
 - Keep writes **append-only** and cheap in the hot PTY loop.
-- Enable fast playback primitives: time→byte-offset, tail/backfill, cross-session alignment.
+- Enable practical playback primitives: time→byte-offset, tail/backfill, cross-session alignment.
 
 ## Session layout (v1)
-Given a capture prefix `<prefix>`:
+Given a capture prefix `<prefix>`, TCAP consists of:
 
-### Output stream (PTY → user)
+### Raw streams (required)
 - Raw bytes: `<prefix>.output`
-- Time index sidecar: `<prefix>.output.tidx`
-- Events sidecar (output metadata like resize): `<prefix>.output.events`
-
-### Input stream (user → PTY)
 - Raw bytes: `<prefix>.input`
-- Time index sidecar: `<prefix>.input.tidx`
 
-### Session metadata (optional, small JSON)
-- `<prefix>.meta.json`
-  - Intended for low-frequency facts: session id, pid, start timestamps, host, cwd, TERM, initial winsize, argv, etc.
-  - This file can be written once at startup and optionally updated on exit (or appended as JSONL later if we want crash-friendly updates).
+These are the only files whose contents are “the terminal”: they contain exactly the bytes written to/from the PTY (including ANSI escape sequences).
+
+### Sidecars (recommended)
+- Time index sidecar for output: `<prefix>.output.tidx`
+- Time index sidecar for input: `<prefix>.input.tidx`
+- Output events sidecar (non-byte events like resize): `<prefix>.output.events`
+- Session metadata (small JSON, low-frequency facts): `<prefix>.meta.json`
+
+Each raw stream has its own `*.tidx` because offsets are per-file and the streams advance independently.
+
+## Clocks and time basis
+TCAP uses two time references:
+- `started_at_unix_ns`: wall-clock Unix time (nanoseconds since Unix epoch) captured once at session start. Used for “what time did this start?” and cross-session alignment.
+- `t_ns`: monotonic time (nanoseconds since session start, with an implied origin of `t_ns=0` at session start). Used for seek math and playback timing.
+
+All sidecars that carry time are expected to use the same session start and `t_ns` basis.
 
 ## Time index sidecar (`*.tidx`)
 `*.tidx` is an append-only index that maps time to positions in the corresponding raw file.
 
 ### Semantics
-Each record corresponds to a “commit point” in the raw file: typically one `read()` chunk (PTY output) or one `read()` chunk from stdin (input).
-
-The index does **not** attempt per-byte timestamps; it timestamps *ranges*.
+Each record corresponds to a “commit point” in the raw file: typically one `read()` chunk (PTY output) or one `read()` chunk from stdin (input). The time index does **not** attempt per-byte timestamps; it timestamps *chunk boundaries*.
 
 ### Record fields (logical)
-- `t_ns`: monotonic timestamp in nanoseconds since session start (or an absolute monotonic epoch; pick one and standardize).
-- `end_offset`: byte offset in the raw file **after** appending the chunk (i.e., the size of the raw file at that point).
+- `t_ns`: monotonic time in nanoseconds since session start.
+- `end_offset`: byte offset in the raw file **after** appending the chunk (i.e., the raw file size at that point).
 
 Using `end_offset` (instead of start+len) makes the index self-healing for “tail replay”: if you know the prior record’s end_offset, you can derive the byte range.
 
@@ -47,11 +52,15 @@ To keep the sidecar small and CPU-cheap, encode as varint deltas:
 - File header (once):
   - magic: ASCII `TIDX1` (5 bytes)
   - reserved: u8 flags (0 for now)
-  - started_at_unix_ns: u64 (optional; can also live in `<prefix>.meta.json`)
+  - started_at_unix_ns: u64 little-endian
 
 - Records (repeat until EOF):
-  - `dt_ns`: ULEB128 (delta from previous `t_ns`; first record is absolute from start: `t_ns` since start)
-  - `dend`: ULEB128 (delta from previous `end_offset`; first record is absolute `end_offset`)
+  - `dt_ns`: ULEB128 (delta from previous record’s `t_ns`; the first record is a delta from `t_ns=0`)
+  - `dend`: ULEB128 (delta from previous record’s `end_offset`; the first record is a delta from `end_offset=0`)
+
+Readers reconstruct:
+- `t_ns = Σ dt_ns`
+- `end_offset = Σ dend`
 
 Notes:
 - Deltas are almost always small; ULEB128 keeps records tiny.
@@ -63,13 +72,6 @@ To avoid index entries pointing past durable raw bytes:
 - Then append the corresponding `*.tidx` record.
 
 If a crash happens, a reader should treat any trailing index record that points beyond the raw file length as invalid and truncate it (or ignore it).
-
-## Future: TCAP bundle/container (later)
-Once the layout is stable, a single-file packaging format can wrap it:
-- tar/zip-like “bundle” containing the raw streams and sidecars
-- optional compression applied **per stream** (raw bytes and metadata separately) to preserve good compressibility and allow selective decoding
-
-This bundling layer should be optional and tooling-driven; the capture hot path should remain the layout-first append-only writer.
 
 ## Output events sidecar (`*.output.events`)
 `*.output.events` is an append-only stream of non-byte events that affect terminal rendering.
@@ -87,7 +89,22 @@ Then type-specific payload, using ULEB128 for integers.
 
 MVP types:
 - `type=1` resize
-  - `dt_ns`: ULEB128 (delta from previous event time; first is absolute since start)
-  - `doff`: ULEB128 (delta from previous event stream offset; first is absolute)
+  - `dt_ns`: ULEB128 (delta from previous event time; first event is a delta from `t_ns=0`)
+  - `doff`: ULEB128 (delta from previous event stream offset; first event is a delta from `stream_offset=0`)
   - `cols`: ULEB128
   - `rows`: ULEB128
+
+`stream_offset` is an output byte offset in `<prefix>.output` that the resize should be applied “at/before” during playback.
+
+## Session metadata sidecar (`*.meta.json`)
+`*.meta.json` is a small JSON document intended for low-frequency facts and debugging. It is not used in the hot PTY loop.
+
+Recommended fields (v1; readers should ignore unknown keys):
+- `pid` (number): child PID.
+- `prefix` (string): capture prefix used to derive file paths.
+- `started_at_unix_ns` (number): wall-clock start time.
+- `build_git_sha` (string, optional): git commit id of the term-capture build.
+- `build_git_dirty` (boolean, optional): whether the source tree was dirty at build time.
+
+## Future: bundles/containers (later)
+Once the layout is stable, a single-file packaging format can wrap it (tar/zip-like bundle, optional per-stream compression). This bundling layer should be optional and tooling-driven; the capture hot path remains layout-first and append-only.
