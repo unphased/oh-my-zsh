@@ -450,6 +450,10 @@ static bool is_regular_file(const std::string& path) {
 static std::string term_capture_bin() {
     const char* v = std::getenv("TERM_CAPTURE_BIN");
     if (v && *v) return std::string(v);
+    // Prefer the coverage-instrumented runtime binary when present so integration
+    // tests contribute coverage for `main()` and other runtime-only code paths.
+    const std::string cov = "./debug/term-capture_cov";
+    if (file_exists(cov)) return cov;
     return "./debug/term-capture";
 }
 
@@ -461,7 +465,7 @@ struct IntegrationPrereq {
 static IntegrationPrereq compute_integration_prereq() {
     const std::string bin = term_capture_bin();
     if (!file_exists(bin)) {
-        return {false, "Integration tests require " + bin + ". Run `make debug` before executing them."};
+        return {false, "Integration tests require " + bin + ". Run `make test-lite` (or build the runtime binary) before executing them."};
     }
     int fd = ::posix_openpt(O_RDWR | O_NOCTTY);
     if (fd < 0) {

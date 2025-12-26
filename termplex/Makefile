@@ -183,22 +183,21 @@ $(TEST_EXECUTABLE): $(TEST_OBJ_FILES) $(APP_OBJ_FOR_TESTS)
 TEST_ARGS ?=
 UNIT_FILTER ?= ~[integration]
 INTEGRATION_FILTER ?= [integration]
-TERM_CAPTURE_COV_BIN = ./debug/term-capture_cov
 
 # Full suite, console output only (no JSON/JUnit).
 # Uses the coverage-instrumented runtime binary so coverage is comprehensive.
 test-lite: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture_cov
-	TERM_CAPTURE_BIN=$(TERM_CAPTURE_COV_BIN) ./$(TEST_EXECUTABLE) $(TEST_ARGS)
+	./$(TEST_EXECUTABLE) $(TEST_ARGS)
 
 # Full suite, JSON report (single-run; no double-execution).
 test-json: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture_cov
 	@mkdir -p debug
-	TERM_CAPTURE_BIN=$(TERM_CAPTURE_COV_BIN) ./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -s > debug/test-results.json
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r JSON -s > debug/test-results.json
 
 # Full suite, JUnit (single-run; kept for compatibility, but JSON is preferred).
 test-junit: clean-coverage-data $(TEST_EXECUTABLE) debug/term-capture_cov
 	@mkdir -p debug
-	TERM_CAPTURE_BIN=$(TERM_CAPTURE_COV_BIN) ./$(TEST_EXECUTABLE) $(TEST_ARGS) -r junit -o debug/junit.xml -s
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) -r junit -o debug/junit.xml -s
 
 # Default: run full suite (JSON) + validate + coverage.
 test: test-json
@@ -212,7 +211,7 @@ test-unit: $(TEST_EXECUTABLE)
 # Run only integration tests (only [integration] tagged tests)
 # Ensure the runtime binary exists because integration tests invoke it.
 test-integration: $(TEST_EXECUTABLE) debug/term-capture_cov
-	TERM_CAPTURE_BIN=$(TERM_CAPTURE_COV_BIN) ./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER)
+	./$(TEST_EXECUTABLE) $(TEST_ARGS) $(INTEGRATION_FILTER)
 
 # Convenience targets for richer output or machine-readable reports
 test-verbose: $(TEST_EXECUTABLE)
