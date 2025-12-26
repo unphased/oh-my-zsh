@@ -91,7 +91,13 @@ Fields:
 - `cols`: number
 - `rows`: number
 
-Apply semantics: apply the resize before rendering the byte at `stream_offset` (if any). `t_ns` and `stream_offset` should be non-decreasing.
+Apply semantics:
+- **Ordering is defined by `stream_offset`**: apply the resize immediately before rendering the byte at `stream_offset` (if any).
+- `t_ns` is observational metadata (e.g. for sanity-checking, UI display, or cross-stream correlation) and MUST NOT be used to infer/interpolate a different `stream_offset`.
+
+Monotonicity: writers should emit `t_ns` and `stream_offset` in non-decreasing order; readers should not assume strict monotonicity.
+
+Writer guidance (capture-time): to minimize ambiguity around “bytes already queued” vs “bytes after the resize”, a capture implementation should drain any currently-readable PTY output bytes into `<prefix>.output` (and update `output.tidx`) before recording the resize event, so the resize `stream_offset` points to the first output byte observed after handling the resize.
 
 Example line:
 ```json

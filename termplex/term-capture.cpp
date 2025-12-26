@@ -463,6 +463,37 @@ int main(int argc, char* argv[]) {
     events_jsonl.flush();
   };
 
+  auto drain_readable_pty_output = [&]() {
+    if (masterFd < 0) return;
+    for (;;) {
+      fd_set rfds;
+      FD_ZERO(&rfds);
+      FD_SET(masterFd, &rfds);
+      struct timeval tv {};
+      tv.tv_sec = 0;
+      tv.tv_usec = 0;
+      const int r = ::select(masterFd + 1, &rfds, NULL, NULL, &tv);
+      if (r <= 0) break;
+      if (!FD_ISSET(masterFd, &rfds)) break;
+
+      char buf[1024];
+      const ssize_t n = ::read(masterFd, buf, sizeof(buf));
+      if (n < 0) {
+        if (errno == EINTR) continue;
+        break;
+      }
+      if (n == 0) break;
+
+      (void)::write(STDOUT_FILENO, buf, n);
+      outputFile.write(buf, n);
+      outputFile.flush();
+      output_end += static_cast<uint64_t>(n);
+      if (output_tidx_fd >= 0) {
+        write_tidx_record(output_tidx_fd, now_mono_ns(), output_end, output_prev_t_ns, output_prev_end);
+      }
+    }
+  };
+
   // Put parent terminal in raw mode so keys flow properly
   struct termios raw;
   if (isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &orig_termios) == 0) {
@@ -560,12 +591,14 @@ int main(int argc, char* argv[]) {
     if (ret < 0 && errno == EINTR) {
       if (winch_pending) {
         winch_pending = 0;
+        drain_readable_pty_output();
         struct winsize ws{};
         int tty_fd = pick_controlling_tty_fd();
-        if (tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0) {
+        const bool ws_ok = tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0;
+        apply_winsize_to_child_pty();
+        if (ws_ok) {
           write_resize_event(now_mono_ns(), output_end, ws.ws_col, ws.ws_row);
         }
-        apply_winsize_to_child_pty();
       }
       continue;
     }
@@ -577,12 +610,15 @@ int main(int argc, char* argv[]) {
     }
     if (winch_pending) {
       winch_pending = 0;
+      drain_readable_pty_output();
       struct winsize ws{};
       int tty_fd = pick_controlling_tty_fd();
-      if (tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0) {
+      const bool ws_ok = tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0;
+      apply_winsize_to_child_pty();
+      if (ws_ok) {
         write_resize_event(now_mono_ns(), output_end, ws.ws_col, ws.ws_row);
       }
-      apply_winsize_to_child_pty();
+      continue;
     }
 
     // Data from real terminal -> child
