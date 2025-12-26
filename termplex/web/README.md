@@ -9,14 +9,13 @@ This is a tiny framework-free web “beachhead” for dogfooding term-capture lo
   - a basic `<pre>` fallback if xterm.js isn’t present.
 
 ## Run it
-Open `web/index.html` in a browser, or serve the directory:
+Serve the repo root (recommended; required for the shared TCAP parser code under `js/`):
 
 ```sh
-cd web
-python3 -m http.server 8080
+python3 -m http.server 7878
 ```
 
-Then visit `http://127.0.0.1:8080/`.
+Then visit `http://127.0.0.1:7878/web/`.
 
 Note: Some browsers restrict ES modules when opened via `file://`. Serving `web/` over HTTP avoids that.
 

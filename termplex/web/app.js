@@ -1,3 +1,12 @@
+import {
+  lastResizeBeforeOffset,
+  normalizeResizeEvents,
+  parseEventsJsonl,
+  parseTidx,
+  timeAtOffsetNs,
+  truncateTidxToRawLength,
+} from "../js/tcap/index.js";
+
 const ui = {
   file: document.getElementById("file"),
   baseUrl: document.getElementById("baseUrl"),
@@ -92,6 +101,7 @@ class OutputPlayer {
     this._decoder = new TextDecoder("utf-8", { fatal: false });
     this._buf = null;
     this._offset = 0;
+    this._baseOffset = 0n;
     this._raf = null;
     this._playing = false;
     this._speedBps = 500_000;
@@ -107,16 +117,17 @@ class OutputPlayer {
     return !!this._buf;
   }
 
-  load(u8) {
+  load(u8, { baseOffset = 0 } = {}) {
     this.stop();
     this._reset();
     this._decoder = new TextDecoder("utf-8", { fatal: false });
     this._buf = u8;
     this._offset = 0;
+    this._baseOffset = BigInt(baseOffset);
     this._lastTs = 0;
     this._carryBytes = 0;
     this._eventIndex = 0;
-    this._applyEventsUpTo(0);
+    this._applyEventsAtAbsOffset(this._baseOffset);
     this._emitProgress(0);
   }
 
@@ -152,7 +163,7 @@ class OutputPlayer {
     this._offset = 0;
     this._carryBytes = 0;
     this._eventIndex = 0;
-    this._applyEventsUpTo(0);
+    this._applyEventsAtAbsOffset(this._baseOffset);
     this._emitProgress(0);
   }
 
@@ -160,18 +171,31 @@ class OutputPlayer {
     this._events = Array.isArray(events) ? events : null;
     this._onEvent = typeof onEvent === "function" ? onEvent : null;
     this._eventIndex = 0;
-    this._applyEventsUpTo(this._offset);
+
+    if (this._events && this._onEvent) {
+      const initial = lastResizeBeforeOffset(this._events, this._baseOffset);
+      if (initial) this._onEvent(initial);
+
+      while (
+        this._eventIndex < this._events.length &&
+        BigInt(this._events[this._eventIndex].streamOffset ?? 0n) < this._baseOffset
+      ) {
+        this._eventIndex++;
+      }
+      this._applyEventsAtAbsOffset(this._baseOffset);
+    }
   }
 
-  _applyEventsUpTo(offset) {
+  _applyEventsAtAbsOffset(absOffset) {
     if (!this._events || !this._onEvent) return;
     while (this._eventIndex < this._events.length) {
       const ev = this._events[this._eventIndex];
-      if (!ev || typeof ev.offset !== "number") {
+      if (!ev || ev.type !== "resize") {
         this._eventIndex++;
         continue;
       }
-      if (ev.offset > offset) break;
+      const off = BigInt(ev.streamOffset ?? 0n);
+      if (off !== absOffset) break;
       this._onEvent(ev);
       this._eventIndex++;
     }
@@ -210,12 +234,9 @@ class OutputPlayer {
 
     const start = this._offset;
     const end = Math.min(this._buf.length, start + budget);
-    this._applyEventsUpTo(start);
-    const chunk = this._buf.subarray(start, end);
     this._offset = end;
 
-    const text = this._decoder.decode(chunk, { stream: true });
-    if (text) this._write(text);
+    this._writeBytesWithResizeEvents(start, end);
 
     if (this._offset >= this._buf.length) {
       const flush = this._decoder.decode(new Uint8Array(), { stream: false });
@@ -227,6 +248,47 @@ class OutputPlayer {
 
     this._emitProgress(this._offset - start);
     this._raf = requestAnimationFrame((nextTs) => this._tick(nextTs));
+  }
+
+  _writeBytesWithResizeEvents(start, end) {
+    if (!this._buf) return;
+    if (!this._events || !this._onEvent) {
+      const chunk = this._buf.subarray(start, end);
+      const text = this._decoder.decode(chunk, { stream: true });
+      if (text) this._write(text);
+      return;
+    }
+
+    let cursor = start;
+    while (cursor < end) {
+      const cursorAbs = this._baseOffset + BigInt(cursor);
+      while (this._eventIndex < this._events.length) {
+        const ev = this._events[this._eventIndex];
+        const off = BigInt(ev && ev.streamOffset != null ? ev.streamOffset : 0n);
+        if (off >= cursorAbs) break;
+        this._onEvent(ev);
+        this._eventIndex++;
+      }
+      this._applyEventsAtAbsOffset(cursorAbs);
+
+      const nextEvAbs =
+        this._eventIndex < this._events.length ? BigInt(this._events[this._eventIndex].streamOffset ?? 0n) : null;
+      let cut = end;
+      if (nextEvAbs != null) {
+        if (nextEvAbs > cursorAbs) {
+          const nextLocal = Number(nextEvAbs - this._baseOffset);
+          if (Number.isFinite(nextLocal) && nextLocal > cursor && nextLocal < end) cut = nextLocal;
+        } else {
+          continue;
+        }
+      }
+
+      if (cut <= cursor) break;
+      const chunk = this._buf.subarray(cursor, cut);
+      cursor = cut;
+      const text = this._decoder.decode(chunk, { stream: true });
+      if (text) this._write(text);
+    }
   }
 }
 
@@ -287,7 +349,7 @@ let player = new OutputPlayer({
     const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
     const timeNote =
       currentTcap && currentTcap.outputTidx
-        ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, offset))}`
+        ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentTcap.baseOffset || 0) + BigInt(offset)))}`
         : "";
     ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote}`;
   },
@@ -326,7 +388,7 @@ function setupPlaybackPipeline() {
       const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
       const timeNote =
         currentTcap && currentTcap.outputTidx
-          ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, offset))}`
+          ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentTcap.baseOffset || 0) + BigInt(offset)))}`
           : "";
       ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote}`;
     },
@@ -341,7 +403,7 @@ function loadBytes({ name, size, startOffset, u8, tcap }) {
   setupPlaybackPipeline();
   currentTcap = tcap || null;
 
-  player.load(u8);
+  player.load(u8, { baseOffset: typeof startOffset === "number" ? startOffset : 0 });
   if (currentTcap && currentTcap.outputEvents) {
     player.setEvents(currentTcap.outputEvents, {
       onEvent: (ev) => {
@@ -594,7 +656,8 @@ async function loadFromUrl(url, { kind }) {
     const buf = await fetchArrayBufferWithOptionalRange(url, start);
     const u8 = new Uint8Array(buf);
 
-    const tcap = kind === "output" && start === 0 ? await loadTcapSidecarsFromUrl(url) : null;
+    const tcap = kind === "output" ? await loadTcapSidecarsFromUrl(url, { rawLength: size }) : null;
+    if (tcap) tcap.baseOffset = start;
 
     const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || `${kind}`);
     loadBytes({ name, size: size != null ? size : u8.length, startOffset: start, u8, tcap });
@@ -605,96 +668,18 @@ async function loadFromUrl(url, { kind }) {
 }
 
 function fmtNs(ns) {
-  if (!Number.isFinite(ns)) return "?";
-  const s = ns / 1e9;
-  if (s < 60) return `${s.toFixed(3)}s`;
-  const m = Math.floor(s / 60);
-  const rem = s - m * 60;
-  return `${m}m${rem.toFixed(1)}s`;
+  if (typeof ns !== "bigint") return "?";
+  if (ns < 0n) return "?";
+  const s = ns / 1_000_000_000n;
+  const ms = (ns % 1_000_000_000n) / 1_000_000n;
+  if (s < 60n) return `${s}.${String(ms).padStart(3, "0")}s`;
+  const m = s / 60n;
+  const remS = s % 60n;
+  const remMs = ms;
+  return `${m}m${remS}.${String(remMs).padStart(3, "0")}s`;
 }
 
-function readU64LE(u8, off) {
-  let v = 0n;
-  for (let i = 0; i < 8; i++) v |= BigInt(u8[off + i]) << BigInt(i * 8);
-  return v;
-}
-
-function readUleb128(u8, off) {
-  let result = 0;
-  let shift = 0;
-  let i = off;
-  for (; i < u8.length; i++) {
-    const byte = u8[i];
-    result += (byte & 0x7f) * 2 ** shift;
-    if ((byte & 0x80) === 0) {
-      if (!Number.isSafeInteger(result)) throw new Error("uleb128 too large");
-      return { value: result, next: i + 1 };
-    }
-    shift += 7;
-    if (shift >= 63) throw new Error("uleb128 too large");
-  }
-  throw new Error("uleb128 truncated");
-}
-
-function parseTidx(u8) {
-  const magic = new TextDecoder().decode(u8.subarray(0, 5));
-  if (magic !== "TIDX1") throw new Error("bad tidx magic");
-  const startedUnixNs = readU64LE(u8, 6);
-  let off = 14;
-  let t = 0;
-  let end = 0;
-  const tNs = [];
-  const endOffsets = [];
-  while (off < u8.length) {
-    const a = readUleb128(u8, off);
-    off = a.next;
-    const b = readUleb128(u8, off);
-    off = b.next;
-    t += a.value;
-    end += b.value;
-    tNs.push(t);
-    endOffsets.push(end);
-  }
-  return { startedUnixNs, tNs, endOffsets };
-}
-
-function parseOutputEventsJsonl(text) {
-  const events = [];
-  const lines = text.split(/\r?\n/);
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const obj = JSON.parse(line);
-    if (!obj || typeof obj !== "object") continue;
-    if (obj.type !== "resize") continue;
-    if (obj.stream !== "output") continue;
-    if (!Number.isFinite(obj.t_ns) || !Number.isFinite(obj.stream_offset)) continue;
-    if (!Number.isFinite(obj.cols) || !Number.isFinite(obj.rows)) continue;
-    events.push({
-      type: "resize",
-      tNs: obj.t_ns,
-      offset: obj.stream_offset,
-      cols: obj.cols,
-      rows: obj.rows,
-    });
-  }
-  return events;
-}
-
-function timeAtOffsetNs(tidx, offset) {
-  const arr = tidx.endOffsets;
-  if (!arr.length) return 0;
-  let lo = 0;
-  let hi = arr.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (arr[mid] >= offset) hi = mid;
-    else lo = mid + 1;
-  }
-  return tidx.tNs[lo] || 0;
-}
-
-async function loadTcapSidecarsFromUrl(outputUrl) {
+async function loadTcapSidecarsFromUrl(outputUrl, { rawLength } = {}) {
   const urlObj = new URL(outputUrl);
   const path = urlObj.pathname;
   let prefixUrl = null;
@@ -715,12 +700,15 @@ async function loadTcapSidecarsFromUrl(outputUrl) {
       const res = await fetch(eventsUrl, { cache: "no-store" });
       if (!res.ok) throw new Error(`fetch ${eventsUrl} failed: HTTP ${res.status}`);
       const text = await res.text();
-      out.outputEvents = parseOutputEventsJsonl(text);
+      out.outputEvents = normalizeResizeEvents(parseEventsJsonl(text));
     } catch {
       out.outputEvents = null;
     }
   } else {
     out.outputEvents = null;
+  }
+  if (out.outputTidx && Number.isFinite(rawLength)) {
+    out.outputTidx = truncateTidxToRawLength(out.outputTidx, BigInt(rawLength));
   }
   return out.outputTidx || out.outputEvents ? out : null;
 }
