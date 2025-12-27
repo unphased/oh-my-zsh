@@ -59,12 +59,12 @@ function measureFallbackCellPx() {
 }
 
 function measureXtermCellPx(term) {
-  const dims = term && term._core && term._core._renderService && term._core._renderService.dimensions
-    ? term._core._renderService.dimensions
-    : null;
-  const cellW = dims && Number.isFinite(dims.actualCellWidth) ? dims.actualCellWidth : null;
-  const cellH = dims && Number.isFinite(dims.actualCellHeight) ? dims.actualCellHeight : null;
-  if (cellW && cellH) return { cellW, cellH };
+  const screen = ui.terminal ? ui.terminal.querySelector(".xterm-screen") : null;
+  if (screen && term && Number.isFinite(term.cols) && term.cols > 0 && Number.isFinite(term.rows) && term.rows > 0) {
+    const w = screen.offsetWidth;
+    const h = screen.offsetHeight;
+    if (w > 0 && h > 0) return { cellW: w / term.cols, cellH: h / term.rows };
+  }
   return null;
 }
 
@@ -75,16 +75,25 @@ function updateTerminalBounds() {
     return;
   }
 
-  const cell =
-    (currentXterm ? measureXtermCellPx(currentXterm) : null) ||
-    lastMeasuredCellPx ||
-    measureFallbackCellPx();
+  let widthPx = null;
+  let heightPx = null;
 
-  if (!cell) return;
-  lastMeasuredCellPx = cell;
+  if (currentXterm) {
+    const screen = ui.terminal ? ui.terminal.querySelector(".xterm-screen") : null;
+    if (screen && screen.offsetWidth > 0 && screen.offsetHeight > 0) {
+      widthPx = screen.offsetWidth;
+      heightPx = screen.offsetHeight;
+      lastMeasuredCellPx = { cellW: widthPx / currentXterm.cols, cellH: heightPx / currentXterm.rows };
+    }
+  }
 
-  const widthPx = Math.max(1, Math.ceil(currentTermSize.cols * cell.cellW));
-  const heightPx = Math.max(1, Math.ceil(currentTermSize.rows * cell.cellH));
+  if (widthPx == null || heightPx == null) {
+    const cell = lastMeasuredCellPx || measureFallbackCellPx();
+    if (!cell) return;
+    lastMeasuredCellPx = cell;
+    widthPx = Math.max(1, Math.round(currentTermSize.cols * cell.cellW));
+    heightPx = Math.max(1, Math.round(currentTermSize.rows * cell.cellH));
+  }
 
   ui.terminalCanvas.style.width = `${widthPx}px`;
   ui.terminalCanvas.style.height = `${heightPx}px`;
