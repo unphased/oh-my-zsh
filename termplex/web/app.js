@@ -17,7 +17,7 @@ const ui = {
   loadInput: document.getElementById("loadInput"),
   tailBytes: document.getElementById("tailBytes"),
   chunkBytes: document.getElementById("chunkBytes"),
-  speed: document.getElementById("speed"),
+  rateBps: document.getElementById("rateBps"),
   load: document.getElementById("load"),
   play: document.getElementById("play"),
   pause: document.getElementById("pause"),
@@ -28,25 +28,6 @@ const ui = {
   fallback: document.getElementById("fallback"),
   meta: document.getElementById("meta"),
 };
-
-const DEFAULT_SPEED_ID = "snail";
-
-// [id, bytesPerSec]
-const SPEED_PRESETS = [
-  ["glacier", 1],
-  ["snail", 10],
-  ["turtle", 400],
-  ["slow", 1_200],
-  ["fast", 50_000],
-  ["turbo", 400_000],
-  ["instant", Number.POSITIVE_INFINITY],
-];
-
-const SPEED_LABEL_OVERRIDES = new Map([
-  // e.g. ["realtime", "realtime-ish"],
-]);
-
-const SPEED_BYTES_PER_SEC_BY_ID = new Map(SPEED_PRESETS);
 
 function fmtBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -67,11 +48,12 @@ function isXtermAvailable() {
   return typeof window.Terminal === "function";
 }
 
-function speedToBytesPerSec(speed) {
-  const bps = SPEED_BYTES_PER_SEC_BY_ID.get(speed);
-  if (bps != null) return bps;
-  const def = SPEED_BYTES_PER_SEC_BY_ID.get(DEFAULT_SPEED_ID);
-  return def != null ? def : 50_000;
+function rateToBytesPerSec() {
+  const raw = ui.rateBps && ui.rateBps.value != null ? String(ui.rateBps.value).trim() : "";
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 50_000;
+  if (n <= 0) return Number.POSITIVE_INFINITY; // 0 => instant
+  return clampInt(n, 1, 1_000_000_000);
 }
 
 function fmtRate(bps) {
@@ -79,30 +61,9 @@ function fmtRate(bps) {
   return `${fmtBytes(bps)}/s`;
 }
 
-function initSpeedSelect() {
-  const existing = ui.speed.value;
-  ui.speed.innerHTML = "";
-
-  for (const [id] of SPEED_PRESETS) {
-    const opt = document.createElement("option");
-    opt.value = id;
-    const bps = SPEED_BYTES_PER_SEC_BY_ID.get(id);
-    const label = SPEED_LABEL_OVERRIDES.get(id) || id;
-    opt.textContent = bps == null ? label : `${label} (${fmtRate(bps)})`;
-    ui.speed.appendChild(opt);
-  }
-
-  if (existing && SPEED_BYTES_PER_SEC_BY_ID.has(existing)) {
-    ui.speed.value = existing;
-    return;
-  }
-
-  ui.speed.value = SPEED_BYTES_PER_SEC_BY_ID.has(DEFAULT_SPEED_ID) ? DEFAULT_SPEED_ID : SPEED_PRESETS[0][0];
-}
-
 function currentPlaybackConfigNote() {
   const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
-  const bps = speedToBytesPerSec(ui.speed.value);
+  const bps = rateToBytesPerSec();
   return `rate=${fmtRate(bps)} cap=${fmtBytes(chunkBytes)}/frame`;
 }
 
@@ -408,7 +369,7 @@ function setupPlaybackPipeline() {
   });
 
   const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
-  const speedBps = speedToBytesPerSec(ui.speed.value);
+  const speedBps = rateToBytesPerSec();
   player.configure({ speedBps, chunkBytes });
 }
 
@@ -434,7 +395,7 @@ function loadBytes({ name, size, startOffset, u8, tcap }) {
   );
   updateButtons();
 
-  if (ui.speed.value === "instant") {
+  if (!Number.isFinite(rateToBytesPerSec())) {
     player.play();
   }
 }
@@ -488,9 +449,9 @@ ui.reset.addEventListener("click", () => {
   player.reset();
 });
 
-ui.speed.addEventListener("change", () => {
+ui.rateBps.addEventListener("change", () => {
   const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
-  player.configure({ speedBps: speedToBytesPerSec(ui.speed.value), chunkBytes });
+  player.configure({ speedBps: rateToBytesPerSec(), chunkBytes });
 });
 
 ui.chunkBytes.addEventListener("change", () => {
@@ -765,7 +726,6 @@ ui.drop.addEventListener("drop", (e) => {
 });
 
 updateButtons();
-initSpeedSelect();
 
 // Best-effort auto-scan if we're being served as /web/ from the repo root.
 if (ui.baseUrl && ui.baseUrl.value) {
