@@ -8,17 +8,15 @@ import {
 } from "../js/tcap/index.js";
 
 const ui = {
-  file: document.getElementById("file"),
+  fileOutput: document.getElementById("fileOutput"),
+  fileInput: document.getElementById("fileInput"),
   baseUrl: document.getElementById("baseUrl"),
   scan: document.getElementById("scan"),
   outputSelect: document.getElementById("outputSelect"),
   inputSelect: document.getElementById("inputSelect"),
-  loadOutput: document.getElementById("loadOutput"),
-  loadInput: document.getElementById("loadInput"),
   tailBytes: document.getElementById("tailBytes"),
   chunkBytes: document.getElementById("chunkBytes"),
   rateBps: document.getElementById("rateBps"),
-  load: document.getElementById("load"),
   play: document.getElementById("play"),
   pause: document.getElementById("pause"),
   reset: document.getElementById("reset"),
@@ -312,10 +310,10 @@ function createSink() {
   };
 }
 
-let currentFile = null;
 let currentUrl = null;
 let sink = createSink();
 let currentTcap = null;
+let localLoadSeq = 0;
 let player = new OutputPlayer({
   write: (s) => sink.write(s),
   reset: () => sink.reset(),
@@ -334,6 +332,38 @@ function setStatus(msg, { error = false } = {}) {
   ui.status.style.color = error ? "var(--bad)" : "var(--muted)";
 }
 
+const PREFS_KEY = "termplex.web.viewer.prefs.v1";
+
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return;
+    const prefs = JSON.parse(raw);
+    if (!prefs || typeof prefs !== "object") return;
+
+    if (typeof prefs.baseUrl === "string" && ui.baseUrl) ui.baseUrl.value = prefs.baseUrl;
+    if (typeof prefs.tailBytes === "number" && ui.tailBytes) ui.tailBytes.value = String(prefs.tailBytes);
+    if (typeof prefs.chunkBytes === "number" && ui.chunkBytes) ui.chunkBytes.value = String(prefs.chunkBytes);
+    if (typeof prefs.rateBps === "number" && ui.rateBps) ui.rateBps.value = String(prefs.rateBps);
+  } catch {
+    // ignore
+  }
+}
+
+function savePrefs() {
+  try {
+    const prefs = {
+      baseUrl: ui.baseUrl ? String(ui.baseUrl.value || "").trim() : "../",
+      tailBytes: clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER),
+      chunkBytes: clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024),
+      rateBps: clampInt(Number(ui.rateBps.value), 0, 1_000_000_000),
+    };
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    // ignore
+  }
+}
+
 function xtermSourceNote() {
   const src =
     typeof window.__TERM_CAPTURE_XTERM_SOURCE === "string" ? window.__TERM_CAPTURE_XTERM_SOURCE : null;
@@ -342,15 +372,10 @@ function xtermSourceNote() {
 }
 
 function updateButtons() {
-  const hasFile = !!currentFile;
-  const hasUrl = !!currentUrl;
   const hasLoaded = player.hasLoaded();
-  ui.load.disabled = !hasFile;
   ui.play.disabled = !hasLoaded;
   ui.pause.disabled = !hasLoaded;
   ui.reset.disabled = !hasLoaded;
-  ui.loadOutput.disabled = !hasUrl || !ui.outputSelect.value;
-  ui.loadInput.disabled = !hasUrl || !ui.inputSelect.value;
 }
 
 function setupPlaybackPipeline() {
@@ -386,10 +411,7 @@ function loadBytes({ name, size, startOffset, u8, tcap }) {
     });
   }
 
-  const tailNote =
-    typeof startOffset === "number" && startOffset > 0
-      ? ` (tail ${fmtBytes(size - startOffset)} of ${fmtBytes(size)})`
-      : "";
+  const tailNote = typeof startOffset === "number" && startOffset > 0 ? ` (tail ${fmtBytes(u8.length)})` : "";
   setStatus(
     `Loaded ${name}${tailNote}. Renderer: ${sink.kind === "xterm" ? "xterm.js" : "fallback"}.${xtermSourceNote()}`,
   );
@@ -400,23 +422,25 @@ function loadBytes({ name, size, startOffset, u8, tcap }) {
   }
 }
 
-async function loadSelectedFile() {
-  if (!currentFile) return;
+async function loadLocalFile(file, { kind }) {
+  if (!file) return;
   try {
+    savePrefs();
+    const seq = ++localLoadSeq;
     const tailBytes = clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
-    const fileSize = currentFile.size;
+    const fileSize = file.size;
     const start = tailBytes > 0 ? Math.max(0, fileSize - tailBytes) : 0;
-    const blob = currentFile.slice(start, fileSize);
+    const blob = file.slice(start, fileSize);
     const buf = await blob.arrayBuffer();
-    loadBytes({ name: currentFile.name, size: fileSize, startOffset: start, u8: new Uint8Array(buf), tcap: null });
+    if (seq !== localLoadSeq) return; // superseded
+    loadBytes({ name: file.name || kind, size: fileSize, startOffset: start, u8: new Uint8Array(buf), tcap: null });
   } catch (e) {
     setStatus(`Load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
     updateButtons();
   }
 }
 
-function pickFile(file) {
-  currentFile = file;
+function pickLocalFile(file, { kind }) {
   currentUrl = null;
   if (!file) {
     setStatus("No file loaded.");
@@ -425,16 +449,17 @@ function pickFile(file) {
     return;
   }
 
-  setStatus(`Selected ${file.name} (${fmtBytes(file.size)}). Click Load.`);
+  setStatus(`Selected ${file.name} (${fmtBytes(file.size)}). Loading…`);
   updateButtons();
+  void loadLocalFile(file, { kind });
 }
 
-ui.file.addEventListener("change", () => {
-  pickFile(ui.file.files && ui.file.files[0] ? ui.file.files[0] : null);
+ui.fileOutput?.addEventListener("change", () => {
+  pickLocalFile(ui.fileOutput.files && ui.fileOutput.files[0] ? ui.fileOutput.files[0] : null, { kind: "output" });
 });
 
-ui.load.addEventListener("click", () => {
-  void loadSelectedFile();
+ui.fileInput?.addEventListener("change", () => {
+  pickLocalFile(ui.fileInput.files && ui.fileInput.files[0] ? ui.fileInput.files[0] : null, { kind: "input" });
 });
 
 ui.play.addEventListener("click", () => {
@@ -452,11 +477,21 @@ ui.reset.addEventListener("click", () => {
 ui.rateBps.addEventListener("change", () => {
   const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
   player.configure({ speedBps: rateToBytesPerSec(), chunkBytes });
+  savePrefs();
 });
 
 ui.chunkBytes.addEventListener("change", () => {
   const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
-  player.configure({ speedBps: speedToBytesPerSec(ui.speed.value), chunkBytes });
+  player.configure({ speedBps: rateToBytesPerSec(), chunkBytes });
+  savePrefs();
+});
+
+ui.tailBytes.addEventListener("change", () => {
+  savePrefs();
+});
+
+ui.baseUrl.addEventListener("change", () => {
+  savePrefs();
 });
 
 function resolvedBaseUrl() {
@@ -513,8 +548,8 @@ function fmtListingLabel({ name, lastModifiedText, sizeBytes, sidecarNote }) {
 
 async function scanHttpServerListing() {
   try {
-    currentFile = null;
     currentUrl = resolvedBaseUrl();
+    savePrefs();
 
     const res = await fetch(currentUrl, { cache: "no-store" });
     if (!res.ok) throw new Error(`fetch ${currentUrl} failed: HTTP ${res.status}`);
@@ -589,7 +624,7 @@ async function scanHttpServerListing() {
     setSelectOptions(ui.inputSelect, inputs, inputs.length ? "Select…" : "No .input found");
 
     setStatus(
-      `Scanned ${currentUrl}: ${outputs.length} output, ${inputs.length} input. Select one and click Load.`,
+      `Scanned ${currentUrl}: ${outputs.length} output, ${inputs.length} input. Select one to load.`,
     );
     updateButtons();
   } catch (e) {
@@ -613,6 +648,7 @@ async function fetchArrayBufferWithOptionalRange(url, startByte) {
 
 async function loadFromUrl(url, { kind }) {
   try {
+    savePrefs();
     const tailBytes = clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
 
     let size = null;
@@ -700,15 +736,8 @@ ui.outputSelect.addEventListener("change", () => {
 
 ui.inputSelect.addEventListener("change", () => {
   updateButtons();
-});
-
-ui.loadOutput.addEventListener("click", () => {
-  if (!ui.outputSelect.value) return;
-  void loadFromUrl(ui.outputSelect.value, { kind: "output" });
-});
-
-ui.loadInput.addEventListener("click", () => {
   if (!ui.inputSelect.value) return;
+  setStatus(`Loading ${decodeURIComponent(new URL(ui.inputSelect.value).pathname.split("/").pop() || "input")}…`);
   void loadFromUrl(ui.inputSelect.value, { kind: "input" });
 });
 
@@ -725,12 +754,15 @@ ui.drop.addEventListener("drop", (e) => {
   e.preventDefault();
   ui.drop.classList.remove("dragover");
   const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0] ? e.dataTransfer.files[0] : null;
-  if (file) pickFile(file);
+  if (file) pickLocalFile(file, { kind: "output" });
 });
 
+loadPrefs();
+player.configure({
+  speedBps: rateToBytesPerSec(),
+  chunkBytes: clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024),
+});
 updateButtons();
 
 // Best-effort auto-scan if we're being served as /web/ from the repo root.
-if (ui.baseUrl && ui.baseUrl.value) {
-  void scanHttpServerListing();
-}
+if (ui.baseUrl && ui.baseUrl.value) void scanHttpServerListing();

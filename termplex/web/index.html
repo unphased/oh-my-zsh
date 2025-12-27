@@ -33,19 +33,9 @@
           <select id="inputSelect"></select>
         </label>
 
-        <div class="buttons">
-          <button id="loadOutput" disabled>Load output</button>
-          <button id="loadInput" disabled>Load input</button>
-        </div>
-
-        <label class="file">
-          <input id="file" type="file" />
-          <span>Choose <code>.output</code></span>
-        </label>
-
         <label class="field">
           <span>Tail</span>
-          <input id="tailBytes" type="number" min="0" step="4096" value="2097152" />
+          <input id="tailBytes" type="number" min="0" step="4096" value="0" />
         </label>
 
         <label class="field">
@@ -68,7 +58,6 @@
         </label>
 
         <div class="buttons">
-          <button id="load" disabled>Load</button>
           <button id="play" disabled>Play</button>
           <button id="pause" disabled>Pause</button>
           <button id="reset" disabled>Reset</button>
@@ -95,6 +84,22 @@
         <div class="status" id="status">No file loaded.</div>
         <div class="drop" id="drop">
           Drop a <code>.output</code> file here
+        </div>
+        <div class="hint" style="margin-top: 10px">
+          <div class="hint-title">Local files</div>
+          <p>
+            Choose a local file to load immediately (no server needed):
+          </p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap">
+            <label class="file">
+              <input id="fileOutput" type="file" />
+              <span>Choose <code>.output</code></span>
+            </label>
+            <label class="file">
+              <input id="fileInput" type="file" />
+              <span>Choose <code>.input</code></span>
+            </label>
+          </div>
         </div>
       </section>
 
