@@ -74,6 +74,11 @@ function speedToBytesPerSec(speed) {
   return def != null ? def : 50_000;
 }
 
+function fmtRate(bps) {
+  if (!Number.isFinite(bps)) return "∞";
+  return `${fmtBytes(bps)}/s`;
+}
+
 function initSpeedSelect() {
   const existing = ui.speed.value;
   ui.speed.innerHTML = "";
@@ -81,7 +86,9 @@ function initSpeedSelect() {
   for (const [id] of SPEED_PRESETS) {
     const opt = document.createElement("option");
     opt.value = id;
-    opt.textContent = SPEED_LABEL_OVERRIDES.get(id) || id;
+    const bps = SPEED_BYTES_PER_SEC_BY_ID.get(id);
+    const label = SPEED_LABEL_OVERRIDES.get(id) || id;
+    opt.textContent = bps == null ? label : `${label} (${fmtRate(bps)})`;
     ui.speed.appendChild(opt);
   }
 
@@ -91,6 +98,12 @@ function initSpeedSelect() {
   }
 
   ui.speed.value = SPEED_BYTES_PER_SEC_BY_ID.has(DEFAULT_SPEED_ID) ? DEFAULT_SPEED_ID : SPEED_PRESETS[0][0];
+}
+
+function currentPlaybackConfigNote() {
+  const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
+  const bps = speedToBytesPerSec(ui.speed.value);
+  return `rate=${fmtRate(bps)} cap=${fmtBytes(chunkBytes)}/frame`;
 }
 
 class OutputPlayer {
@@ -351,7 +364,7 @@ let player = new OutputPlayer({
       currentTcap && currentTcap.outputTidx
         ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentTcap.baseOffset || 0) + BigInt(offset)))}`
         : "";
-    ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote}`;
+    ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote} ${currentPlaybackConfigNote()}`;
   },
 });
 
@@ -390,7 +403,7 @@ function setupPlaybackPipeline() {
         currentTcap && currentTcap.outputTidx
           ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentTcap.baseOffset || 0) + BigInt(offset)))}`
           : "";
-      ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote}`;
+      ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote} ${currentPlaybackConfigNote()}`;
     },
   });
 
