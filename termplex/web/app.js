@@ -29,6 +29,8 @@ const ui = {
   meta: document.getElementById("meta"),
   timeScrub: document.getElementById("timeScrub"),
   timeScrubText: document.getElementById("timeScrubText"),
+  offsetScrub: document.getElementById("offsetScrub"),
+  offsetScrubText: document.getElementById("offsetScrubText"),
   boundsOverlay: document.getElementById("boundsOverlay"),
   boundsLabel: document.getElementById("boundsLabel"),
 };
@@ -467,6 +469,7 @@ let sink = createSink();
 let currentTcap = null;
 let currentLoadedKind = null; // "output" | "input" | null
 let currentLoadedBaseOffset = 0;
+let currentLoadedAbsSize = null; // number | null, total output size in bytes if known
 let currentOutputSource = null; // { type:"url", url } | { type:"file", file } | null
 let localLoadSeq = 0;
 let player = new OutputPlayer({
@@ -480,6 +483,7 @@ let player = new OutputPlayer({
         : "";
     const sizeNote = currentTermSizeNote();
     ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote} ${sizeNote} ${currentPlaybackConfigNote()}`.trim();
+    syncScrubbersFromProgress({ localOffset: offset, localTotal: total });
   },
 });
 
@@ -542,6 +546,14 @@ function setScrubber({ enabled, text, ms, maxMs } = {}) {
   if (typeof text === "string") ui.timeScrubText.textContent = text;
 }
 
+function setOffsetScrubber({ enabled, text, absOffset, absMax } = {}) {
+  if (!ui.offsetScrub || !ui.offsetScrubText) return;
+  if (Number.isFinite(absMax)) ui.offsetScrub.max = String(Math.max(0, Math.floor(absMax)));
+  if (Number.isFinite(absOffset)) ui.offsetScrub.value = String(Math.max(0, Math.floor(absOffset)));
+  ui.offsetScrub.disabled = !enabled;
+  if (typeof text === "string") ui.offsetScrubText.textContent = text;
+}
+
 function configureTimeScrubber() {
   if (!ui.timeScrub || !ui.timeScrubText) return;
 
@@ -566,6 +578,71 @@ function configureTimeScrubber() {
   setScrubber({ enabled: true, ms: 0, maxMs, text: `t=0 / ${fmtNs(lastNs)}` });
 }
 
+function configureOffsetScrubber() {
+  if (!ui.offsetScrub || !ui.offsetScrubText) return;
+
+  if (currentLoadedKind !== "output" || !player.hasLoaded()) {
+    setOffsetScrubber({ enabled: false, text: "off=?" });
+    return;
+  }
+
+  const absMax =
+    Number.isFinite(currentLoadedAbsSize) && currentLoadedAbsSize != null
+      ? currentLoadedAbsSize
+      : currentLoadedBaseOffset + player.bytesTotal();
+
+  if (!Number.isFinite(absMax) || absMax < 0) {
+    setOffsetScrubber({ enabled: false, text: "off=?" });
+    return;
+  }
+
+  if (currentLoadedBaseOffset > 0) {
+    setOffsetScrubber({ enabled: true, absOffset: currentLoadedBaseOffset, absMax, text: `off=${fmtBytes(currentLoadedBaseOffset)} / ${fmtBytes(absMax)} (tail; seeks reload)` });
+    return;
+  }
+
+  setOffsetScrubber({ enabled: true, absOffset: 0, absMax, text: `off=0 / ${fmtBytes(absMax)}` });
+}
+
+function configureScrubbers() {
+  configureTimeScrubber();
+  configureOffsetScrubber();
+}
+
+let scrubSyncGuard = false;
+let scrubUserActive = null; // "time" | "offset" | null
+
+function syncScrubbersFromProgress({ localOffset, localTotal }) {
+  if (scrubUserActive) return;
+  const absOffset = currentLoadedBaseOffset + clampInt(Number(localOffset), 0, Number.MAX_SAFE_INTEGER);
+  const absMax =
+    Number.isFinite(currentLoadedAbsSize) && currentLoadedAbsSize != null
+      ? currentLoadedAbsSize
+      : currentLoadedBaseOffset + clampInt(Number(localTotal), 0, Number.MAX_SAFE_INTEGER);
+
+  scrubSyncGuard = true;
+  try {
+    if (ui.offsetScrub && !ui.offsetScrub.disabled) {
+      ui.offsetScrub.value = String(absOffset);
+      if (ui.offsetScrubText) {
+        const pct = absMax > 0 ? ((absOffset / absMax) * 100).toFixed(1) : "0.0";
+        ui.offsetScrubText.textContent = `off=${fmtBytes(absOffset)} / ${fmtBytes(absMax)} (${pct}%)`;
+      }
+    }
+
+    const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+    if (tidx && ui.timeScrub && !ui.timeScrub.disabled) {
+      const tNs = timeAtOffsetNs(tidx, BigInt(absOffset));
+      const ms = Number(tNs / 1_000_000n);
+      if (Number.isFinite(ms)) ui.timeScrub.value = String(clampInt(ms, 0, Number.MAX_SAFE_INTEGER));
+      const lastNs = tidx.tNs.length ? BigInt(tidx.tNs[tidx.tNs.length - 1]) : 0n;
+      if (ui.timeScrubText) ui.timeScrubText.textContent = `t=${fmtNs(tNs)} / ${fmtNs(lastNs)}`;
+    }
+  } finally {
+    scrubSyncGuard = false;
+  }
+}
+
 function setupPlaybackPipeline() {
   sink = createSink();
   player = new OutputPlayer({
@@ -579,6 +656,7 @@ function setupPlaybackPipeline() {
           : "";
       const sizeNote = currentTermSizeNote();
       ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote} ${sizeNote} ${currentPlaybackConfigNote()}`.trim();
+      syncScrubbersFromProgress({ localOffset: offset, localTotal: total });
     },
   });
 
@@ -592,6 +670,7 @@ function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
   currentTcap = tcap || null;
   currentLoadedKind = kind || null;
   currentLoadedBaseOffset = typeof startOffset === "number" ? startOffset : 0;
+  currentLoadedAbsSize = Number.isFinite(size) ? size : null;
   if (currentTcap && currentTcap.outputEvents) {
     const initial = lastResizeBeforeOffset(currentTcap.outputEvents, BigInt(startOffset || 0));
     if (initial) setTermSize(initial.cols, initial.rows);
@@ -606,7 +685,7 @@ function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
     });
   }
 
-  configureTimeScrubber();
+  configureScrubbers();
 
   const tailNote = typeof startOffset === "number" && startOffset > 0 ? ` (tail ${fmtBytes(u8.length)})` : "";
   setStatus(
@@ -936,6 +1015,33 @@ async function scrubSeekToMs(ms) {
   setStatus(`Seeked to t=${fmtMsAsNs(clampedMs)} (off=${fmtBytes(localOffset)}).`);
 }
 
+async function scrubSeekToAbsOffset(absOffset) {
+  if (currentLoadedKind !== "output") return;
+  const abs = clampInt(Number(absOffset), 0, Number.MAX_SAFE_INTEGER);
+
+  if (currentLoadedBaseOffset > 0) {
+    if (ui.tailBytes) ui.tailBytes.value = "0";
+    savePrefs();
+    setStatus("Reloading full output (Tail=0) for from-0 seek…");
+    if (currentOutputSource && currentOutputSource.type === "url") {
+      await loadFromUrl(currentOutputSource.url, { kind: "output" });
+    } else if (currentOutputSource && currentOutputSource.type === "file") {
+      await loadLocalFile(currentOutputSource.file, { kind: "output", tailBytesOverride: 0 });
+    } else {
+      setStatus("Seek failed: missing output source for reload.", { error: true });
+      return;
+    }
+  }
+
+  const localOffset = Math.max(0, abs - currentLoadedBaseOffset);
+  setStatus(`Seeking (replay from 0) to off=${fmtBytes(abs)}…`);
+  await player.seekToLocalOffset(localOffset);
+
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  const timeNote = tidx ? ` t=${fmtNs(timeAtOffsetNs(tidx, BigInt(abs)))}` : "";
+  setStatus(`Seeked to off=${fmtBytes(abs)}.${timeNote}`);
+}
+
 async function loadTcapSidecarsFromUrl(outputUrl, { rawLength } = {}) {
   const urlObj = new URL(outputUrl);
   const path = urlObj.pathname;
@@ -990,16 +1096,82 @@ ui.inputSelect.addEventListener("change", () => {
 });
 
 ui.timeScrub?.addEventListener("input", () => {
+  if (scrubSyncGuard) return;
   const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
   if (currentLoadedKind !== "output" || !tidx) return;
   const lastNs = tidx.tNs.length ? BigInt(tidx.tNs[tidx.tNs.length - 1]) : 0n;
   const ms = clampInt(Number(ui.timeScrub.value), 0, Number.MAX_SAFE_INTEGER);
   ui.timeScrubText.textContent = `t=${fmtMsAsNs(ms)} / ${fmtNs(lastNs)}`;
+
+  scrubSyncGuard = true;
+  try {
+    if (ui.offsetScrub && !ui.offsetScrub.disabled) {
+      const absOffset = offsetAtTimeNs(tidx, BigInt(ms) * 1_000_000n);
+      const abs = clampInt(Number(absOffset), 0, Number.MAX_SAFE_INTEGER);
+      ui.offsetScrub.value = String(abs);
+      const absMax = Number.isFinite(currentLoadedAbsSize) && currentLoadedAbsSize != null ? currentLoadedAbsSize : abs;
+      const pct = absMax > 0 ? ((abs / absMax) * 100).toFixed(1) : "0.0";
+      if (ui.offsetScrubText) ui.offsetScrubText.textContent = `off=${fmtBytes(abs)} / ${fmtBytes(absMax)} (${pct}%)`;
+    }
+  } finally {
+    scrubSyncGuard = false;
+  }
 });
 
 ui.timeScrub?.addEventListener("change", () => {
   const ms = clampInt(Number(ui.timeScrub.value), 0, Number.MAX_SAFE_INTEGER);
   void scrubSeekToMs(ms);
+});
+
+ui.timeScrub?.addEventListener("pointerdown", () => {
+  scrubUserActive = "time";
+});
+ui.timeScrub?.addEventListener("pointerup", () => {
+  scrubUserActive = null;
+});
+ui.timeScrub?.addEventListener("pointercancel", () => {
+  scrubUserActive = null;
+});
+
+ui.offsetScrub?.addEventListener("input", () => {
+  if (scrubSyncGuard) return;
+  if (currentLoadedKind !== "output") return;
+  const abs = clampInt(Number(ui.offsetScrub.value), 0, Number.MAX_SAFE_INTEGER);
+  const absMax =
+    Number.isFinite(currentLoadedAbsSize) && currentLoadedAbsSize != null
+      ? currentLoadedAbsSize
+      : currentLoadedBaseOffset + player.bytesTotal();
+  const pct = absMax > 0 ? ((abs / absMax) * 100).toFixed(1) : "0.0";
+  if (ui.offsetScrubText) ui.offsetScrubText.textContent = `off=${fmtBytes(abs)} / ${fmtBytes(absMax)} (${pct}%)`;
+
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (!tidx || !ui.timeScrub || ui.timeScrub.disabled) return;
+  const tNs = timeAtOffsetNs(tidx, BigInt(abs));
+  const lastNs = tidx.tNs.length ? BigInt(tidx.tNs[tidx.tNs.length - 1]) : 0n;
+  const ms = Number(tNs / 1_000_000n);
+
+  scrubSyncGuard = true;
+  try {
+    if (Number.isFinite(ms)) ui.timeScrub.value = String(clampInt(ms, 0, Number.MAX_SAFE_INTEGER));
+    if (ui.timeScrubText) ui.timeScrubText.textContent = `t=${fmtNs(tNs)} / ${fmtNs(lastNs)}`;
+  } finally {
+    scrubSyncGuard = false;
+  }
+});
+
+ui.offsetScrub?.addEventListener("change", () => {
+  const abs = clampInt(Number(ui.offsetScrub.value), 0, Number.MAX_SAFE_INTEGER);
+  void scrubSeekToAbsOffset(abs);
+});
+
+ui.offsetScrub?.addEventListener("pointerdown", () => {
+  scrubUserActive = "offset";
+});
+ui.offsetScrub?.addEventListener("pointerup", () => {
+  scrubUserActive = null;
+});
+ui.offsetScrub?.addEventListener("pointercancel", () => {
+  scrubUserActive = null;
 });
 
 loadPrefs();
@@ -1008,7 +1180,7 @@ player.configure({
   chunkBytes: clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024),
 });
 updateButtons();
-configureTimeScrubber();
+configureScrubbers();
 
 // Best-effort auto-scan if we're being served as /web/ from the repo root.
 if (ui.baseUrl && ui.baseUrl.value) void scanHttpServerListing();
