@@ -21,6 +21,8 @@ const ui = {
   pause: document.getElementById("pause"),
   reset: document.getElementById("reset"),
   status: document.getElementById("status"),
+  terminalStage: document.getElementById("terminalStage"),
+  terminalCanvas: document.getElementById("terminalCanvas"),
   terminal: document.getElementById("terminal"),
   fallback: document.getElementById("fallback"),
   meta: document.getElementById("meta"),
@@ -29,14 +31,65 @@ const ui = {
 };
 
 let currentTermSize = null; // { cols, rows }
+let currentXterm = null;
+let lastMeasuredCellPx = null; // { cellW, cellH }
 
 function setTermSize(cols, rows) {
   if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
   const c = Math.max(1, Math.floor(cols));
   const r = Math.max(1, Math.floor(rows));
   currentTermSize = { cols: c, rows: r };
-  if (ui.boundsOverlay) ui.boundsOverlay.hidden = false;
-  if (ui.boundsLabel) ui.boundsLabel.textContent = `${c}×${r}`;
+  updateTerminalBounds();
+}
+
+function measureFallbackCellPx() {
+  if (!ui.terminalStage) return null;
+  const probe = document.createElement("span");
+  probe.textContent = "M";
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  probe.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+  probe.style.fontSize = "12px";
+  probe.style.lineHeight = "1.0";
+  ui.terminalStage.appendChild(probe);
+  const rect = probe.getBoundingClientRect();
+  probe.remove();
+  if (!rect.width || !rect.height) return null;
+  return { cellW: rect.width, cellH: rect.height };
+}
+
+function measureXtermCellPx(term) {
+  const dims = term && term._core && term._core._renderService && term._core._renderService.dimensions
+    ? term._core._renderService.dimensions
+    : null;
+  const cellW = dims && Number.isFinite(dims.actualCellWidth) ? dims.actualCellWidth : null;
+  const cellH = dims && Number.isFinite(dims.actualCellHeight) ? dims.actualCellHeight : null;
+  if (cellW && cellH) return { cellW, cellH };
+  return null;
+}
+
+function updateTerminalBounds() {
+  if (!ui.terminalCanvas || !ui.boundsOverlay || !ui.boundsLabel) return;
+  if (!currentTermSize) {
+    ui.boundsOverlay.hidden = true;
+    return;
+  }
+
+  const cell =
+    (currentXterm ? measureXtermCellPx(currentXterm) : null) ||
+    lastMeasuredCellPx ||
+    measureFallbackCellPx();
+
+  if (!cell) return;
+  lastMeasuredCellPx = cell;
+
+  const widthPx = Math.max(1, Math.ceil(currentTermSize.cols * cell.cellW));
+  const heightPx = Math.max(1, Math.ceil(currentTermSize.rows * cell.cellH));
+
+  ui.terminalCanvas.style.width = `${widthPx}px`;
+  ui.terminalCanvas.style.height = `${heightPx}px`;
+  ui.boundsOverlay.hidden = false;
+  ui.boundsLabel.textContent = `${currentTermSize.cols}×${currentTermSize.rows}`;
 }
 
 function fmtBytes(bytes) {
@@ -289,6 +342,7 @@ function createSink() {
       cursorBlink: false,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
       fontSize: 12,
+      lineHeight: 1.0,
       scrollback: 10000,
     });
 
@@ -297,6 +351,9 @@ function createSink() {
     ui.terminal.innerHTML = "";
     term.open(ui.terminal);
     term.focus();
+    currentXterm = term;
+    // Defer measurement until xterm has had a chance to render.
+    requestAnimationFrame(() => updateTerminalBounds());
 
     // For debugging in devtools.
     window.__TERM_CAPTURE_XTERM_TERM = term;
@@ -308,6 +365,7 @@ function createSink() {
       resize: (cols, rows) => {
         setTermSize(cols, rows);
         term.resize(cols, rows);
+        requestAnimationFrame(() => updateTerminalBounds());
       },
     };
   }
@@ -316,6 +374,7 @@ function createSink() {
   ui.terminal.innerHTML = "";
   ui.fallback.hidden = false;
   ui.fallback.textContent = "";
+  currentXterm = null;
 
   return {
     kind: "pre",
