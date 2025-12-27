@@ -693,6 +693,9 @@ ui.scan.addEventListener("click", () => {
 
 ui.outputSelect.addEventListener("change", () => {
   updateButtons();
+  if (!ui.outputSelect.value) return;
+  setStatus(`Loading ${decodeURIComponent(new URL(ui.outputSelect.value).pathname.split("/").pop() || "output")}…`);
+  void loadFromUrl(ui.outputSelect.value, { kind: "output" });
 });
 
 ui.inputSelect.addEventListener("change", () => {
