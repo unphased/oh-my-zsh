@@ -1,6 +1,7 @@
 import {
   lastResizeBeforeOffset,
   normalizeResizeEvents,
+  offsetAtTimeNs,
   parseEventsJsonl,
   parseTidx,
   timeAtOffsetNs,
@@ -26,6 +27,8 @@ const ui = {
   terminal: document.getElementById("terminal"),
   fallback: document.getElementById("fallback"),
   meta: document.getElementById("meta"),
+  timeScrub: document.getElementById("timeScrub"),
+  timeScrubText: document.getElementById("timeScrubText"),
   boundsOverlay: document.getElementById("boundsOverlay"),
   boundsLabel: document.getElementById("boundsLabel"),
 };
@@ -168,6 +171,14 @@ class OutputPlayer {
     return !!this._buf;
   }
 
+  bytesTotal() {
+    return this._buf ? this._buf.length : 0;
+  }
+
+  bytesOffset() {
+    return this._offset;
+  }
+
   load(u8, { baseOffset = 0 } = {}) {
     this.stop();
     this._reset();
@@ -214,8 +225,61 @@ class OutputPlayer {
     this._offset = 0;
     this._carryBytes = 0;
     this._eventIndex = 0;
-    this._applyEventsAtAbsOffset(this._baseOffset);
+    if (this._events && this._onEvent) {
+      const initial = lastResizeBeforeOffset(this._events, this._baseOffset);
+      if (initial) this._onEvent(initial);
+
+      while (
+        this._eventIndex < this._events.length &&
+        BigInt(this._events[this._eventIndex].streamOffset ?? 0n) < this._baseOffset
+      ) {
+        this._eventIndex++;
+      }
+      this._applyEventsAtAbsOffset(this._baseOffset);
+    }
     this._emitProgress(0);
+  }
+
+  async seekToLocalOffset(targetOffset) {
+    if (!this._buf) return;
+    const target = clampInt(Number(targetOffset), 0, this._buf.length);
+
+    this.stop();
+    this._reset();
+    this._decoder = new TextDecoder("utf-8", { fatal: false });
+    this._offset = 0;
+    this._carryBytes = 0;
+    this._eventIndex = 0;
+    if (this._events && this._onEvent) {
+      const initial = lastResizeBeforeOffset(this._events, this._baseOffset);
+      if (initial) this._onEvent(initial);
+
+      while (
+        this._eventIndex < this._events.length &&
+        BigInt(this._events[this._eventIndex].streamOffset ?? 0n) < this._baseOffset
+      ) {
+        this._eventIndex++;
+      }
+      this._applyEventsAtAbsOffset(this._baseOffset);
+    }
+    this._emitProgress(0);
+
+    const yieldEveryMs = 12;
+    let lastYield = performance.now();
+
+    while (this._offset < target) {
+      const start = this._offset;
+      const end = Math.min(target, start + this._chunkBytes);
+      this._offset = end;
+      this._writeBytesWithResizeEvents(start, end);
+      this._emitProgress(end - start);
+
+      const now = performance.now();
+      if (now - lastYield >= yieldEveryMs) {
+        lastYield = now;
+        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      }
+    }
   }
 
   setEvents(events, { onEvent } = {}) {
@@ -401,6 +465,9 @@ function createSink() {
 let currentUrl = null;
 let sink = createSink();
 let currentTcap = null;
+let currentLoadedKind = null; // "output" | "input" | null
+let currentLoadedBaseOffset = 0;
+let currentOutputSource = null; // { type:"url", url } | { type:"file", file } | null
 let localLoadSeq = 0;
 let player = new OutputPlayer({
   write: (s) => sink.write(s),
@@ -409,7 +476,7 @@ let player = new OutputPlayer({
     const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
     const timeNote =
       currentTcap && currentTcap.outputTidx
-        ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentTcap.baseOffset || 0) + BigInt(offset)))}`
+        ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentLoadedBaseOffset || 0) + BigInt(offset)))}`
         : "";
     const sizeNote = currentTermSizeNote();
     ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote} ${sizeNote} ${currentPlaybackConfigNote()}`.trim();
@@ -467,6 +534,38 @@ function updateButtons() {
   ui.reset.disabled = !hasLoaded;
 }
 
+function setScrubber({ enabled, text, ms, maxMs } = {}) {
+  if (!ui.timeScrub || !ui.timeScrubText) return;
+  if (Number.isFinite(maxMs)) ui.timeScrub.max = String(Math.max(0, Math.floor(maxMs)));
+  if (Number.isFinite(ms)) ui.timeScrub.value = String(Math.max(0, Math.floor(ms)));
+  ui.timeScrub.disabled = !enabled;
+  if (typeof text === "string") ui.timeScrubText.textContent = text;
+}
+
+function configureTimeScrubber() {
+  if (!ui.timeScrub || !ui.timeScrubText) return;
+
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (!tidx || currentLoadedKind !== "output") {
+    setScrubber({ enabled: false, text: "t=?" });
+    return;
+  }
+
+  const lastNs = tidx.tNs.length ? BigInt(tidx.tNs[tidx.tNs.length - 1]) : 0n;
+  const maxMs = Number(lastNs / 1_000_000n);
+  if (!Number.isFinite(maxMs) || maxMs < 0) {
+    setScrubber({ enabled: false, text: "t=?" });
+    return;
+  }
+
+  if (currentLoadedBaseOffset > 0) {
+    setScrubber({ enabled: false, ms: 0, maxMs, text: `t=0 / ${fmtNs(lastNs)} (tail; set Tail=0)` });
+    return;
+  }
+
+  setScrubber({ enabled: true, ms: 0, maxMs, text: `t=0 / ${fmtNs(lastNs)}` });
+}
+
 function setupPlaybackPipeline() {
   sink = createSink();
   player = new OutputPlayer({
@@ -476,7 +575,7 @@ function setupPlaybackPipeline() {
       const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
       const timeNote =
         currentTcap && currentTcap.outputTidx
-          ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentTcap.baseOffset || 0) + BigInt(offset)))}`
+          ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentLoadedBaseOffset || 0) + BigInt(offset)))}`
           : "";
       const sizeNote = currentTermSizeNote();
       ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote} ${sizeNote} ${currentPlaybackConfigNote()}`.trim();
@@ -488,9 +587,11 @@ function setupPlaybackPipeline() {
   player.configure({ speedBps, chunkBytes });
 }
 
-function loadBytes({ name, size, startOffset, u8, tcap }) {
+function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
   setupPlaybackPipeline();
   currentTcap = tcap || null;
+  currentLoadedKind = kind || null;
+  currentLoadedBaseOffset = typeof startOffset === "number" ? startOffset : 0;
   if (currentTcap && currentTcap.outputEvents) {
     const initial = lastResizeBeforeOffset(currentTcap.outputEvents, BigInt(startOffset || 0));
     if (initial) setTermSize(initial.cols, initial.rows);
@@ -505,6 +606,8 @@ function loadBytes({ name, size, startOffset, u8, tcap }) {
     });
   }
 
+  configureTimeScrubber();
+
   const tailNote = typeof startOffset === "number" && startOffset > 0 ? ` (tail ${fmtBytes(u8.length)})` : "";
   setStatus(
     `Loaded ${name}${tailNote}. Renderer: ${sink.kind === "xterm" ? "xterm.js" : "fallback"}.${xtermSourceNote()}`,
@@ -516,18 +619,26 @@ function loadBytes({ name, size, startOffset, u8, tcap }) {
   }
 }
 
-async function loadLocalFile(file, { kind }) {
+async function loadLocalFile(file, { kind, tailBytesOverride = null } = {}) {
   if (!file) return;
   try {
     savePrefs();
     const seq = ++localLoadSeq;
-    const tailBytes = clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
+    const tailBytes =
+      tailBytesOverride != null ? clampInt(Number(tailBytesOverride), 0, Number.MAX_SAFE_INTEGER) : clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
     const fileSize = file.size;
     const start = tailBytes > 0 ? Math.max(0, fileSize - tailBytes) : 0;
     const blob = file.slice(start, fileSize);
     const buf = await blob.arrayBuffer();
     if (seq !== localLoadSeq) return; // superseded
-    loadBytes({ name: file.name || kind, size: fileSize, startOffset: start, u8: new Uint8Array(buf), tcap: null });
+    loadBytes({
+      name: file.name || kind,
+      size: fileSize,
+      startOffset: start,
+      u8: new Uint8Array(buf),
+      tcap: null,
+      kind,
+    });
   } catch (e) {
     setStatus(`Load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
     updateButtons();
@@ -545,6 +656,7 @@ function pickLocalFile(file, { kind }) {
 
   setStatus(`Selected ${file.name} (${fmtBytes(file.size)}). Loading…`);
   updateButtons();
+  if (kind === "output") currentOutputSource = { type: "file", file };
   void loadLocalFile(file, { kind });
 }
 
@@ -764,7 +876,8 @@ async function loadFromUrl(url, { kind }) {
     if (tcap) tcap.baseOffset = start;
 
     const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || `${kind}`);
-    loadBytes({ name, size: size != null ? size : u8.length, startOffset: start, u8, tcap });
+    if (kind === "output") currentOutputSource = { type: "url", url };
+    loadBytes({ name, size: size != null ? size : u8.length, startOffset: start, u8, tcap, kind });
   } catch (e) {
     setStatus(`Load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
     updateButtons();
@@ -781,6 +894,46 @@ function fmtNs(ns) {
   const remS = s % 60n;
   const remMs = ms;
   return `${m}m${remS}.${String(remMs).padStart(3, "0")}s`;
+}
+
+function fmtMsAsNs(ms) {
+  if (!Number.isFinite(ms)) return "?";
+  const n = Math.max(0, Math.floor(ms));
+  return fmtNs(BigInt(n) * 1_000_000n);
+}
+
+async function scrubSeekToMs(ms) {
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (currentLoadedKind !== "output" || !tidx) return;
+
+  const clampedMs = clampInt(Number(ms), 0, Number.MAX_SAFE_INTEGER);
+  const targetNs = BigInt(clampedMs) * 1_000_000n;
+  const absOffset = offsetAtTimeNs(tidx, targetNs);
+
+  if (currentLoadedBaseOffset > 0) {
+    if (ui.tailBytes) ui.tailBytes.value = "0";
+    savePrefs();
+    setStatus("Reloading full output (Tail=0) for from-0 seek…");
+    if (currentOutputSource && currentOutputSource.type === "url") {
+      await loadFromUrl(currentOutputSource.url, { kind: "output" });
+    } else if (currentOutputSource && currentOutputSource.type === "file") {
+      await loadLocalFile(currentOutputSource.file, { kind: "output", tailBytesOverride: 0 });
+    } else {
+      setStatus("Seek failed: missing output source for reload.", { error: true });
+      return;
+    }
+  }
+
+  if (currentLoadedBaseOffset > 0) {
+    setStatus("Seek failed: output is still in tail mode.", { error: true });
+    return;
+  }
+
+  const localOffsetBig = absOffset - BigInt(currentLoadedBaseOffset);
+  const localOffset = Number(localOffsetBig >= 0n ? localOffsetBig : 0n);
+  setStatus(`Seeking (replay from 0) to t=${fmtMsAsNs(clampedMs)} (off=${fmtBytes(localOffset)})…`);
+  await player.seekToLocalOffset(localOffset);
+  setStatus(`Seeked to t=${fmtMsAsNs(clampedMs)} (off=${fmtBytes(localOffset)}).`);
 }
 
 async function loadTcapSidecarsFromUrl(outputUrl, { rawLength } = {}) {
@@ -825,6 +978,7 @@ ui.outputSelect.addEventListener("change", () => {
   updateButtons();
   if (!ui.outputSelect.value) return;
   setStatus(`Loading ${decodeURIComponent(new URL(ui.outputSelect.value).pathname.split("/").pop() || "output")}…`);
+  currentOutputSource = { type: "url", url: ui.outputSelect.value };
   void loadFromUrl(ui.outputSelect.value, { kind: "output" });
 });
 
@@ -835,12 +989,26 @@ ui.inputSelect.addEventListener("change", () => {
   void loadFromUrl(ui.inputSelect.value, { kind: "input" });
 });
 
+ui.timeScrub?.addEventListener("input", () => {
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (currentLoadedKind !== "output" || !tidx) return;
+  const lastNs = tidx.tNs.length ? BigInt(tidx.tNs[tidx.tNs.length - 1]) : 0n;
+  const ms = clampInt(Number(ui.timeScrub.value), 0, Number.MAX_SAFE_INTEGER);
+  ui.timeScrubText.textContent = `t=${fmtMsAsNs(ms)} / ${fmtNs(lastNs)}`;
+});
+
+ui.timeScrub?.addEventListener("change", () => {
+  const ms = clampInt(Number(ui.timeScrub.value), 0, Number.MAX_SAFE_INTEGER);
+  void scrubSeekToMs(ms);
+});
+
 loadPrefs();
 player.configure({
   speedBps: rateToBytesPerSec(),
   chunkBytes: clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024),
 });
 updateButtons();
+configureTimeScrubber();
 
 // Best-effort auto-scan if we're being served as /web/ from the repo root.
 if (ui.baseUrl && ui.baseUrl.value) void scanHttpServerListing();
