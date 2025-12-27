@@ -4,6 +4,20 @@ This document captures the high-level plan: what we are driving right now, what 
 
 ## Current Focus (Q2 2025)
 
+### Playback Validation Viewer _(current focus)_
+Drive the robust playback/seeking architecture using the framework-free `web/` viewer as a dogfooding and validation harness.
+
+Core principles:
+- Maintain an always-correct **oracle** path: reset + replay from offset 0 → target offset/time.
+- Build acceleration structures (keyframes + reversible patches) as derived artifacts, continuously validated against the oracle.
+
+Near-term milestones:
+- Time/offset scrubber wired to TCAP (`*.tidx` + `*.events.jsonl`) with “replay from 0” correctness mode.
+- Extract deterministic “frame state” snapshots from xterm (start with characters-only viewport) for comparisons.
+- Generate keyframes + reversible patches (e.g. ~50ms cadence) and add UI to inspect/apply them forward/backward.
+- Compare derived reconstruction vs oracle at arbitrary points and surface diffs (validation UI).
+- Iterate toward a stable on-disk/offline “derived index” format once the patch model stabilizes.
+
 ### Hardening & Coverage _(in progress)_
 - Drive unit/integration coverage of `term-capture.cpp` and `hexflow.cpp`, including failure seams around PTY setup and the select loop.
 - Shake out edge scenarios (signal storms, resize churn, log failures) and feed the fixes back into the main loop.
@@ -19,17 +33,16 @@ This document captures the high-level plan: what we are driving right now, what 
 - Offer a quiet mode for startup/shutdown chatter and audit signal handling (SIGHUP/SIGINT/SIGTERM/SIGWINCH).
 - Outcome: predictable exits and documented knobs for noisy environments.
 
-### WebSocket MVP Preparation _(blocked on hardening)_
-- Confirm uWebSockets (uWS) as the transport, keeping WebSocket++ as a fallback.
-- Land minimal CLI surface (`--ws-listen`, `--ws-token`, `--ws-allow-remote`, `--ws-send-buffer`).
-- Emit `<prefix>.ws.json` and manage `~/.term-capture/sessions.json` with flock-based pruning.
-- Outcome: background thread skeleton that starts/stops cleanly without touching the PTY data path yet.
+### WebSocket Track _(deferred)_
+WebSocket work is intentionally punted for now to keep focus on robust offline playback, derived indexing, and seek/scrub correctness.
+
+The full WS plan remains in `docs/WS_ARCHITECTURE.md`, and can be resumed once the playback core and validation harness have hardened.
 
 ### Dogfooding & Frontend Beachhead _(parallel)_
 - Unblock daily use by adding a tiny browser proof-of-concept that works off existing logs first (no WS required).
 - Start with “offline playback”: load `<prefix>.output` and replay it into xterm.js in a static page; this creates the UI foothold while WS work is still hardening-blocked.
-- Evolve to “live mode” when Batch 8 lands: connect via WS, do a tail backfill (`fetch_output`) then stream live frames.
-- Outcome: a usable viewer early, driving the WS protocol and TCAP format with real usage instead of speculation.
+- Evolve to “live mode” later, once the offline playback core is solid and we have clear streaming semantics.
+- Outcome: a usable viewer early, driving TCAP and playback with real usage instead of speculation.
 
 ## Near-Term Milestones
 - **Log management & storage**: rotation policy, naming schemes, buffered writes with crash-safe flush semantics.
@@ -38,7 +51,7 @@ This document captures the high-level plan: what we are driving right now, what 
 - **Daemonless registry mesh**: peer-to-peer gossip, leader election for registry snapshots, external metadata contract.
 
 ## WebSocket Track
-Progress is organized into the batches outlined in `docs/WS_ARCHITECTURE.md`:
+Progress is organized into the batches outlined in `docs/WS_ARCHITECTURE.md` (deferred until the playback validation work is in a good place):
 
 1. **Batch 7 – MVP spine**: embed WS server, implement CLI flags, write per-session metadata, update registry.
 2. **Batch 8 – Data plane hooks**: broadcast PTY output, accept WS input, enforce send buffers.

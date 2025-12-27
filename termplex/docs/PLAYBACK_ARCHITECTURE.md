@@ -2,10 +2,15 @@
 
 This document is a scratchpad to refine the browser playback architecture (xterm.js) for termplex (term-capture capture artifacts).
 
-**Status:** planning only; not yet implemented.
+**Status:** planning + early prototyping in `web/` (offline viewer).
 
 ## Problem statement
 xterm.js (like a real terminal) is fundamentally a “forward-only” state machine: feed it bytes, it updates internal state. A time scrubber needs *random access* (jump to time T, then to time T-30s, etc), which requires reconstruction instead of “undo”.
+
+## Current strategy: use the web viewer as a validation harness
+We will use `web/` as a dogfooding “validation interface” for playback correctness and future seek/scrub acceleration.
+
+Key design goal: at all times, we retain a **ground-truth code path** that can seek to a target position by doing a rigorous replay from offset 0, so we can validate any acceleration structure (keyframes, patches, heuristics, compression) against the oracle.
 
 ## Near-term focus: the minimum metadata we need
 Before building scrubbing, we need capture-time metadata that makes playback correct and seekable:
@@ -52,6 +57,52 @@ Encoding (v1): JSONL (one JSON object per line); see `docs/TCAP.md`.
 
 ## Playback model (future)
 
+## Two-track playback model (oracle + acceleration)
+
+### Track A: Ground truth (oracle)
+Inputs:
+- Raw stream bytes (`<prefix>.output`) and sidecars (`<prefix>.output.tidx`, `<prefix>.events.jsonl`).
+- Target position as `stream_offset` (or derived from time via `*.tidx`).
+
+Algorithm:
+1. Reset terminal state.
+2. Replay bytes from `[0, target_offset)`.
+3. Apply resize events exactly at `stream_offset` boundaries.
+
+Notes:
+- This path is “slow but correct”.
+- It must remain available in the debug viewer for validation and for worst-case fallback.
+
+### Track B: Derived acceleration (keyframes + reversible patches)
+Goal: make scrubbing fast without requiring a new terminal renderer.
+
+Idea:
+- During forward playback (either offline indexing or in-browser), periodically extract a “frame state” from xterm and store:
+  - **Keyframes**: full extracted frame state at selected offsets/times.
+  - **Patches**: compact, reversible deltas between consecutive sampled frame states (e.g. every ~50ms).
+
+Reconstruction:
+- To view time/offset `X`, choose a nearby keyframe `K` and apply patches forward (or backward) to reach `X`.
+
+Validation:
+- For any target `X`, compare `Derived(K + patches → X)` against `Oracle(replay 0 → X)` using a deterministic frame-state representation.
+
+### Frame state definition (for validation)
+We start with a deliberately small, stable surface area:
+- `cols`, `rows`
+- cursor position (optional initially)
+- viewport lines as text (characters only first; attrs later)
+
+This supports a strong validation loop without depending on full xterm internals.
+
+### Patch formats (evolve over time)
+Start simple:
+- line-based or cell-range edits with both “before” and “after” content, so patches are inherently reversible.
+
+Then optimize opportunistically:
+- detect scroll-like shifts (line motion vectors) to compress “mostly shifted” edits
+- emit keyframes when patches become too large (full-screen redraws, mode churn)
+
 ### Baseline seek (works without snapshots)
 To seek to time T:
 1. Use `output.tidx` to compute `offset(T)`.
@@ -75,6 +126,16 @@ Checkpoint representation options:
 ### UX considerations
 - While dragging scrubber: show a cheap preview; cancel in-flight replays.
 - On release: do the accurate xterm reconstruction (possibly from a checkpoint).
+
+## Debug viewer UX goals (validation interface)
+The viewer should make the acceleration structures inspectable:
+- Timeline showing keyframes, patches, and resize events.
+- Ability to step patches forward/backward manually and see the state change.
+- Ability to jump to an offset/time using:
+  - oracle replay-from-0
+  - keyframe + forward patches
+  - keyframe + backward patches
+- Ability to compare derived vs oracle state at any point and surface diffs.
 
 ## Open questions (to resolve later)
 - Clock basis: monotonic since start vs absolute unix ns; recommended: monotonic for seek math + store unix start in meta JSON.
