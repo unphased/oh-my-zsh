@@ -82,9 +82,6 @@
         </div>
 
         <div class="status" id="status">No file loaded.</div>
-        <div class="drop" id="drop">
-          Drop a <code>.output</code> file here
-        </div>
         <div class="hint" style="margin-top: 10px">
           <div class="hint-title">Local files</div>
           <p>
@@ -108,8 +105,13 @@
           <div class="terminal-title">Output</div>
           <div class="terminal-meta" id="meta"></div>
         </div>
-        <div id="terminal" class="terminal"></div>
-        <pre id="fallback" class="fallback" hidden></pre>
+        <div class="terminal-stage">
+          <div id="terminal" class="terminal"></div>
+          <pre id="fallback" class="fallback" hidden></pre>
+          <div id="boundsOverlay" class="bounds-overlay" hidden>
+            <div id="boundsLabel" class="bounds-label"></div>
+          </div>
+        </div>
       </section>
     </main>
 

@@ -21,11 +21,23 @@ const ui = {
   pause: document.getElementById("pause"),
   reset: document.getElementById("reset"),
   status: document.getElementById("status"),
-  drop: document.getElementById("drop"),
   terminal: document.getElementById("terminal"),
   fallback: document.getElementById("fallback"),
   meta: document.getElementById("meta"),
+  boundsOverlay: document.getElementById("boundsOverlay"),
+  boundsLabel: document.getElementById("boundsLabel"),
 };
+
+let currentTermSize = null; // { cols, rows }
+
+function setTermSize(cols, rows) {
+  if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
+  const c = Math.max(1, Math.floor(cols));
+  const r = Math.max(1, Math.floor(rows));
+  currentTermSize = { cols: c, rows: r };
+  if (ui.boundsOverlay) ui.boundsOverlay.hidden = false;
+  if (ui.boundsLabel) ui.boundsLabel.textContent = `${c}×${r}`;
+}
 
 function fmtBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -63,6 +75,11 @@ function currentPlaybackConfigNote() {
   const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
   const bps = rateToBytesPerSec();
   return `rate=${fmtRate(bps)} cap=${fmtBytes(chunkBytes)}/frame`;
+}
+
+function currentTermSizeNote() {
+  if (!currentTermSize) return "";
+  return `size=${currentTermSize.cols}×${currentTermSize.rows}`;
 }
 
 class OutputPlayer {
@@ -288,7 +305,10 @@ function createSink() {
       kind: "xterm",
       write: (s) => term.write(s),
       reset: () => term.reset(),
-      resize: (cols, rows) => term.resize(cols, rows),
+      resize: (cols, rows) => {
+        setTermSize(cols, rows);
+        term.resize(cols, rows);
+      },
     };
   }
 
@@ -306,7 +326,7 @@ function createSink() {
     reset: () => {
       ui.fallback.textContent = "";
     },
-    resize: () => {},
+    resize: (cols, rows) => setTermSize(cols, rows),
   };
 }
 
@@ -323,7 +343,8 @@ let player = new OutputPlayer({
       currentTcap && currentTcap.outputTidx
         ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentTcap.baseOffset || 0) + BigInt(offset)))}`
         : "";
-    ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote} ${currentPlaybackConfigNote()}`;
+    const sizeNote = currentTermSizeNote();
+    ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote} ${sizeNote} ${currentPlaybackConfigNote()}`.trim();
   },
 });
 
@@ -389,7 +410,8 @@ function setupPlaybackPipeline() {
         currentTcap && currentTcap.outputTidx
           ? ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentTcap.baseOffset || 0) + BigInt(offset)))}`
           : "";
-      ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote} ${currentPlaybackConfigNote()}`;
+      const sizeNote = currentTermSizeNote();
+      ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote} ${sizeNote} ${currentPlaybackConfigNote()}`.trim();
     },
   });
 
@@ -401,6 +423,10 @@ function setupPlaybackPipeline() {
 function loadBytes({ name, size, startOffset, u8, tcap }) {
   setupPlaybackPipeline();
   currentTcap = tcap || null;
+  if (currentTcap && currentTcap.outputEvents) {
+    const initial = lastResizeBeforeOffset(currentTcap.outputEvents, BigInt(startOffset || 0));
+    if (initial) setTermSize(initial.cols, initial.rows);
+  }
 
   player.load(u8, { baseOffset: typeof startOffset === "number" ? startOffset : 0 });
   if (currentTcap && currentTcap.outputEvents) {
@@ -739,22 +765,6 @@ ui.inputSelect.addEventListener("change", () => {
   if (!ui.inputSelect.value) return;
   setStatus(`Loading ${decodeURIComponent(new URL(ui.inputSelect.value).pathname.split("/").pop() || "input")}…`);
   void loadFromUrl(ui.inputSelect.value, { kind: "input" });
-});
-
-ui.drop.addEventListener("dragover", (e) => {
-  e.preventDefault();
-  ui.drop.classList.add("dragover");
-});
-
-ui.drop.addEventListener("dragleave", () => {
-  ui.drop.classList.remove("dragover");
-});
-
-ui.drop.addEventListener("drop", (e) => {
-  e.preventDefault();
-  ui.drop.classList.remove("dragover");
-  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0] ? e.dataTransfer.files[0] : null;
-  if (file) pickLocalFile(file, { kind: "output" });
 });
 
 loadPrefs();

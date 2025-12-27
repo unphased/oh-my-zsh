@@ -525,10 +525,15 @@ int main(int argc, char* argv[]) {
 
   // Initialize child PTY with correct window size
   apply_winsize_to_child_pty();
+  auto get_best_winsize = [&](struct winsize& ws) -> bool {
+    int tty_fd = pick_controlling_tty_fd();
+    if (tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0) return true;
+    if (masterFd >= 0 && ioctl(masterFd, TIOCGWINSZ, &ws) == 0) return true;
+    return false;
+  };
   {
     struct winsize ws{};
-    int tty_fd = pick_controlling_tty_fd();
-    if (tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0) {
+    if (get_best_winsize(ws)) {
       write_resize_event(now_mono_ns(), 0, ws.ws_col, ws.ws_row);
     }
   }
@@ -593,10 +598,8 @@ int main(int argc, char* argv[]) {
         winch_pending = 0;
         drain_readable_pty_output();
         struct winsize ws{};
-        int tty_fd = pick_controlling_tty_fd();
-        const bool ws_ok = tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0;
         apply_winsize_to_child_pty();
-        if (ws_ok) {
+        if (get_best_winsize(ws)) {
           write_resize_event(now_mono_ns(), output_end, ws.ws_col, ws.ws_row);
         }
       }
@@ -612,10 +615,8 @@ int main(int argc, char* argv[]) {
       winch_pending = 0;
       drain_readable_pty_output();
       struct winsize ws{};
-      int tty_fd = pick_controlling_tty_fd();
-      const bool ws_ok = tty_fd >= 0 && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0;
       apply_winsize_to_child_pty();
-      if (ws_ok) {
+      if (get_best_winsize(ws)) {
         write_resize_event(now_mono_ns(), output_end, ws.ws_col, ws.ws_row);
       }
       continue;
