@@ -23,15 +23,21 @@
           <button id="scan">Scan</button>
         </div>
 
-        <label class="field">
+        <div class="field file-drop" id="outputField">
           <span>Output</span>
-          <select id="outputSelect"></select>
-        </label>
+          <button id="pickOutputFile" class="filepick" type="button" title="Choose a local .output (or drop a file onto this field)">
+            File
+          </button>
+          <select id="outputSelect" aria-label="Output capture"></select>
+        </div>
 
-        <label class="field">
+        <div class="field file-drop" id="inputField">
           <span>Input</span>
-          <select id="inputSelect"></select>
-        </label>
+          <button id="pickInputFile" class="filepick" type="button" title="Choose a local .input (or drop a file onto this field)">
+            File
+          </button>
+          <select id="inputSelect" aria-label="Input capture"></select>
+        </div>
 
         <label class="field">
           <span>Tail</span>
@@ -65,44 +71,32 @@
       </div>
     </header>
 
-    <main class="main">
-      <section class="panel">
-        <div class="hint">
-          <div class="hint-title">Quick start</div>
-          <ol>
-            <li>Run <code>./term-capture mylog</code> and use the shell as normal.</li>
-            <li>Serve the repo dir: <code>cd .. &amp;&amp; python3 -m http.server 7878</code></li>
-            <li>Open <code>/web/</code> and click Scan to find <code>mylog.output</code>.</li>
-          </ol>
-          <p>
-            If you vendor xterm.js at <code>web/vendor/xterm/xterm.js</code> and
-            <code>web/vendor/xterm/xterm.css</code>, this page will render ANSI properly.
-            Without it, you’ll see a basic text fallback.
-          </p>
-        </div>
+    <input id="fileOutput" type="file" accept=".output,.output.tcap" hidden />
+    <input id="fileInput" type="file" accept=".input,.input.tcap" hidden />
 
+    <main class="main">
+      <section class="panel" id="leftPanel">
         <div class="status" id="status">No file loaded.</div>
-        <div class="hint" style="margin-top: 10px">
-          <div class="hint-title">Local files</div>
-          <p>
-            Choose a local file to load immediately (no server needed):
-          </p>
-          <div style="display:flex; gap:10px; flex-wrap:wrap">
-            <label class="file">
-              <input id="fileOutput" type="file" />
-              <span>Choose <code>.output</code></span>
-            </label>
-            <label class="file">
-              <input id="fileInput" type="file" />
-              <span>Choose <code>.input</code></span>
-            </label>
+        <details class="expando">
+          <summary>Quick start</summary>
+          <div class="expando-body">
+            <ol>
+              <li>Run <code>./term-capture mylog</code> and use the shell as normal.</li>
+              <li>Serve the repo dir: <code>cd .. &amp;&amp; python3 -m http.server 7878</code></li>
+              <li>Open <code>/web/</code> and click Scan to find <code>mylog.output</code>.</li>
+            </ol>
+            <p>
+              Optional: vendor xterm.js at <code>web/vendor/xterm/xterm.js</code> and <code>web/vendor/xterm/xterm.css</code>
+              to render ANSI properly. Without it, you’ll see a basic text fallback.
+            </p>
           </div>
-        </div>
+        </details>
+        <div id="panelResizer" class="panel-resizer" aria-hidden="true" title="Drag to resize"></div>
       </section>
 
       <section class="terminal-wrap">
         <div class="terminal-header">
-          <div class="terminal-title">Output</div>
+          <div class="terminal-title" id="terminalTitle">Output</div>
           <div class="terminal-meta" id="meta"></div>
         </div>
         <div class="scrubber">

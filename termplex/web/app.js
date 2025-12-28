@@ -13,6 +13,10 @@ const ui = {
   fileInput: document.getElementById("fileInput"),
   baseUrl: document.getElementById("baseUrl"),
   scan: document.getElementById("scan"),
+  outputField: document.getElementById("outputField"),
+  inputField: document.getElementById("inputField"),
+  pickOutputFile: document.getElementById("pickOutputFile"),
+  pickInputFile: document.getElementById("pickInputFile"),
   outputSelect: document.getElementById("outputSelect"),
   inputSelect: document.getElementById("inputSelect"),
   tailBytes: document.getElementById("tailBytes"),
@@ -22,6 +26,9 @@ const ui = {
   pause: document.getElementById("pause"),
   reset: document.getElementById("reset"),
   status: document.getElementById("status"),
+  leftPanel: document.getElementById("leftPanel"),
+  panelResizer: document.getElementById("panelResizer"),
+  terminalTitle: document.getElementById("terminalTitle"),
   terminalStage: document.getElementById("terminalStage"),
   terminalCanvas: document.getElementById("terminalCanvas"),
   terminal: document.getElementById("terminal"),
@@ -471,7 +478,7 @@ let currentLoadedKind = null; // "output" | "input" | null
 let currentLoadedBaseOffset = 0;
 let currentLoadedAbsSize = null; // number | null, total output size in bytes if known
 let currentOutputSource = null; // { type:"url", url } | { type:"file", file } | null
-let localLoadSeq = 0;
+let loadSeq = 0;
 let player = new OutputPlayer({
   write: (s) => sink.write(s),
   reset: () => sink.reset(),
@@ -505,6 +512,9 @@ function loadPrefs() {
     if (typeof prefs.tailBytes === "number" && ui.tailBytes) ui.tailBytes.value = String(prefs.tailBytes);
     if (typeof prefs.chunkBytes === "number" && ui.chunkBytes) ui.chunkBytes.value = String(prefs.chunkBytes);
     if (typeof prefs.rateBps === "number" && ui.rateBps) ui.rateBps.value = String(prefs.rateBps);
+    if (typeof prefs.panelWidthPx === "number" && ui.leftPanel) {
+      ui.leftPanel.style.width = `${clampInt(prefs.panelWidthPx, 200, 2400)}px`;
+    }
   } catch {
     // ignore
   }
@@ -517,10 +527,50 @@ function savePrefs() {
       tailBytes: clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER),
       chunkBytes: clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024),
       rateBps: clampInt(Number(ui.rateBps.value), 0, 1_000_000_000),
+      panelWidthPx: ui.leftPanel ? clampInt(ui.leftPanel.getBoundingClientRect().width, 200, 2400) : undefined,
     };
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
     // ignore
+  }
+}
+
+function installPanelResizer() {
+  if (!ui.leftPanel || !ui.panelResizer) return;
+  const minWidth = 260;
+
+  function clampWidthPx(px) {
+    const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth * 0.8));
+    return clampInt(px, minWidth, maxWidth);
+  }
+
+  ui.panelResizer.addEventListener("pointerdown", (e) => {
+    if (!ui.leftPanel || !ui.panelResizer) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = ui.leftPanel.getBoundingClientRect().width;
+    ui.panelResizer.setPointerCapture(e.pointerId);
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      ui.leftPanel.style.width = `${clampWidthPx(startW + dx)}px`;
+    };
+    const onUp = () => {
+      ui.panelResizer.removeEventListener("pointermove", onMove);
+      ui.panelResizer.removeEventListener("pointerup", onUp);
+      ui.panelResizer.removeEventListener("pointercancel", onUp);
+      savePrefs();
+    };
+
+    ui.panelResizer.addEventListener("pointermove", onMove);
+    ui.panelResizer.addEventListener("pointerup", onUp, { once: true });
+    ui.panelResizer.addEventListener("pointercancel", onUp, { once: true });
+  });
+
+  // Clamp saved width against current viewport constraints.
+  if (ui.leftPanel.style.width) {
+    const parsed = Number(String(ui.leftPanel.style.width).replace("px", ""));
+    if (Number.isFinite(parsed)) ui.leftPanel.style.width = `${clampWidthPx(parsed)}px`;
   }
 }
 
@@ -671,6 +721,7 @@ function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
   currentLoadedKind = kind || null;
   currentLoadedBaseOffset = typeof startOffset === "number" ? startOffset : 0;
   currentLoadedAbsSize = Number.isFinite(size) ? size : null;
+  if (ui.terminalTitle) ui.terminalTitle.textContent = kind === "input" ? "Input" : "Output";
   if (currentTcap && currentTcap.outputEvents) {
     const initial = lastResizeBeforeOffset(currentTcap.outputEvents, BigInt(startOffset || 0));
     if (initial) setTermSize(initial.cols, initial.rows);
@@ -689,7 +740,7 @@ function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
 
   const tailNote = typeof startOffset === "number" && startOffset > 0 ? ` (tail ${fmtBytes(u8.length)})` : "";
   setStatus(
-    `Loaded ${name}${tailNote}. Renderer: ${sink.kind === "xterm" ? "xterm.js" : "fallback"}.${xtermSourceNote()}`,
+    `Loaded ${name}${tailNote} (${kind || "?"}). Renderer: ${sink.kind === "xterm" ? "xterm.js" : "fallback"}.${xtermSourceNote()}`,
   );
   updateButtons();
 
@@ -702,14 +753,14 @@ async function loadLocalFile(file, { kind, tailBytesOverride = null } = {}) {
   if (!file) return;
   try {
     savePrefs();
-    const seq = ++localLoadSeq;
+    const seq = ++loadSeq;
     const tailBytes =
       tailBytesOverride != null ? clampInt(Number(tailBytesOverride), 0, Number.MAX_SAFE_INTEGER) : clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
     const fileSize = file.size;
     const start = tailBytes > 0 ? Math.max(0, fileSize - tailBytes) : 0;
     const blob = file.slice(start, fileSize);
     const buf = await blob.arrayBuffer();
-    if (seq !== localLoadSeq) return; // superseded
+    if (seq !== loadSeq) return; // superseded
     loadBytes({
       name: file.name || kind,
       size: fileSize,
@@ -746,6 +797,57 @@ ui.fileOutput?.addEventListener("change", () => {
 ui.fileInput?.addEventListener("change", () => {
   pickLocalFile(ui.fileInput.files && ui.fileInput.files[0] ? ui.fileInput.files[0] : null, { kind: "input" });
 });
+
+function isFileDragEvent(e) {
+  const types = e && e.dataTransfer ? Array.from(e.dataTransfer.types || []) : [];
+  return types.includes("Files");
+}
+
+function installFileDropTarget(el, { kind }) {
+  if (!el) return;
+  const setActive = (on) => {
+    el.classList.toggle("drop-active", !!on);
+  };
+
+  el.addEventListener("dragenter", (e) => {
+    if (!isFileDragEvent(e)) return;
+    e.preventDefault();
+    setActive(true);
+  });
+  el.addEventListener("dragover", (e) => {
+    if (!isFileDragEvent(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    setActive(true);
+  });
+  el.addEventListener("dragleave", (e) => {
+    const next = e.relatedTarget;
+    if (next && next instanceof Node && el.contains(next)) return;
+    setActive(false);
+  });
+  el.addEventListener("drop", (e) => {
+    if (!isFileDragEvent(e)) return;
+    e.preventDefault();
+    setActive(false);
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0] ? e.dataTransfer.files[0] : null;
+    pickLocalFile(file, { kind });
+  });
+}
+
+ui.pickOutputFile?.addEventListener("click", () => {
+  if (!ui.fileOutput) return;
+  ui.fileOutput.value = "";
+  ui.fileOutput.click();
+});
+
+ui.pickInputFile?.addEventListener("click", () => {
+  if (!ui.fileInput) return;
+  ui.fileInput.value = "";
+  ui.fileInput.click();
+});
+
+installFileDropTarget(ui.outputField, { kind: "output" });
+installFileDropTarget(ui.inputField, { kind: "input" });
 
 ui.play.addEventListener("click", () => {
   player.play();
@@ -934,6 +1036,7 @@ async function fetchArrayBufferWithOptionalRange(url, startByte) {
 async function loadFromUrl(url, { kind }) {
   try {
     savePrefs();
+    const seq = ++loadSeq;
     const tailBytes = clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
 
     let size = null;
@@ -947,12 +1050,18 @@ async function loadFromUrl(url, { kind }) {
       // ignore: HEAD might be blocked; we'll still GET
     }
 
+    if (seq !== loadSeq) return; // superseded
+
     const start = size != null && tailBytes > 0 ? Math.max(0, size - tailBytes) : 0;
     const buf = await fetchArrayBufferWithOptionalRange(url, start);
     const u8 = new Uint8Array(buf);
 
+    if (seq !== loadSeq) return; // superseded
+
     const tcap = kind === "output" ? await loadTcapSidecarsFromUrl(url, { rawLength: size }) : null;
     if (tcap) tcap.baseOffset = start;
+
+    if (seq !== loadSeq) return; // superseded
 
     const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || `${kind}`);
     if (kind === "output") currentOutputSource = { type: "url", url };
@@ -1175,6 +1284,7 @@ ui.offsetScrub?.addEventListener("pointercancel", () => {
 });
 
 loadPrefs();
+installPanelResizer();
 player.configure({
   speedBps: rateToBytesPerSec(),
   chunkBytes: clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024),

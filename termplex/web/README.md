@@ -3,7 +3,7 @@
 This is a tiny framework-free web “beachhead” for dogfooding term-capture logs without waiting for WebSockets.
 
 ## What it does
-- Loads an existing `<prefix>.output` file via the browser File API (no server needed for file access).
+- Loads an existing `<prefix>.output` / `<prefix>.input` via the browser File API (top bar “File” buttons or drag/drop).
 - Replays bytes into:
   - **xterm.js** if you vendor it (ANSI escape sequences render properly), or
   - a basic `<pre>` fallback if xterm.js isn’t present.
@@ -19,7 +19,7 @@ Then visit `http://127.0.0.1:7878/web/`.
 
 Note: Some browsers restrict ES modules when opened via `file://`. Serving `web/` over HTTP avoids that.
 
-## Auto-discovery (no drag/drop)
+## Auto-discovery (Scan dropdowns)
 If you run the server from the repo root, the viewer can scan the directory listing and auto-populate `.input` / `.output` files:
 
 ```sh
