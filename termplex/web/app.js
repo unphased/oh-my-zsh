@@ -28,6 +28,9 @@ const ui = {
   status: document.getElementById("status"),
   leftPanel: document.getElementById("leftPanel"),
   panelResizer: document.getElementById("panelResizer"),
+  seekMode: document.getElementById("seekMode"),
+  clearInfo: document.getElementById("clearInfo"),
+  infoPanel: document.getElementById("infoPanel"),
   terminalTitle: document.getElementById("terminalTitle"),
   terminalStage: document.getElementById("terminalStage"),
   terminalCanvas: document.getElementById("terminalCanvas"),
@@ -36,8 +39,10 @@ const ui = {
   meta: document.getElementById("meta"),
   timeScrub: document.getElementById("timeScrub"),
   timeScrubText: document.getElementById("timeScrubText"),
+  timeMaxMark: document.getElementById("timeMaxMark"),
   offsetScrub: document.getElementById("offsetScrub"),
   offsetScrubText: document.getElementById("offsetScrubText"),
+  offsetMaxMark: document.getElementById("offsetMaxMark"),
   boundsOverlay: document.getElementById("boundsOverlay"),
   boundsLabel: document.getElementById("boundsLabel"),
 };
@@ -291,6 +296,36 @@ class OutputPlayer {
     }
   }
 
+  async advanceToLocalOffset(targetOffset, { yieldEveryMs = 12 } = {}) {
+    if (!this._buf) return;
+    const target = clampInt(Number(targetOffset), 0, this._buf.length);
+    if (target <= this._offset) return;
+
+    // Ensure playback RAF isn't running, but keep the current terminal/decoder state.
+    this.stop();
+
+    let lastYield = performance.now();
+    while (this._offset < target) {
+      const start = this._offset;
+      const end = Math.min(target, start + this._chunkBytes);
+      this._offset = end;
+      this._writeBytesWithResizeEvents(start, end);
+      this._emitProgress(end - start);
+
+      const now = performance.now();
+      if (now - lastYield >= yieldEveryMs) {
+        lastYield = now;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      }
+    }
+
+    if (this._offset >= this._buf.length) {
+      const flush = this._decoder.decode(new Uint8Array(), { stream: false });
+      if (flush) this._write(flush);
+    }
+  }
+
   setEvents(events, { onEvent } = {}) {
     this._events = Array.isArray(events) ? events : null;
     this._onEvent = typeof onEvent === "function" ? onEvent : null;
@@ -478,6 +513,7 @@ let currentLoadedKind = null; // "output" | "input" | null
 let currentLoadedBaseOffset = 0;
 let currentLoadedAbsSize = null; // number | null, total output size in bytes if known
 let currentOutputSource = null; // { type:"url", url } | { type:"file", file } | null
+let currentInputSource = null; // { type:"url", url } | { type:"file", file } | null
 let loadSeq = 0;
 let player = new OutputPlayer({
   write: (s) => sink.write(s),
@@ -499,7 +535,215 @@ function setStatus(msg, { error = false } = {}) {
   ui.status.style.color = error ? "var(--bad)" : "var(--muted)";
 }
 
+function currentAbsOffset() {
+  return clampInt(currentLoadedBaseOffset + player.bytesOffset(), 0, Number.MAX_SAFE_INTEGER);
+}
+
+function setRangeMark(markEl, rangeEl, value) {
+  if (!markEl || !rangeEl) return;
+  const min = Number(rangeEl.min || 0);
+  const max = Number(rangeEl.max || 0);
+  const v = clampInt(Number(value), min, max);
+  const denom = Math.max(1, max - min);
+  const pct = ((v - min) / denom) * 100;
+  markEl.style.left = `${pct}%`;
+  markEl.hidden = false;
+}
+
+function hideRangeMark(markEl) {
+  if (!markEl) return;
+  markEl.hidden = true;
+}
+
+function isMode1Enabled() {
+  return seekMode === 1;
+}
+
+function msAtAbsOffset(absOffset) {
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (!tidx || currentLoadedKind !== "output") return 0;
+  const ns = timeAtOffsetNs(tidx, BigInt(absOffset));
+  return clampInt(Number(ns / 1_000_000n), 0, Number.MAX_SAFE_INTEGER);
+}
+
+function absOffsetAtMs(ms) {
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (!tidx || currentLoadedKind !== "output") return null;
+  const clampedMs = clampInt(Number(ms), 0, Number.MAX_SAFE_INTEGER);
+  const abs = offsetAtTimeNs(tidx, BigInt(clampedMs) * 1_000_000n);
+  const n = Number(abs);
+  if (!Number.isFinite(n)) return null;
+  return clampInt(n, 0, Number.MAX_SAFE_INTEGER);
+}
+
+function mode1UpdateMaxMarks() {
+  if (!mode1State.active) return;
+  if (ui.offsetScrub && ui.offsetMaxMark && !ui.offsetScrub.disabled) {
+    setRangeMark(ui.offsetMaxMark, ui.offsetScrub, mode1State.maxAbs);
+  }
+  if (ui.timeScrub && ui.timeMaxMark && !ui.timeScrub.disabled) {
+    const ms = mode1State.maxMs || msAtAbsOffset(mode1State.maxAbs);
+    setRangeMark(ui.timeMaxMark, ui.timeScrub, ms);
+  }
+}
+
+function mode1BeginGesture(source) {
+  if (!isMode1Enabled()) return;
+  mode1State.active = true;
+  mode1State.source = source;
+  mode1State.maxAbs = currentAbsOffset();
+  mode1State.maxMs = msAtAbsOffset(mode1State.maxAbs);
+  perfInfo.gesture = {
+    active: true,
+    source,
+    maxAbs: mode1State.maxAbs,
+    maxMs: mode1State.maxMs,
+    releasedAbs: 0,
+    fullRecompute: false,
+  };
+  player.pause();
+  mode1UpdateMaxMarks();
+  renderInfo();
+}
+
+function mode1ObserveTarget({ source, abs, ms }) {
+  if (!isMode1Enabled()) return;
+  if (!mode1State.active) mode1BeginGesture(source);
+  const absClamped = clampInt(Number(abs), 0, Number.MAX_SAFE_INTEGER);
+  if (absClamped > mode1State.maxAbs) {
+    mode1State.maxAbs = absClamped;
+    mode1State.maxMs = source === "time" ? clampInt(Number(ms), 0, Number.MAX_SAFE_INTEGER) : msAtAbsOffset(absClamped);
+    perfInfo.gesture.maxAbs = mode1State.maxAbs;
+    perfInfo.gesture.maxMs = mode1State.maxMs;
+    mode1UpdateMaxMarks();
+    renderInfo();
+    return true;
+  }
+  return false;
+}
+
+async function mode1AdvanceToAbsOffset(absOffset, { source = "scrub" } = {}) {
+  if (!player.hasLoaded()) return;
+  if (!isMode1Enabled()) return;
+  if (currentLoadedBaseOffset > 0) return;
+  const abs = clampInt(Number(absOffset), 0, Number.MAX_SAFE_INTEGER);
+  const localTarget = Math.max(0, abs - currentLoadedBaseOffset);
+  if (localTarget <= player.bytesOffset()) return;
+
+  const seq = mode1State.pumpSeq;
+  const startedAt = performance.now();
+  await player.advanceToLocalOffset(localTarget, { yieldEveryMs: 8 });
+  if (seq !== mode1State.pumpSeq) return;
+  const ms = performance.now() - startedAt;
+
+  updateAggStats(perfInfo.incremental, ms, {
+    kind: currentLoadedKind,
+    source,
+    absOffset: abs,
+    localOffset: localTarget,
+    ms,
+  });
+  renderInfo();
+}
+
+function mode1RequestAdvance(absOffset) {
+  if (!isMode1Enabled()) return;
+  if (currentLoadedBaseOffset > 0) return;
+  const abs = clampInt(Number(absOffset), 0, Number.MAX_SAFE_INTEGER);
+  mode1State.pendingAbs = mode1State.pendingAbs == null ? abs : Math.max(mode1State.pendingAbs, abs);
+  if (mode1State.pumping) return;
+
+  mode1State.pumping = true;
+  const pumpSeq = mode1State.pumpSeq;
+  void (async () => {
+    try {
+      while (mode1State.pendingAbs != null && pumpSeq === mode1State.pumpSeq) {
+        const target = mode1State.pendingAbs;
+        mode1State.pendingAbs = null;
+        // eslint-disable-next-line no-await-in-loop
+        await mode1AdvanceToAbsOffset(target, { source: "mode1-drag" });
+      }
+    } finally {
+      if (pumpSeq === mode1State.pumpSeq) mode1State.pumping = false;
+    }
+  })();
+}
+
+async function mode1WaitForIdle() {
+  const seq = mode1State.pumpSeq;
+  let spins = 0;
+  while (seq === mode1State.pumpSeq && (mode1State.pumping || mode1State.pendingAbs != null)) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    if (++spins > 600) break;
+  }
+}
+
 const PREFS_KEY = "termplex.web.viewer.prefs.v1";
+const perfInfo = {
+  seekMode: 0,
+  fullSeek: { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null },
+  incremental: { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null },
+  gesture: { active: false, source: null, maxAbs: 0, maxMs: 0, releasedAbs: 0, fullRecompute: false },
+};
+let seekMode = 0; // 0 | 1
+const mode1State = {
+  active: false,
+  source: null, // "time" | "offset" | null
+  maxAbs: 0,
+  maxMs: 0,
+  pendingAbs: null,
+  pumping: false,
+  pumpSeq: 0,
+};
+
+function resetGestureUi() {
+  mode1State.active = false;
+  mode1State.source = null;
+  mode1State.maxAbs = 0;
+  mode1State.maxMs = 0;
+  mode1State.pendingAbs = null;
+  mode1State.pumping = false;
+  mode1State.pumpSeq++;
+  hideRangeMark(ui.timeMaxMark);
+  hideRangeMark(ui.offsetMaxMark);
+  perfInfo.gesture = { active: false, source: null, maxAbs: 0, maxMs: 0, releasedAbs: 0, fullRecompute: false };
+  renderInfo();
+}
+
+function updateAggStats(agg, ms, last) {
+  agg.count++;
+  agg.lastMs = ms;
+  agg.last = last;
+  agg.minMs = agg.minMs == null ? ms : Math.min(agg.minMs, ms);
+  agg.maxMs = agg.maxMs == null ? ms : Math.max(agg.maxMs, ms);
+  agg.avgMs = agg.avgMs == null ? ms : agg.avgMs + (ms - agg.avgMs) / agg.count;
+}
+
+function safeJson(obj) {
+  return JSON.stringify(
+    obj,
+    (_k, v) => {
+      if (typeof v === "bigint") return `${v}n`;
+      if (typeof v === "number" && !Number.isFinite(v)) return String(v);
+      return v;
+    },
+    2,
+  );
+}
+
+function renderInfo() {
+  if (!ui.infoPanel) return;
+  perfInfo.seekMode = seekMode;
+  ui.infoPanel.textContent = safeJson(perfInfo);
+}
+
+function clearPerfInfo() {
+  perfInfo.fullSeek = { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null };
+  perfInfo.incremental = { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null };
+  perfInfo.gesture = { active: false, source: null, maxAbs: 0, maxMs: 0, releasedAbs: 0, fullRecompute: false };
+  renderInfo();
+}
 
 function loadPrefs() {
   try {
@@ -515,6 +759,10 @@ function loadPrefs() {
     if (typeof prefs.panelWidthPx === "number" && ui.leftPanel) {
       ui.leftPanel.style.width = `${clampInt(prefs.panelWidthPx, 200, 2400)}px`;
     }
+    if (typeof prefs.seekMode === "number") {
+      seekMode = clampInt(prefs.seekMode, 0, 1);
+      if (ui.seekMode) ui.seekMode.value = String(seekMode);
+    }
   } catch {
     // ignore
   }
@@ -528,6 +776,7 @@ function savePrefs() {
       chunkBytes: clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024),
       rateBps: clampInt(Number(ui.rateBps.value), 0, 1_000_000_000),
       panelWidthPx: ui.leftPanel ? clampInt(ui.leftPanel.getBoundingClientRect().width, 200, 2400) : undefined,
+      seekMode,
     };
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
@@ -631,7 +880,7 @@ function configureTimeScrubber() {
 function configureOffsetScrubber() {
   if (!ui.offsetScrub || !ui.offsetScrubText) return;
 
-  if (currentLoadedKind !== "output" || !player.hasLoaded()) {
+  if ((currentLoadedKind !== "output" && currentLoadedKind !== "input") || !player.hasLoaded()) {
     setOffsetScrubber({ enabled: false, text: "off=?" });
     return;
   }
@@ -717,6 +966,7 @@ function setupPlaybackPipeline() {
 
 function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
   setupPlaybackPipeline();
+  resetGestureUi();
   currentTcap = tcap || null;
   currentLoadedKind = kind || null;
   currentLoadedBaseOffset = typeof startOffset === "number" ? startOffset : 0;
@@ -787,6 +1037,7 @@ function pickLocalFile(file, { kind }) {
   setStatus(`Selected ${file.name} (${fmtBytes(file.size)}). Loading…`);
   updateButtons();
   if (kind === "output") currentOutputSource = { type: "file", file };
+  if (kind === "input") currentInputSource = { type: "file", file };
   void loadLocalFile(file, { kind });
 }
 
@@ -1065,6 +1316,7 @@ async function loadFromUrl(url, { kind }) {
 
     const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || `${kind}`);
     if (kind === "output") currentOutputSource = { type: "url", url };
+    if (kind === "input") currentInputSource = { type: "url", url };
     loadBytes({ name, size: size != null ? size : u8.length, startOffset: start, u8, tcap, kind });
   } catch (e) {
     setStatus(`Load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
@@ -1090,6 +1342,84 @@ function fmtMsAsNs(ms) {
   return fmtNs(BigInt(n) * 1_000_000n);
 }
 
+async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
+  if (currentLoadedKind !== "output" && currentLoadedKind !== "input") return;
+  const kind = currentLoadedKind;
+  const abs = clampInt(Number(absOffset), 0, Number.MAX_SAFE_INTEGER);
+
+  const startedAt = performance.now();
+  let reloadMs = 0;
+
+  if (currentLoadedBaseOffset > 0) {
+    if (ui.tailBytes) ui.tailBytes.value = "0";
+    savePrefs();
+    setStatus(`Reloading full ${kind} (Tail=0) for from-0 seek…`);
+    const src = kind === "output" ? currentOutputSource : currentInputSource;
+    const srcLabel = kind === "output" ? "output source" : "input source";
+    if (src && src.type === "url") {
+      await loadFromUrl(src.url, { kind });
+    } else if (src && src.type === "file") {
+      await loadLocalFile(src.file, { kind, tailBytesOverride: 0 });
+    } else {
+      setStatus(`Seek failed: missing ${srcLabel} for reload.`, { error: true });
+      return;
+    }
+    reloadMs = performance.now() - startedAt;
+  }
+
+  if (currentLoadedBaseOffset > 0) {
+    setStatus(`Seek failed: ${kind} is still in tail mode.`, { error: true });
+    return;
+  }
+
+  const localOffset = Math.max(0, abs - currentLoadedBaseOffset);
+  setStatus(`Seeking (replay from 0) to off=${fmtBytes(abs)}…`);
+
+  const seekStart = performance.now();
+  await player.seekToLocalOffset(localOffset);
+  const seekMs = performance.now() - seekStart;
+  const totalMs = performance.now() - startedAt;
+
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  const timeNote = kind === "output" && tidx ? ` t=${fmtNs(timeAtOffsetNs(tidx, BigInt(abs)))}` : "";
+  setStatus(`Seeked to off=${fmtBytes(abs)}.${timeNote}`);
+
+  updateAggStats(perfInfo.fullSeek, totalMs, {
+    kind,
+    source,
+    absOffset: abs,
+    localOffset,
+    reloadMs,
+    seekMs,
+    totalMs,
+  });
+  renderInfo();
+}
+
+async function handleScrubRelease({ source, abs, ms }) {
+  const releaseAbs = clampInt(Number(abs), 0, Number.MAX_SAFE_INTEGER);
+  if (!isMode1Enabled() || !mode1State.active || currentLoadedBaseOffset > 0) {
+    resetGestureUi();
+    await fullSeekToAbsOffset(releaseAbs, { source: source === "time" ? `time:${clampInt(Number(ms), 0, Number.MAX_SAFE_INTEGER)}ms` : "offset" });
+    return;
+  }
+
+  perfInfo.gesture.releasedAbs = releaseAbs;
+  perfInfo.gesture.fullRecompute = releaseAbs < mode1State.maxAbs;
+  renderInfo();
+
+  if (releaseAbs < mode1State.maxAbs) {
+    await fullSeekToAbsOffset(releaseAbs, { source: source === "time" ? `mode1-time:${clampInt(Number(ms), 0, Number.MAX_SAFE_INTEGER)}ms` : "mode1-offset" });
+    resetGestureUi();
+    return;
+  }
+
+  // Ensure we're fully caught up to the farthest-right position, then keep that state.
+  mode1RequestAdvance(mode1State.maxAbs);
+  await mode1WaitForIdle();
+  resetGestureUi();
+}
+
 async function scrubSeekToMs(ms) {
   const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
   if (currentLoadedKind !== "output" || !tidx) return;
@@ -1097,58 +1427,11 @@ async function scrubSeekToMs(ms) {
   const clampedMs = clampInt(Number(ms), 0, Number.MAX_SAFE_INTEGER);
   const targetNs = BigInt(clampedMs) * 1_000_000n;
   const absOffset = offsetAtTimeNs(tidx, targetNs);
-
-  if (currentLoadedBaseOffset > 0) {
-    if (ui.tailBytes) ui.tailBytes.value = "0";
-    savePrefs();
-    setStatus("Reloading full output (Tail=0) for from-0 seek…");
-    if (currentOutputSource && currentOutputSource.type === "url") {
-      await loadFromUrl(currentOutputSource.url, { kind: "output" });
-    } else if (currentOutputSource && currentOutputSource.type === "file") {
-      await loadLocalFile(currentOutputSource.file, { kind: "output", tailBytesOverride: 0 });
-    } else {
-      setStatus("Seek failed: missing output source for reload.", { error: true });
-      return;
-    }
-  }
-
-  if (currentLoadedBaseOffset > 0) {
-    setStatus("Seek failed: output is still in tail mode.", { error: true });
-    return;
-  }
-
-  const localOffsetBig = absOffset - BigInt(currentLoadedBaseOffset);
-  const localOffset = Number(localOffsetBig >= 0n ? localOffsetBig : 0n);
-  setStatus(`Seeking (replay from 0) to t=${fmtMsAsNs(clampedMs)} (off=${fmtBytes(localOffset)})…`);
-  await player.seekToLocalOffset(localOffset);
-  setStatus(`Seeked to t=${fmtMsAsNs(clampedMs)} (off=${fmtBytes(localOffset)}).`);
+  await fullSeekToAbsOffset(absOffset, { source: `time:${clampedMs}ms` });
 }
 
 async function scrubSeekToAbsOffset(absOffset) {
-  if (currentLoadedKind !== "output") return;
-  const abs = clampInt(Number(absOffset), 0, Number.MAX_SAFE_INTEGER);
-
-  if (currentLoadedBaseOffset > 0) {
-    if (ui.tailBytes) ui.tailBytes.value = "0";
-    savePrefs();
-    setStatus("Reloading full output (Tail=0) for from-0 seek…");
-    if (currentOutputSource && currentOutputSource.type === "url") {
-      await loadFromUrl(currentOutputSource.url, { kind: "output" });
-    } else if (currentOutputSource && currentOutputSource.type === "file") {
-      await loadLocalFile(currentOutputSource.file, { kind: "output", tailBytesOverride: 0 });
-    } else {
-      setStatus("Seek failed: missing output source for reload.", { error: true });
-      return;
-    }
-  }
-
-  const localOffset = Math.max(0, abs - currentLoadedBaseOffset);
-  setStatus(`Seeking (replay from 0) to off=${fmtBytes(abs)}…`);
-  await player.seekToLocalOffset(localOffset);
-
-  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
-  const timeNote = tidx ? ` t=${fmtNs(timeAtOffsetNs(tidx, BigInt(abs)))}` : "";
-  setStatus(`Seeked to off=${fmtBytes(abs)}.${timeNote}`);
+  await fullSeekToAbsOffset(absOffset, { source: "offset" });
 }
 
 async function loadTcapSidecarsFromUrl(outputUrl, { rawLength } = {}) {
@@ -1204,6 +1487,17 @@ ui.inputSelect.addEventListener("change", () => {
   void loadFromUrl(ui.inputSelect.value, { kind: "input" });
 });
 
+ui.seekMode?.addEventListener("change", () => {
+  seekMode = clampInt(Number(ui.seekMode.value), 0, 1);
+  savePrefs();
+  resetGestureUi();
+  renderInfo();
+});
+
+ui.clearInfo?.addEventListener("click", () => {
+  clearPerfInfo();
+});
+
 ui.timeScrub?.addEventListener("input", () => {
   if (scrubSyncGuard) return;
   const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
@@ -1212,39 +1506,48 @@ ui.timeScrub?.addEventListener("input", () => {
   const ms = clampInt(Number(ui.timeScrub.value), 0, Number.MAX_SAFE_INTEGER);
   ui.timeScrubText.textContent = `t=${fmtMsAsNs(ms)} / ${fmtNs(lastNs)}`;
 
+  const abs = absOffsetAtMs(ms);
   scrubSyncGuard = true;
   try {
     if (ui.offsetScrub && !ui.offsetScrub.disabled) {
-      const absOffset = offsetAtTimeNs(tidx, BigInt(ms) * 1_000_000n);
-      const abs = clampInt(Number(absOffset), 0, Number.MAX_SAFE_INTEGER);
-      ui.offsetScrub.value = String(abs);
-      const absMax = Number.isFinite(currentLoadedAbsSize) && currentLoadedAbsSize != null ? currentLoadedAbsSize : abs;
-      const pct = absMax > 0 ? ((abs / absMax) * 100).toFixed(1) : "0.0";
-      if (ui.offsetScrubText) ui.offsetScrubText.textContent = `off=${fmtBytes(abs)} / ${fmtBytes(absMax)} (${pct}%)`;
+      if (abs != null) {
+        ui.offsetScrub.value = String(abs);
+        const absMax = Number.isFinite(currentLoadedAbsSize) && currentLoadedAbsSize != null ? currentLoadedAbsSize : abs;
+        const pct = absMax > 0 ? ((abs / absMax) * 100).toFixed(1) : "0.0";
+        if (ui.offsetScrubText) ui.offsetScrubText.textContent = `off=${fmtBytes(abs)} / ${fmtBytes(absMax)} (${pct}%)`;
+      }
     }
   } finally {
     scrubSyncGuard = false;
+  }
+
+  if (isMode1Enabled() && abs != null && mode1ObserveTarget({ source: "time", abs, ms })) {
+    mode1RequestAdvance(abs);
   }
 });
 
 ui.timeScrub?.addEventListener("change", () => {
   const ms = clampInt(Number(ui.timeScrub.value), 0, Number.MAX_SAFE_INTEGER);
-  void scrubSeekToMs(ms);
+  const abs = absOffsetAtMs(ms);
+  if (abs == null) return;
+  void handleScrubRelease({ source: "time", abs, ms });
 });
 
 ui.timeScrub?.addEventListener("pointerdown", () => {
   scrubUserActive = "time";
+  mode1BeginGesture("time");
 });
 ui.timeScrub?.addEventListener("pointerup", () => {
   scrubUserActive = null;
 });
 ui.timeScrub?.addEventListener("pointercancel", () => {
   scrubUserActive = null;
+  if (isMode1Enabled()) resetGestureUi();
 });
 
 ui.offsetScrub?.addEventListener("input", () => {
   if (scrubSyncGuard) return;
-  if (currentLoadedKind !== "output") return;
+  if (currentLoadedKind !== "output" && currentLoadedKind !== "input") return;
   const abs = clampInt(Number(ui.offsetScrub.value), 0, Number.MAX_SAFE_INTEGER);
   const absMax =
     Number.isFinite(currentLoadedAbsSize) && currentLoadedAbsSize != null
@@ -1254,36 +1557,45 @@ ui.offsetScrub?.addEventListener("input", () => {
   if (ui.offsetScrubText) ui.offsetScrubText.textContent = `off=${fmtBytes(abs)} / ${fmtBytes(absMax)} (${pct}%)`;
 
   const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
-  if (!tidx || !ui.timeScrub || ui.timeScrub.disabled) return;
-  const tNs = timeAtOffsetNs(tidx, BigInt(abs));
-  const lastNs = tidx.tNs.length ? BigInt(tidx.tNs[tidx.tNs.length - 1]) : 0n;
-  const ms = Number(tNs / 1_000_000n);
+  let ms = null;
+  if (tidx && ui.timeScrub && !ui.timeScrub.disabled) {
+    const tNs = timeAtOffsetNs(tidx, BigInt(abs));
+    const lastNs = tidx.tNs.length ? BigInt(tidx.tNs[tidx.tNs.length - 1]) : 0n;
+    ms = Number(tNs / 1_000_000n);
 
-  scrubSyncGuard = true;
-  try {
-    if (Number.isFinite(ms)) ui.timeScrub.value = String(clampInt(ms, 0, Number.MAX_SAFE_INTEGER));
-    if (ui.timeScrubText) ui.timeScrubText.textContent = `t=${fmtNs(tNs)} / ${fmtNs(lastNs)}`;
-  } finally {
-    scrubSyncGuard = false;
+    scrubSyncGuard = true;
+    try {
+      if (Number.isFinite(ms)) ui.timeScrub.value = String(clampInt(ms, 0, Number.MAX_SAFE_INTEGER));
+      if (ui.timeScrubText) ui.timeScrubText.textContent = `t=${fmtNs(tNs)} / ${fmtNs(lastNs)}`;
+    } finally {
+      scrubSyncGuard = false;
+    }
+  }
+
+  if (isMode1Enabled() && mode1ObserveTarget({ source: "offset", abs, ms })) {
+    mode1RequestAdvance(abs);
   }
 });
 
 ui.offsetScrub?.addEventListener("change", () => {
   const abs = clampInt(Number(ui.offsetScrub.value), 0, Number.MAX_SAFE_INTEGER);
-  void scrubSeekToAbsOffset(abs);
+  void handleScrubRelease({ source: "offset", abs });
 });
 
 ui.offsetScrub?.addEventListener("pointerdown", () => {
   scrubUserActive = "offset";
+  mode1BeginGesture("offset");
 });
 ui.offsetScrub?.addEventListener("pointerup", () => {
   scrubUserActive = null;
 });
 ui.offsetScrub?.addEventListener("pointercancel", () => {
   scrubUserActive = null;
+  if (isMode1Enabled()) resetGestureUi();
 });
 
 loadPrefs();
+renderInfo();
 installPanelResizer();
 player.configure({
   speedBps: rateToBytesPerSec(),

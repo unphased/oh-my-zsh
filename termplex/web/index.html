@@ -77,6 +77,22 @@
     <main class="main">
       <section class="panel" id="leftPanel">
         <div class="status" id="status">No file loaded.</div>
+        <details class="expando" open>
+          <summary>Info</summary>
+          <div class="expando-body">
+            <div class="panel-controls">
+              <label class="panel-field">
+                <span>Seek mode</span>
+                <select id="seekMode">
+                  <option value="0">0: recompute on release</option>
+                  <option value="1">1: incremental drag-right</option>
+                </select>
+              </label>
+              <button id="clearInfo" type="button">Clear</button>
+            </div>
+            <pre id="infoPanel" class="info-panel"></pre>
+          </div>
+        </details>
         <details class="expando">
           <summary>Quick start</summary>
           <div class="expando-body">
@@ -100,11 +116,17 @@
           <div class="terminal-meta" id="meta"></div>
         </div>
         <div class="scrubber">
-          <input id="timeScrub" type="range" min="0" max="0" value="0" step="1" disabled />
+          <div class="range">
+            <input id="timeScrub" type="range" min="0" max="0" value="0" step="1" disabled />
+            <div id="timeMaxMark" class="range-mark" hidden></div>
+          </div>
           <div class="scrub-meta" id="timeScrubText">t=?</div>
         </div>
         <div class="scrubber">
-          <input id="offsetScrub" type="range" min="0" max="0" value="0" step="1" disabled />
+          <div class="range">
+            <input id="offsetScrub" type="range" min="0" max="0" value="0" step="1" disabled />
+            <div id="offsetMaxMark" class="range-mark" hidden></div>
+          </div>
           <div class="scrub-meta" id="offsetScrubText">off=?</div>
         </div>
         <div id="terminalStage" class="terminal-stage">

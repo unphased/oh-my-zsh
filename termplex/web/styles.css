@@ -125,7 +125,7 @@ select {
 
 select#outputSelect,
 select#inputSelect {
-  width: 360px;
+  min-width: 100px;
   max-width: 70vw;
 }
 
@@ -249,6 +249,66 @@ details.expando[open] > summary {
 
 .expando-body {
   padding: 12px 12px;
+}
+
+.panel-controls {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.panel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.panel-field span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.panel-field select {
+  width: 100%;
+}
+
+.info-panel {
+  margin: 10px 0 0 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: #0e1217;
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.range {
+  position: relative;
+  flex: 1;
+  min-width: 120px;
+}
+
+.range input[type="range"] {
+  width: 100%;
+}
+
+.range-mark {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  background: rgba(74, 163, 255, 0.85);
+  border-radius: 1px;
+  pointer-events: none;
 }
 
 .expando-body ol {
