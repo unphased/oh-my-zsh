@@ -88,7 +88,25 @@
                   <option value="1">1: incremental drag-right</option>
                 </select>
               </label>
+              <label class="panel-field">
+                <span>Scrollback lines (xterm)</span>
+                <input id="scrollbackLines" type="number" min="0" step="100" value="10000" />
+              </label>
               <button id="clearInfo" type="button">Clear</button>
+            </div>
+            <div class="panel-controls" style="margin-top: 10px">
+              <label class="panel-check">
+                <input id="bulkNoYield" type="checkbox" checked />
+                <span>No-yield during bulk seeks</span>
+              </label>
+              <label class="panel-check">
+                <input id="bulkRenderOff" type="checkbox" checked />
+                <span>Render off during bulk seeks</span>
+              </label>
+              <label class="panel-check">
+                <input id="bulkZeroScrollback" type="checkbox" checked />
+                <span>Override scrollback→0 during bulk seeks</span>
+              </label>
             </div>
             <pre id="infoPanel" class="info-panel"></pre>
           </div>

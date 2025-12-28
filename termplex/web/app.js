@@ -29,6 +29,10 @@ const ui = {
   leftPanel: document.getElementById("leftPanel"),
   panelResizer: document.getElementById("panelResizer"),
   seekMode: document.getElementById("seekMode"),
+  scrollbackLines: document.getElementById("scrollbackLines"),
+  bulkNoYield: document.getElementById("bulkNoYield"),
+  bulkRenderOff: document.getElementById("bulkRenderOff"),
+  bulkZeroScrollback: document.getElementById("bulkZeroScrollback"),
   clearInfo: document.getElementById("clearInfo"),
   infoPanel: document.getElementById("infoPanel"),
   terminalTitle: document.getElementById("terminalTitle"),
@@ -50,12 +54,18 @@ const ui = {
 let currentTermSize = null; // { cols, rows }
 let currentXterm = null;
 let lastMeasuredCellPx = null; // { cellW, cellH }
+let suppressBoundsUpdates = false;
+let boundsDirty = false;
 
 function setTermSize(cols, rows) {
   if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
   const c = Math.max(1, Math.floor(cols));
   const r = Math.max(1, Math.floor(rows));
   currentTermSize = { cols: c, rows: r };
+  if (suppressBoundsUpdates) {
+    boundsDirty = true;
+    return;
+  }
   updateTerminalBounds();
 }
 
@@ -87,6 +97,10 @@ function measureXtermCellPx(term) {
 
 function updateTerminalBounds() {
   if (!ui.terminalCanvas || !ui.boundsOverlay || !ui.boundsLabel) return;
+  if (suppressBoundsUpdates) {
+    boundsDirty = true;
+    return;
+  }
   if (!currentTermSize) {
     ui.boundsOverlay.hidden = true;
     return;
@@ -254,7 +268,7 @@ class OutputPlayer {
     this._emitProgress(0);
   }
 
-  async seekToLocalOffset(targetOffset) {
+  async seekToLocalOffset(targetOffset, { yieldEveryMs = 12 } = {}) {
     if (!this._buf) return;
     const target = clampInt(Number(targetOffset), 0, this._buf.length);
 
@@ -278,8 +292,8 @@ class OutputPlayer {
     }
     this._emitProgress(0);
 
-    const yieldEveryMs = 12;
-    let lastYield = performance.now();
+    const shouldYield = Number.isFinite(yieldEveryMs) && yieldEveryMs > 0;
+    let lastYield = shouldYield ? performance.now() : 0;
 
     while (this._offset < target) {
       const start = this._offset;
@@ -288,10 +302,13 @@ class OutputPlayer {
       this._writeBytesWithResizeEvents(start, end);
       this._emitProgress(end - start);
 
-      const now = performance.now();
-      if (now - lastYield >= yieldEveryMs) {
-        lastYield = now;
-        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      if (shouldYield) {
+        const now = performance.now();
+        if (now - lastYield >= yieldEveryMs) {
+          lastYield = now;
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        }
       }
     }
   }
@@ -478,6 +495,10 @@ function createSink() {
     return {
       kind: "xterm",
       write: (s) => term.write(s),
+      flush: () =>
+        new Promise((resolve) => {
+          term.write("", () => resolve());
+        }),
       reset: () => term.reset(),
       resize: (cols, rows) => {
         setTermSize(cols, rows);
@@ -499,6 +520,7 @@ function createSink() {
       ui.fallback.textContent += s;
       ui.fallback.scrollTop = ui.fallback.scrollHeight;
     },
+    flush: async () => {},
     reset: () => {
       ui.fallback.textContent = "";
     },
@@ -515,10 +537,12 @@ let currentLoadedAbsSize = null; // number | null, total output size in bytes if
 let currentOutputSource = null; // { type:"url", url } | { type:"file", file } | null
 let currentInputSource = null; // { type:"url", url } | { type:"file", file } | null
 let loadSeq = 0;
+let suppressUiProgress = false;
 let player = new OutputPlayer({
   write: (s) => sink.write(s),
   reset: () => sink.reset(),
   onProgress: ({ offset, total, done }) => {
+    if (suppressUiProgress) return;
     const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
     const timeNote =
       currentTcap && currentTcap.outputTidx
@@ -682,11 +706,19 @@ async function mode1WaitForIdle() {
 const PREFS_KEY = "termplex.web.viewer.prefs.v1";
 const perfInfo = {
   seekMode: 0,
+  settings: {
+    scrollbackLines: 10000,
+    bulk: { noYield: true, renderOff: true, zeroScrollback: true },
+  },
   fullSeek: { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null },
   incremental: { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null },
   gesture: { active: false, source: null, maxAbs: 0, maxMs: 0, releasedAbs: 0, fullRecompute: false },
 };
 let seekMode = 0; // 0 | 1
+let scrollbackLines = 10000;
+let bulkNoYield = true;
+let bulkRenderOff = true;
+let bulkZeroScrollback = true;
 const mode1State = {
   active: false,
   source: null, // "time" | "offset" | null
@@ -735,6 +767,8 @@ function safeJson(obj) {
 function renderInfo() {
   if (!ui.infoPanel) return;
   perfInfo.seekMode = seekMode;
+  perfInfo.settings.scrollbackLines = scrollbackLines;
+  perfInfo.settings.bulk = { noYield: bulkNoYield, renderOff: bulkRenderOff, zeroScrollback: bulkZeroScrollback };
   ui.infoPanel.textContent = safeJson(perfInfo);
 }
 
@@ -763,6 +797,22 @@ function loadPrefs() {
       seekMode = clampInt(prefs.seekMode, 0, 1);
       if (ui.seekMode) ui.seekMode.value = String(seekMode);
     }
+    if (typeof prefs.scrollbackLines === "number") {
+      scrollbackLines = clampInt(prefs.scrollbackLines, 0, 1_000_000);
+      if (ui.scrollbackLines) ui.scrollbackLines.value = String(scrollbackLines);
+    }
+    if (typeof prefs.bulkNoYield === "boolean") {
+      bulkNoYield = prefs.bulkNoYield;
+      if (ui.bulkNoYield) ui.bulkNoYield.checked = bulkNoYield;
+    }
+    if (typeof prefs.bulkRenderOff === "boolean") {
+      bulkRenderOff = prefs.bulkRenderOff;
+      if (ui.bulkRenderOff) ui.bulkRenderOff.checked = bulkRenderOff;
+    }
+    if (typeof prefs.bulkZeroScrollback === "boolean") {
+      bulkZeroScrollback = prefs.bulkZeroScrollback;
+      if (ui.bulkZeroScrollback) ui.bulkZeroScrollback.checked = bulkZeroScrollback;
+    }
   } catch {
     // ignore
   }
@@ -777,6 +827,10 @@ function savePrefs() {
       rateBps: clampInt(Number(ui.rateBps.value), 0, 1_000_000_000),
       panelWidthPx: ui.leftPanel ? clampInt(ui.leftPanel.getBoundingClientRect().width, 200, 2400) : undefined,
       seekMode,
+      scrollbackLines,
+      bulkNoYield,
+      bulkRenderOff,
+      bulkZeroScrollback,
     };
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
@@ -828,6 +882,16 @@ function xtermSourceNote() {
     typeof window.__TERM_CAPTURE_XTERM_SOURCE === "string" ? window.__TERM_CAPTURE_XTERM_SOURCE : null;
   if (!src) return "";
   return ` xterm=${src}`;
+}
+
+function applyScrollbackSetting(lines) {
+  if (!currentXterm || typeof currentXterm.setOption !== "function") return;
+  currentXterm.setOption("scrollback", clampInt(Number(lines), 0, 1_000_000));
+}
+
+function setTerminalRenderHidden(hidden) {
+  if (!ui.terminalStage) return;
+  ui.terminalStage.style.visibility = hidden ? "hidden" : "";
 }
 
 function updateButtons() {
@@ -944,10 +1008,12 @@ function syncScrubbersFromProgress({ localOffset, localTotal }) {
 
 function setupPlaybackPipeline() {
   sink = createSink();
+  applyScrollbackSetting(scrollbackLines);
   player = new OutputPlayer({
     write: (s) => sink.write(s),
     reset: () => sink.reset(),
     onProgress: ({ offset, total, done }) => {
+      if (suppressUiProgress) return;
       const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
       const timeNote =
         currentTcap && currentTcap.outputTidx
@@ -1349,6 +1415,7 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
 
   const startedAt = performance.now();
   let reloadMs = 0;
+  let flushMs = 0;
 
   if (currentLoadedBaseOffset > 0) {
     if (ui.tailBytes) ui.tailBytes.value = "0";
@@ -1375,14 +1442,51 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
   const localOffset = Math.max(0, abs - currentLoadedBaseOffset);
   setStatus(`Seeking (replay from 0) to off=${fmtBytes(abs)}…`);
 
+  const doRenderOff = bulkRenderOff;
+  const doNoYield = bulkNoYield;
+  const doZeroScrollback = bulkZeroScrollback;
+  const prevVisibility = ui.terminalStage ? ui.terminalStage.style.visibility : "";
+
   const seekStart = performance.now();
-  await player.seekToLocalOffset(localOffset);
+  boundsDirty = false;
+  if (doRenderOff) {
+    suppressUiProgress = true;
+    suppressBoundsUpdates = true;
+    setTerminalRenderHidden(true);
+  }
+  if (doZeroScrollback) {
+    applyScrollbackSetting(0);
+  }
+
+  try {
+    await player.seekToLocalOffset(localOffset, { yieldEveryMs: doNoYield ? null : 12 });
+    if (doRenderOff) {
+      const flushStart = performance.now();
+      await sink.flush();
+      flushMs = performance.now() - flushStart;
+    }
+  } finally {
+    if (doZeroScrollback) applyScrollbackSetting(scrollbackLines);
+    if (doRenderOff) {
+      suppressUiProgress = false;
+      suppressBoundsUpdates = false;
+      if (ui.terminalStage) ui.terminalStage.style.visibility = prevVisibility;
+      if (currentXterm && typeof currentXterm.refresh === "function" && Number.isFinite(currentXterm.rows) && currentXterm.rows > 0) {
+        currentXterm.refresh(0, currentXterm.rows - 1);
+      }
+      if (boundsDirty) {
+        boundsDirty = false;
+        updateTerminalBounds();
+      }
+    }
+  }
   const seekMs = performance.now() - seekStart;
   const totalMs = performance.now() - startedAt;
 
   const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
   const timeNote = kind === "output" && tidx ? ` t=${fmtNs(timeAtOffsetNs(tidx, BigInt(abs)))}` : "";
   setStatus(`Seeked to off=${fmtBytes(abs)}.${timeNote}`);
+  syncScrubbersFromProgress({ localOffset, localTotal: player.bytesTotal() });
 
   updateAggStats(perfInfo.fullSeek, totalMs, {
     kind,
@@ -1391,6 +1495,8 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
     localOffset,
     reloadMs,
     seekMs,
+    flushMs,
+    bulk: { noYield: doNoYield, renderOff: doRenderOff, zeroScrollback: doZeroScrollback },
     totalMs,
   });
   renderInfo();
@@ -1491,6 +1597,31 @@ ui.seekMode?.addEventListener("change", () => {
   seekMode = clampInt(Number(ui.seekMode.value), 0, 1);
   savePrefs();
   resetGestureUi();
+  renderInfo();
+});
+
+ui.scrollbackLines?.addEventListener("change", () => {
+  scrollbackLines = clampInt(Number(ui.scrollbackLines.value), 0, 1_000_000);
+  applyScrollbackSetting(scrollbackLines);
+  savePrefs();
+  renderInfo();
+});
+
+ui.bulkNoYield?.addEventListener("change", () => {
+  bulkNoYield = !!ui.bulkNoYield.checked;
+  savePrefs();
+  renderInfo();
+});
+
+ui.bulkRenderOff?.addEventListener("change", () => {
+  bulkRenderOff = !!ui.bulkRenderOff.checked;
+  savePrefs();
+  renderInfo();
+});
+
+ui.bulkZeroScrollback?.addEventListener("change", () => {
+  bulkZeroScrollback = !!ui.bulkZeroScrollback.checked;
+  savePrefs();
   renderInfo();
 });
 
@@ -1596,6 +1727,7 @@ ui.offsetScrub?.addEventListener("pointercancel", () => {
 
 loadPrefs();
 renderInfo();
+applyScrollbackSetting(scrollbackLines);
 installPanelResizer();
 player.configure({
   speedBps: rateToBytesPerSec(),
