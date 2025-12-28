@@ -50,23 +50,13 @@ const ui = {
 let currentTermSize = null; // { cols, rows }
 let currentXterm = null;
 let lastMeasuredCellPx = null; // { cellW, cellH }
-let suppressBoundsUpdates = false;
-let boundsDirty = false;
-
-function requestBoundsUpdate() {
-  if (suppressBoundsUpdates) {
-    boundsDirty = true;
-    return;
-  }
-  requestAnimationFrame(() => updateTerminalBounds());
-}
 
 function setTermSize(cols, rows) {
   if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
   const c = Math.max(1, Math.floor(cols));
   const r = Math.max(1, Math.floor(rows));
   currentTermSize = { cols: c, rows: r };
-  requestBoundsUpdate();
+  updateTerminalBounds();
 }
 
 function measureFallbackCellPx() {
@@ -97,10 +87,6 @@ function measureXtermCellPx(term) {
 
 function updateTerminalBounds() {
   if (!ui.terminalCanvas || !ui.boundsOverlay || !ui.boundsLabel) return;
-  if (suppressBoundsUpdates) {
-    boundsDirty = true;
-    return;
-  }
   if (!currentTermSize) {
     ui.boundsOverlay.hidden = true;
     return;
@@ -492,16 +478,11 @@ function createSink() {
     return {
       kind: "xterm",
       write: (s) => term.write(s),
-      flush: () =>
-        new Promise((resolve) => {
-          // xterm's write() callback fires once the internal write buffer has fully processed.
-          term.write("", () => resolve());
-        }),
       reset: () => term.reset(),
       resize: (cols, rows) => {
         setTermSize(cols, rows);
         term.resize(cols, rows);
-        requestBoundsUpdate();
+        requestAnimationFrame(() => updateTerminalBounds());
       },
     };
   }
@@ -518,7 +499,6 @@ function createSink() {
       ui.fallback.textContent += s;
       ui.fallback.scrollTop = ui.fallback.scrollHeight;
     },
-    flush: async () => {},
     reset: () => {
       ui.fallback.textContent = "";
     },
@@ -535,12 +515,10 @@ let currentLoadedAbsSize = null; // number | null, total output size in bytes if
 let currentOutputSource = null; // { type:"url", url } | { type:"file", file } | null
 let currentInputSource = null; // { type:"url", url } | { type:"file", file } | null
 let loadSeq = 0;
-let suppressUiProgress = false;
 let player = new OutputPlayer({
   write: (s) => sink.write(s),
   reset: () => sink.reset(),
   onProgress: ({ offset, total, done }) => {
-    if (suppressUiProgress) return;
     const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
     const timeNote =
       currentTcap && currentTcap.outputTidx
@@ -654,16 +632,7 @@ async function mode1AdvanceToAbsOffset(absOffset, { source = "scrub" } = {}) {
 
   const seq = mode1State.pumpSeq;
   const startedAt = performance.now();
-  suppressUiProgress = true;
-  suppressBoundsUpdates = true;
   await player.advanceToLocalOffset(localTarget, { yieldEveryMs: 8 });
-  await sink.flush();
-  suppressUiProgress = false;
-  suppressBoundsUpdates = false;
-  if (boundsDirty) {
-    boundsDirty = false;
-    requestBoundsUpdate();
-  }
   if (seq !== mode1State.pumpSeq) return;
   const ms = performance.now() - startedAt;
 
@@ -1380,8 +1349,6 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
 
   const startedAt = performance.now();
   let reloadMs = 0;
-  let drainMs = 0;
-  let uiSuppressedMs = 0;
 
   if (currentLoadedBaseOffset > 0) {
     if (ui.tailBytes) ui.tailBytes.value = "0";
@@ -1409,26 +1376,13 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
   setStatus(`Seeking (replay from 0) to off=${fmtBytes(abs)}…`);
 
   const seekStart = performance.now();
-  suppressUiProgress = true;
-  suppressBoundsUpdates = true;
   await player.seekToLocalOffset(localOffset);
   const seekMs = performance.now() - seekStart;
-  const drainStart = performance.now();
-  await sink.flush();
-  drainMs = performance.now() - drainStart;
-  suppressUiProgress = false;
-  suppressBoundsUpdates = false;
-  uiSuppressedMs = performance.now() - seekStart;
-  if (boundsDirty) {
-    boundsDirty = false;
-    requestBoundsUpdate();
-  }
   const totalMs = performance.now() - startedAt;
 
   const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
   const timeNote = kind === "output" && tidx ? ` t=${fmtNs(timeAtOffsetNs(tidx, BigInt(abs)))}` : "";
   setStatus(`Seeked to off=${fmtBytes(abs)}.${timeNote}`);
-  syncScrubbersFromProgress({ localOffset, localTotal: player.bytesTotal() });
 
   updateAggStats(perfInfo.fullSeek, totalMs, {
     kind,
@@ -1437,8 +1391,6 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
     localOffset,
     reloadMs,
     seekMs,
-    drainMs,
-    uiSuppressedMs,
     totalMs,
   });
   renderInfo();
