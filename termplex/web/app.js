@@ -8,6 +8,43 @@ import {
   truncateTidxToRawLength,
 } from "../js/tcap/index.js";
 
+/**
+ * termplex web viewer architecture (single-file PoC)
+ *
+ * Data flow (happy path):
+ *   (URL scan dropdown | URL direct | local file) → bytes + optional TCAP sidecars → loadBytes()
+ *     → OutputPlayer (replay engine) → sink (xterm.js or <pre>) → visible terminal.
+ *
+ * Key subsystems in this file:
+ * - UI bindings (`ui`): DOM handles for the top bar, left panel, scrubbers, and terminal stage.
+ * - Terminal “bounds” overlay: measures a cell size and sizes `#terminalCanvas` to match the capture’s cols×rows.
+ * - OutputPlayer: the byte→text decode loop and optional resize-event playback (TCAP sidecars).
+ * - Sink: abstraction over xterm.js vs a plain `<pre>` fallback.
+ * - Source loading: local file reads + HTTP fetches (+ optional sidecar discovery for output streams).
+ * - Scrubbers: bind time<->offset, keep them synced to playback progress, and route “release” to seek logic.
+ * - Seek logic: “bulk” from-0 recompute seeks, and “mode1” incremental drag-right seeking.
+ * - Debug/perf panel: persisted toggles + pretty-printed perf stats.
+ *
+ * Refactor direction (suggested module split):
+ * - `web/viewer/ui.js`: UI wiring, status/meta rendering, and scrubber UI logic.
+ * - `web/viewer/prefs.js`: load/save prefs + defaulting.
+ * - `web/viewer/perf.js`: perfInfo model + render + bulk seek toggles.
+ * - `web/viewer/player.js`: OutputPlayer (pure-ish; could be unit tested separately).
+ * - `web/viewer/sink.js`: createSink + xterm-specific helpers (flush, render-disable, scrollback).
+ * - `web/viewer/sources.js`: loadLocalFile/loadFromUrl/loadTcapSidecarsFromUrl (shared read/parse utilities).
+ * - `web/viewer/listing_scan.js`: scanHttpServerListing + HTML parsing helpers.
+ *
+ * Consolidation opportunities:
+ * - `currentOutputSource` / `currentInputSource` could be a `{ output, input }` map keyed by kind.
+ * - `loadFromUrl` and `loadLocalFile` both “get bytes + startOffset + name”; that could be unified behind a
+ *   `readSource(kind, opts)` returning `{ name, size, startOffset, u8, tcap }`.
+ * - Seek code currently toggles several “bulk mode” knobs inline; extracting a `withBulkSeekMode(fn)` wrapper
+ *   would reduce branching and make the “bulk vs non-bulk” contract clearer.
+ */
+
+// -----------------------------------------------------------------------------
+// DOM bindings + terminal sizing overlay (purely view concerns)
+// -----------------------------------------------------------------------------
 const ui = {
   fileOutput: document.getElementById("fileOutput"),
   fileInput: document.getElementById("fileInput"),
@@ -57,6 +94,8 @@ let lastMeasuredCellPx = null; // { cellW, cellH }
 let suppressBoundsUpdates = false;
 let boundsDirty = false;
 
+// Tracks a capture “terminal size” (cols×rows) and sizes the rendering canvas to match.
+// This is intentionally separate from xterm’s fit/resize logic: we want to visualize the capture’s geometry.
 function setTermSize(cols, rows) {
   if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
   const c = Math.max(1, Math.floor(cols));
@@ -132,6 +171,9 @@ function updateTerminalBounds() {
   ui.boundsLabel.textContent = `${currentTermSize.cols}×${currentTermSize.rows}`;
 }
 
+// -----------------------------------------------------------------------------
+// Generic utilities (formatting, clamping, rate config)
+// -----------------------------------------------------------------------------
 function fmtBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   const kib = bytes / 1024;
@@ -175,6 +217,15 @@ function currentTermSizeNote() {
   return `size=${currentTermSize.cols}×${currentTermSize.rows}`;
 }
 
+// -----------------------------------------------------------------------------
+// OutputPlayer: core replay engine (bytes -> decoded text -> sink.write)
+//
+// This class is intentionally UI-agnostic:
+// - It knows nothing about DOM, selects, or status messaging.
+// - It optionally consumes a resize-event stream (TCAP sidecars) to call back into the viewer on resizes.
+//
+// Refactor candidate: move to `web/viewer/player.js` and unit test it with a fake sink.
+// -----------------------------------------------------------------------------
 class OutputPlayer {
   constructor({ write, reset, onProgress }) {
     this._write = write;
@@ -207,6 +258,8 @@ class OutputPlayer {
     return this._offset;
   }
 
+  // Replace the currently loaded byte buffer and reset playback state back to 0.
+  // `baseOffset` is the absolute stream offset that corresponds to local offset 0 (tail loads use this).
   load(u8, { baseOffset = 0 } = {}) {
     this.stop();
     this._reset();
@@ -268,6 +321,9 @@ class OutputPlayer {
     this._emitProgress(0);
   }
 
+  // Full recompute seek: resets state and replays from local offset 0 up to `targetOffset`.
+  // - Default behavior yields periodically to keep the UI responsive.
+  // - Bulk seeks can disable yielding by passing `yieldEveryMs: null`.
   async seekToLocalOffset(targetOffset, { yieldEveryMs = 12 } = {}) {
     if (!this._buf) return;
     const target = clampInt(Number(targetOffset), 0, this._buf.length);
@@ -313,6 +369,8 @@ class OutputPlayer {
     }
   }
 
+  // Incremental seek: advances forward from the *current* offset to `targetOffset`.
+  // Used by seek mode 1 (drag-right evaluation); never rewinds (drag-left does no work).
   async advanceToLocalOffset(targetOffset, { yieldEveryMs = 12 } = {}) {
     if (!this._buf) return;
     const target = clampInt(Number(targetOffset), 0, this._buf.length);
@@ -468,6 +526,17 @@ class OutputPlayer {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Sink: abstracts xterm.js vs a simple <pre> fallback.
+//
+// Responsibilities:
+// - Provide a `write(string)` method used by OutputPlayer.
+// - Provide `reset()` and `resize(cols, rows)` for seek/playback resets and TCAP resize events.
+// - Provide `flush()` for "bulk seek" mode: we hide rendering and then wait for xterm to finish
+//   processing its internal write buffer before making the terminal visible again.
+//
+// Refactor candidate: move to `web/viewer/sink.js` and return `{ sink, term }`.
+// -----------------------------------------------------------------------------
 function createSink() {
   if (isXtermAvailable()) {
     const term = new window.Terminal({
@@ -528,6 +597,17 @@ function createSink() {
   };
 }
 
+// -----------------------------------------------------------------------------
+// Viewer session state
+//
+// Notes:
+// - `sink` + `player` are effectively the "runtime". We recreate them on each loadBytes() to guarantee a clean
+//   terminal state (xterm buffer, decoder stream state, and resize-event cursor).
+// - `currentLoadedBaseOffset` is critical when tail-loading: local offset 0 corresponds to absolute offset baseOffset.
+// - `currentLoadedAbsSize` is best-effort; URL loads try HEAD content-length, local loads use File.size.
+//
+// Refactor candidate: collect these into a single `viewerState` object (and group per-kind sources in a map).
+// -----------------------------------------------------------------------------
 let currentUrl = null;
 let sink = createSink();
 let currentTcap = null;
@@ -579,6 +659,18 @@ function hideRangeMark(markEl) {
   markEl.hidden = true;
 }
 
+// -----------------------------------------------------------------------------
+// Seek mode 1 (incremental drag-right)
+//
+// Goals:
+// - While dragging *right*, incrementally advance terminal evaluation in real time.
+// - While dragging *left*, do nothing (terminal state remains at the farthest evaluated point).
+// - On release:
+//   - If released at max-drag, no recompute needed.
+//   - If released left of max-drag, fall back to a full from-0 recompute seek (bulk seek).
+//
+// Refactor candidate: this logic + the marker UI could live in `web/viewer/seek_modes.js`.
+// -----------------------------------------------------------------------------
 function isMode1Enabled() {
   return seekMode === 1;
 }
@@ -703,6 +795,14 @@ async function mode1WaitForIdle() {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Preferences + debug/perf panel model
+//
+// - PERSISTED: values in localStorage under PREFS_KEY (base URL, tail/chunk/rate, left panel width, seek mode, etc).
+// - RUNTIME-ONLY: perfInfo counters and last timings used to compare seek strategies.
+//
+// Refactor candidate: move prefs load/save + defaults into `web/viewer/prefs.js`, and perfInfo into `web/viewer/perf.js`.
+// -----------------------------------------------------------------------------
 const PREFS_KEY = "termplex.web.viewer.prefs.v1";
 const perfInfo = {
   seekMode: 0,
@@ -838,6 +938,11 @@ function savePrefs() {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Left panel UX helpers (resizable sidebar)
+//
+// Refactor candidate: move to `web/viewer/layout.js` with a small helper that persists width.
+// -----------------------------------------------------------------------------
 function installPanelResizer() {
   if (!ui.leftPanel || !ui.panelResizer) return;
   const minWidth = 260;
@@ -884,11 +989,15 @@ function xtermSourceNote() {
   return ` xterm=${src}`;
 }
 
+// xterm-specific knobs used for perf experiments.
+// Note: scrollback affects memory/perf; setting it to 0 during bulk seeks is safe for "time-travel" workflows.
 function applyScrollbackSetting(lines) {
   if (!currentXterm || typeof currentXterm.setOption !== "function") return;
   currentXterm.setOption("scrollback", clampInt(Number(lines), 0, 1_000_000));
 }
 
+// Bulk seek render suppression: we hide the terminal stage while ingesting/recomputing to avoid visible flicker.
+// We use `visibility:hidden` (not display:none) to keep layout stable and avoid reflow surprises.
 function setTerminalRenderHidden(hidden) {
   if (!ui.terminalStage) return;
   ui.terminalStage.style.visibility = hidden ? "hidden" : "";
@@ -901,6 +1010,19 @@ function updateButtons() {
   ui.reset.disabled = !hasLoaded;
 }
 
+// -----------------------------------------------------------------------------
+// Scrubbers (time + absolute offset)
+//
+// Model:
+// - Time scrubber is only enabled for OUTPUT when a `.tidx` sidecar is available.
+// - Offset scrubber is enabled for OUTPUT and INPUT (absolute bytes in the loaded stream).
+// - `syncScrubbersFromProgress()` keeps the sliders consistent during playback, but yields to user input while dragging.
+//
+// Refactor candidate: group this logic into a `Scrubbers` controller with a small interface:
+//   - configure({ kind, tidx, absSize, baseOffset })
+//   - onProgress({ absOffset })
+//   - onUserRelease({ source, absOffset })
+// -----------------------------------------------------------------------------
 function setScrubber({ enabled, text, ms, maxMs } = {}) {
   if (!ui.timeScrub || !ui.timeScrubText) return;
   if (Number.isFinite(maxMs)) ui.timeScrub.max = String(Math.max(0, Math.floor(maxMs)));
@@ -1006,6 +1128,14 @@ function syncScrubbersFromProgress({ localOffset, localTotal }) {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Load pipeline: reset runtime + ingest bytes
+//
+// `setupPlaybackPipeline()` recreates sink+player and applies per-session settings (e.g. scrollback).
+// `loadBytes()` is the single choke point after we’ve acquired bytes from either:
+//   - Local file: File API + optional tail slicing
+//   - URL: HTTP GET + optional Range tailing + optional TCAP sidecars (output only)
+// -----------------------------------------------------------------------------
 function setupPlaybackPipeline() {
   sink = createSink();
   applyScrollbackSetting(scrollbackLines);
@@ -1065,6 +1195,9 @@ function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
   }
 }
 
+// Local file loader:
+// - Respects Tail bytes by slicing the File blob from the end (fast for large captures).
+// - Uses `loadSeq` so rapid re-selections can cancel earlier async reads.
 async function loadLocalFile(file, { kind, tailBytesOverride = null } = {}) {
   if (!file) return;
   try {
@@ -1091,6 +1224,8 @@ async function loadLocalFile(file, { kind, tailBytesOverride = null } = {}) {
   }
 }
 
+// UI entry point for local files: records "source" (so we can reload with Tail=0 during bulk seeks)
+// and then delegates to the async loader.
 function pickLocalFile(file, { kind }) {
   currentUrl = null;
   if (!file) {
@@ -1120,6 +1255,8 @@ function isFileDragEvent(e) {
   return types.includes("Files");
 }
 
+// Drag/drop support for the topbar Output/Input "field" containers.
+// This keeps local-file workflows compact: users can either click the File button or drop a file onto the field.
 function installFileDropTarget(el, { kind }) {
   if (!el) return;
   const setActive = (on) => {
@@ -1203,6 +1340,16 @@ function resolvedBaseUrl() {
   return new URL(raw, window.location.href).toString();
 }
 
+// -----------------------------------------------------------------------------
+// URL auto-discovery: scan an `http.server` directory listing and populate the Output/Input dropdowns.
+//
+// This is deliberately “dumb but robust”:
+// - It works with both newer table-based and older plain-text directory listings.
+// - It tries to annotate entries with last-modified and size when available.
+// - For output files, it also detects `*.tidx` and `*.events.jsonl` sidecars.
+//
+// Refactor candidate: move all listing parsing + scan into `web/viewer/listing_scan.js`.
+// -----------------------------------------------------------------------------
 function setSelectOptions(selectEl, items, placeholder) {
   selectEl.innerHTML = "";
   const ph = document.createElement("option");
@@ -1343,6 +1490,17 @@ async function scanHttpServerListing() {
   }
 }
 
+// -----------------------------------------------------------------------------
+// HTTP loading (direct URLs + Range tailing)
+//
+// Behavior:
+// - Best-effort HEAD to learn `content-length` (falls back if blocked).
+// - Optional tailing via Range (startByte = size - tailBytes).
+// - Optional TCAP sidecars for OUTPUT only (tidx + events).
+// - Uses `loadSeq` as a simple cancellation token for overlapping loads.
+//
+// Refactor candidate: unify with local loading behind a `readBytes()` helper that returns `{ u8, startOffset, size }`.
+// -----------------------------------------------------------------------------
 async function fetchArrayBufferWithOptionalRange(url, startByte) {
   const headers = startByte > 0 ? { Range: `bytes=${startByte}-` } : undefined;
   const res = await fetch(url, { cache: "no-store", headers });
@@ -1408,6 +1566,17 @@ function fmtMsAsNs(ms) {
   return fmtNs(BigInt(n) * 1_000_000n);
 }
 
+// -----------------------------------------------------------------------------
+// Seeking
+//
+// Two seek styles exist:
+// - Bulk seek (from-0 recompute): resets terminal state and replays from the beginning to the target offset.
+//   This path is used by mode 0 release, and as a fallback in mode 1 when the user releases left of max-drag.
+//   Bulk-only perf toggles (no-yield, render-off, scrollback->0) apply *only* here.
+// - Incremental seek (mode 1): advances forward from the current state using OutputPlayer.advanceToLocalOffset().
+//
+// Refactor candidate: extract bulk seek “enter/exit perf mode” to a helper for clarity.
+// -----------------------------------------------------------------------------
 async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
   if (currentLoadedKind !== "output" && currentLoadedKind !== "input") return;
   const kind = currentLoadedKind;
@@ -1540,6 +1709,18 @@ async function scrubSeekToAbsOffset(absOffset) {
   await fullSeekToAbsOffset(absOffset, { source: "offset" });
 }
 
+// -----------------------------------------------------------------------------
+// TCAP sidecars (output only)
+//
+// - `.output.tidx` provides an offset→time mapping for the time scrubber.
+// - `<prefix>.events.jsonl` provides resize events so the terminal can track recorded geometry changes.
+//
+// Current behavior:
+// - Sidecars are only loaded for OUTPUT streams.
+// - Sidecars are optional; everything still works without them (offset scrubber + raw replay).
+//
+// Refactor candidate: move parsing/loading into `web/viewer/tcap_sidecars.js`.
+// -----------------------------------------------------------------------------
 async function loadTcapSidecarsFromUrl(outputUrl, { rawLength } = {}) {
   const urlObj = new URL(outputUrl);
   const path = urlObj.pathname;
@@ -1574,6 +1755,13 @@ async function loadTcapSidecarsFromUrl(outputUrl, { rawLength } = {}) {
   return out.outputTidx || out.outputEvents ? out : null;
 }
 
+// -----------------------------------------------------------------------------
+// UI event wiring
+//
+// Refactor candidate:
+// - Extract these listeners into an `initViewer()` that receives dependencies (sink/player/state) explicitly.
+// - Group handlers by feature area (scan/load, playback controls, perf panel, scrubbers).
+// -----------------------------------------------------------------------------
 ui.scan.addEventListener("click", () => {
   void scanHttpServerListing();
 });
@@ -1725,6 +1913,11 @@ ui.offsetScrub?.addEventListener("pointercancel", () => {
   if (isMode1Enabled()) resetGestureUi();
 });
 
+// -----------------------------------------------------------------------------
+// Boot sequence
+//
+// Initializes prefs/UI state, applies initial playback config, and (best-effort) auto-scans if served under /web/.
+// -----------------------------------------------------------------------------
 loadPrefs();
 renderInfo();
 applyScrollbackSetting(scrollbackLines);
