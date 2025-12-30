@@ -1378,8 +1378,212 @@ function tryParseSgrMouse(u8, i) {
   };
 }
 
-const INPUT_ESCAPE_PARSERS = [tryParseSgrMouse];
-const INPUT_TOKEN_CONDENSERS = [condenseSgrMouseTokens];
+function findStIndex(u8, start) {
+  for (let j = start; j + 1 < u8.length; j++) {
+    if (u8[j] === 0x1b && u8[j + 1] === 0x5c) return j; // ESC \
+  }
+  return null;
+}
+
+function bytesToAscii(u8) {
+  if (!(u8 instanceof Uint8Array) || !u8.length) return "";
+  let s = "";
+  for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+  return s;
+}
+
+function safeAsciiPreview(s, { max = 80 } = {}) {
+  const raw = typeof s === "string" ? s : "";
+  const oneLine = raw.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= max) return oneLine;
+  return `${oneLine.slice(0, max - 1)}…`;
+}
+
+function hexToAsciiString(hex) {
+  const h = typeof hex === "string" ? hex : "";
+  if (h.length % 2 !== 0) return null;
+  let out = "";
+  for (let i = 0; i < h.length; i += 2) {
+    const byte = Number.parseInt(h.slice(i, i + 2), 16);
+    if (!Number.isFinite(byte)) return null;
+    out += String.fromCharCode(byte);
+  }
+  return out;
+}
+
+function tryParseDecrpm(u8, i) {
+  // CSI ? <mode> ; <state> $ y
+  const len = u8.length;
+  if (i + 7 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5b || u8[i + 2] !== 0x3f) return null; // ESC [ ?
+  let j = i + 3;
+  const modeRes = parseAsciiIntFromBytes(u8, j, { max: 100_000_000 });
+  if (!modeRes) return null;
+  j = modeRes.next;
+  if (j >= len || u8[j] !== 0x3b) return null; // ;
+  j++;
+  const stateRes = parseAsciiIntFromBytes(u8, j, { max: 9 });
+  if (!stateRes) return null;
+  j = stateRes.next;
+  if (j + 1 >= len || u8[j] !== 0x24 || u8[j + 1] !== 0x79) return null; // $ y
+  j += 2;
+  return { kind: "decrpm", len: j - i, mode: modeRes.n, state: stateRes.n };
+}
+
+function tryParseDa1(u8, i) {
+  // CSI ? Ps ; ... c
+  const len = u8.length;
+  if (i + 4 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5b || u8[i + 2] !== 0x3f) return null; // ESC [ ?
+  let j = i + 3;
+  while (j < len) {
+    const b = u8[j];
+    if ((b >= 48 && b <= 57) || b === 0x3b) {
+      j++;
+      continue;
+    }
+    break;
+  }
+  if (j >= len || u8[j] !== 0x63) return null; // c
+  const params = bytesToAscii(u8.subarray(i + 3, j));
+  return { kind: "da1", len: j + 1 - i, params };
+}
+
+function tryParseCsiPrivateU(u8, i) {
+  // CSI ? Ps u   (often used by kitty keyboard protocol queries/replies)
+  const len = u8.length;
+  if (i + 4 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5b || u8[i + 2] !== 0x3f) return null; // ESC [ ?
+  let j = i + 3;
+  const ps = parseAsciiIntFromBytes(u8, j, { max: 1_000_000 });
+  if (!ps) return null;
+  j = ps.next;
+  if (j >= len || u8[j] !== 0x75) return null; // u
+  return { kind: "csi_private_u", len: j + 1 - i, ps: ps.n };
+}
+
+function tryParseKittyKey(u8, i) {
+  // kitty keyboard protocol: CSI codepoint ; mods : type u
+  const len = u8.length;
+  if (i + 7 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5b) return null; // ESC [
+  let j = i + 2;
+  const codeRes = parseAsciiIntFromBytes(u8, j, { max: 0x10ffff });
+  if (!codeRes) return null;
+  j = codeRes.next;
+  if (j >= len || u8[j] !== 0x3b) return null; // ;
+  j++;
+  const modsRes = parseAsciiIntFromBytes(u8, j, { max: 1_000_000 });
+  if (!modsRes) return null;
+  j = modsRes.next;
+  if (j >= len || u8[j] !== 0x3a) return null; // :
+  j++;
+  const typeRes = parseAsciiIntFromBytes(u8, j, { max: 32 });
+  if (!typeRes) return null;
+  j = typeRes.next;
+  if (j >= len || u8[j] !== 0x75) return null; // u
+  j++;
+  return { kind: "kitty_key", len: j - i, codepoint: codeRes.n, mods: modsRes.n, eventType: typeRes.n };
+}
+
+function tryParseCsiWindowOpT(u8, i) {
+  // CSI ... t
+  const len = u8.length;
+  if (i + 4 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5b) return null; // ESC [
+  let j = i + 2;
+  while (j < len) {
+    const b = u8[j];
+    if ((b >= 48 && b <= 57) || b === 0x3b) {
+      j++;
+      continue;
+    }
+    break;
+  }
+  if (j >= len || u8[j] !== 0x74) return null; // t
+  const params = bytesToAscii(u8.subarray(i + 2, j));
+  return { kind: "csi_t", len: j + 1 - i, params };
+}
+
+function tryParseCsiFocus(u8, i) {
+  // CSI I (focus in) or CSI O (focus out)
+  const len = u8.length;
+  if (i + 2 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5b) return null; // ESC [
+  const final = u8[i + 2];
+  if (final === 0x49) return { kind: "focus_in", len: 3 };
+  if (final === 0x4f) return { kind: "focus_out", len: 3 };
+  return null;
+}
+
+function tryParseOsc11(u8, i) {
+  // OSC 11;... BEL|ST
+  const len = u8.length;
+  if (i + 5 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5d) return null; // ESC ]
+  if (u8[i + 2] !== 0x31 || u8[i + 3] !== 0x31 || u8[i + 4] !== 0x3b) return null; // "11;"
+  const payloadStart = i + 5;
+  for (let j = payloadStart; j < len; j++) {
+    if (u8[j] === 0x07) {
+      const payload = bytesToAscii(u8.subarray(payloadStart, j));
+      return { kind: "osc_11", len: j + 1 - i, payload };
+    }
+    if (u8[j] === 0x1b && j + 1 < len && u8[j + 1] === 0x5c) {
+      const payload = bytesToAscii(u8.subarray(payloadStart, j));
+      return { kind: "osc_11", len: j + 2 - i, payload };
+    }
+  }
+  return null;
+}
+
+function tryParseDcsDecrqssResponse(u8, i) {
+  // DCS 1 $ r <string> ST
+  const len = u8.length;
+  if (i + 6 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x50) return null; // ESC P
+  if (u8[i + 2] !== 0x31 || u8[i + 3] !== 0x24 || u8[i + 4] !== 0x72) return null; // "1$r"
+  const st = findStIndex(u8, i + 5);
+  if (st == null) return null;
+  const payload = bytesToAscii(u8.subarray(i + 5, st));
+  return { kind: "decrqss", len: st + 2 - i, payload };
+}
+
+function tryParseDcsXtgettcapResponse(u8, i) {
+  // DCS 1 + r <hex...> ST
+  const len = u8.length;
+  if (i + 6 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x50) return null; // ESC P
+  if (u8[i + 2] !== 0x31 || u8[i + 3] !== 0x2b || u8[i + 4] !== 0x72) return null; // "1+r"
+  const st = findStIndex(u8, i + 5);
+  if (st == null) return null;
+  const raw = bytesToAscii(u8.subarray(i + 5, st));
+  const items = raw.split(";").filter(Boolean);
+  const decoded = [];
+  for (const item of items) {
+    const eq = item.indexOf("=");
+    if (eq <= 0) continue;
+    const nameHex = item.slice(0, eq);
+    const valHex = item.slice(eq + 1);
+    const name = hexToAsciiString(nameHex);
+    const value = hexToAsciiString(valHex);
+    decoded.push({ name, value, nameHex, valHex });
+  }
+  return { kind: "xtgettcap", len: st + 2 - i, raw, decoded };
+}
+
+const INPUT_ESCAPE_PARSERS = [
+  tryParseSgrMouse,
+  tryParseDecrpm,
+  tryParseDa1,
+  tryParseOsc11,
+  tryParseDcsDecrqssResponse,
+  tryParseDcsXtgettcapResponse,
+  tryParseCsiFocus,
+  tryParseCsiPrivateU,
+  tryParseKittyKey,
+  tryParseCsiWindowOpT,
+];
+const INPUT_TOKEN_CONDENSERS = [condenseDecrpmTokens, condenseSgrMouseTokens];
 
 function sgrMouseButtonLabel(cb) {
   // Best-effort decoding for xterm SGR mouse "Cb".
@@ -1410,22 +1614,22 @@ function condenseSgrMouseTokens(inTokens) {
   const outTokens = [];
   for (let i = 0; i < inTokens.length; i++) {
     const t = inTokens[i];
-    if (t.kind !== "sgr_mouse") {
+    if (t.kind !== "macro" || t.type !== "sgr_mouse") {
       outTokens.push(t);
       continue;
     }
     const key = (() => {
-      const cb = t.event.cb | 0;
+      const cb = t.data.cb | 0;
       const btn = cb & 3;
       const mods = cb & (4 | 8 | 16);
       const wheel = cb & (64 | 128);
       return `${btn}|${mods}|${wheel}`;
     })();
 
-    const events = [t.event];
+    const events = [t.data];
     let j = i + 1;
-    while (j < inTokens.length && inTokens[j].kind === "sgr_mouse") {
-      const ev = inTokens[j].event;
+    while (j < inTokens.length && inTokens[j].kind === "macro" && inTokens[j].type === "sgr_mouse") {
+      const ev = inTokens[j].data;
       const cb = ev.cb | 0;
       const btn = cb & 3;
       const mods = cb & (4 | 8 | 16);
@@ -1441,6 +1645,41 @@ function condenseSgrMouseTokens(inTokens) {
       outTokens.push({ kind: "macro", type: "sgr_mouse_drag", events });
     } else {
       for (const ev of events) outTokens.push({ kind: "macro", type: "sgr_mouse", event: ev });
+    }
+    i = j - 1;
+  }
+  return outTokens;
+}
+
+function decrpmStateLabel(state) {
+  if (state === 1) return "set";
+  if (state === 2) return "reset";
+  if (state === 3) return "perma-set";
+  if (state === 4) return "perma-reset";
+  return `state=${state}`;
+}
+
+function condenseDecrpmTokens(inTokens) {
+  const outTokens = [];
+  for (let i = 0; i < inTokens.length; i++) {
+    const t = inTokens[i];
+    if (t.kind !== "macro" || t.type !== "decrpm") {
+      outTokens.push(t);
+      continue;
+    }
+    const state = t.data.state | 0;
+    const modes = [t.data.mode | 0];
+    let j = i + 1;
+    while (j < inTokens.length && inTokens[j].kind === "macro" && inTokens[j].type === "decrpm") {
+      const next = inTokens[j].data;
+      if ((next.state | 0) !== state) break;
+      modes.push(next.mode | 0);
+      j++;
+    }
+    if (modes.length > 1) {
+      outTokens.push({ kind: "macro", type: "decrpm_run", data: { state, modes } });
+    } else {
+      outTokens.push(t);
     }
     i = j - 1;
   }
@@ -1473,65 +1712,105 @@ function tokenToDisplayParts(token) {
       title: `SGR mouse drag: cb=${first.cb} from (${first.x},${first.y}) to (${lastEv.x},${lastEv.y}) n=${token.events.length}${upNote}`,
     };
   }
+  if (token.type === "decrpm") {
+    const mode = token.data.mode;
+    const state = token.data.state;
+    const stateLabel = decrpmStateLabel(state);
+    return {
+      type: "decrpm",
+      label: `mode ?${mode} ${stateLabel}`,
+      title: `DECRPM: CSI ? ${mode} ; ${state} $ y (${stateLabel})`,
+    };
+  }
+  if (token.type === "decrpm_run") {
+    const { state, modes } = token.data || {};
+    const stateLabel = decrpmStateLabel(state | 0);
+    const preview = Array.isArray(modes) ? modes.slice(0, 6).join(",") : "";
+    const more = Array.isArray(modes) && modes.length > 6 ? `,+${modes.length - 6}` : "";
+    return {
+      type: "decrpm_run",
+      label: `modes ${preview}${more} ${stateLabel}`,
+      title: `DECRPM run: state=${stateLabel} modes=${Array.isArray(modes) ? modes.join(",") : "?"}`,
+    };
+  }
+  if (token.type === "da1") {
+    const params = token.data.params || "";
+    return {
+      type: "da1",
+      label: `DA1 ?${params}c`,
+      title: `Device Attributes (DA1): CSI ? ${params} c`,
+    };
+  }
+  if (token.type === "osc_11") {
+    const payload = token.data.payload || "";
+    return {
+      type: "osc_11",
+      label: `OSC 11 ${safeAsciiPreview(payload, { max: 36 })}`,
+      title: `OSC 11 payload: ${payload}`,
+    };
+  }
+  if (token.type === "decrqss") {
+    const payload = token.data.payload || "";
+    return {
+      type: "decrqss",
+      label: `DECRQSS ${safeAsciiPreview(payload, { max: 36 })}`,
+      title: `DECRQSS response: DCS 1 $ r ${payload} ST`,
+    };
+  }
+  if (token.type === "xtgettcap") {
+    const decoded = Array.isArray(token.data.decoded) ? token.data.decoded : [];
+    const first = decoded[0] || null;
+    const name = first && typeof first.name === "string" ? first.name : null;
+    const value = first && typeof first.value === "string" ? first.value : null;
+    const count = decoded.length;
+    const labelName = name || (first ? first.nameHex : "cap");
+    const valuePreview = value ? safeAsciiPreview(value, { max: 28 }) : "";
+    const countNote = count > 1 ? ` (+${count - 1})` : "";
+    return {
+      type: "xtgettcap",
+      label: `XTGETTCAP ${labelName}${countNote}${valuePreview ? ` ${valuePreview}` : ""}`,
+      title:
+        count === 1
+          ? `XTGETTCAP ${labelName}: ${value || ""}`
+          : `XTGETTCAP ${count} caps: ${decoded.map((d) => d.name || d.nameHex).join(", ")}`,
+    };
+  }
+  if (token.type === "focus_in" || token.type === "focus_out") {
+    return {
+      type: token.type,
+      label: token.type === "focus_in" ? "focus in" : "focus out",
+      title: token.type === "focus_in" ? "CSI I (Focus In)" : "CSI O (Focus Out)",
+    };
+  }
+  if (token.type === "csi_private_u") {
+    const ps = token.data.ps;
+    return {
+      type: "csi_private_u",
+      label: `CSI ?${ps}u`,
+      title: `CSI private u: CSI ? ${ps} u`,
+    };
+  }
+  if (token.type === "kitty_key") {
+    const cp = token.data.codepoint;
+    const mods = token.data.mods;
+    const et = token.data.eventType;
+    const ch = Number.isFinite(cp) && cp >= 32 && cp <= 0x10ffff ? String.fromCodePoint(cp) : null;
+    const chLabel = ch && ch !== " " ? ch : ch === " " ? "SPACE" : `U+${cp.toString(16).toUpperCase()}`;
+    return {
+      type: "kitty_key",
+      label: `key ${chLabel} mods=${mods} type=${et}`,
+      title: `kitty key: codepoint=${cp} mods=${mods} eventType=${et}`,
+    };
+  }
+  if (token.type === "csi_t") {
+    const params = token.data.params || "";
+    return {
+      type: "csi_t",
+      label: `CSI t ${params}`,
+      title: `Window ops/report: CSI ${params} t`,
+    };
+  }
   return { type: token.type || "macro", label: token.type || "macro", title: token.type || "macro" };
-}
-
-function formatInputBytesForLog(u8, { initialLastWasNonprint = false, interpretEscapes = false } = {}) {
-  if (!(u8 instanceof Uint8Array) || !u8.length) return "";
-  if (!interpretEscapes) return hexflowFormatBytes(u8, { initialLastWasNonprint });
-
-  const tokens = [];
-  let scan = 0;
-  let last = 0;
-  while (scan < u8.length) {
-    let res = null;
-    for (const parser of INPUT_ESCAPE_PARSERS) {
-      res = parser(u8, scan);
-      if (res) break;
-    }
-    if (!res) {
-      scan++;
-      continue;
-    }
-    if (last < scan) tokens.push({ kind: "bytes", start: last, end: scan });
-    tokens.push({ kind: res.kind, event: res.event });
-    scan += res.len;
-    last = scan;
-  }
-  if (last < u8.length) tokens.push({ kind: "bytes", start: last, end: u8.length });
-
-  let condensed = tokens;
-  for (const condense of INPUT_TOKEN_CONDENSERS) condensed = condense(condensed);
-
-  const out = [];
-  let lastWasNonprint = !!initialLastWasNonprint;
-  for (let i = 0; i < condensed.length; i++) {
-    const t = condensed[i];
-    const next = condensed[i + 1] || null;
-    if (t.kind === "bytes") {
-      const slice = u8.subarray(t.start, t.end);
-      out.push(hexflowFormatBytes(slice, { initialLastWasNonprint: lastWasNonprint }));
-      if (slice.length) lastWasNonprint = !isHexflowPrintableByte(slice[slice.length - 1]);
-      continue;
-    }
-
-    if (t.kind === "macro") {
-      const parts = tokenToDisplayParts(t);
-      if (!parts) continue;
-      let s = ` [${parts.label}]`;
-      if (next && next.kind === "bytes") {
-        const b0 = u8[next.start];
-        if (b0 != null && isHexflowPrintableByte(b0)) s += " ";
-      } else if (next && next.kind === "macro") {
-        s += " ";
-      }
-      out.push(s);
-      lastWasNonprint = false;
-      continue;
-    }
-  }
-
-  return out.join("");
 }
 
 function tokenizeInputBytes(u8) {
@@ -1539,6 +1818,10 @@ function tokenizeInputBytes(u8) {
   let scan = 0;
   let last = 0;
   while (scan < u8.length) {
+    if (u8[scan] !== 0x1b) {
+      scan++;
+      continue;
+    }
     let res = null;
     for (const parser of INPUT_ESCAPE_PARSERS) {
       res = parser(u8, scan);
@@ -1549,7 +1832,19 @@ function tokenizeInputBytes(u8) {
       continue;
     }
     if (last < scan) tokens.push({ kind: "bytes", start: last, end: scan });
-    tokens.push({ kind: res.kind, event: res.event });
+    const token = { kind: "macro", type: res.kind, data: null, event: null, events: null };
+    if (res.kind === "sgr_mouse") token.data = res.event;
+    else if (res.kind === "decrpm") token.data = { mode: res.mode, state: res.state };
+    else if (res.kind === "da1") token.data = { params: res.params };
+    else if (res.kind === "osc_11") token.data = { payload: res.payload };
+    else if (res.kind === "decrqss") token.data = { payload: res.payload };
+    else if (res.kind === "xtgettcap") token.data = { raw: res.raw, decoded: res.decoded };
+    else if (res.kind === "focus_in" || res.kind === "focus_out") token.data = {};
+    else if (res.kind === "csi_private_u") token.data = { ps: res.ps };
+    else if (res.kind === "kitty_key") token.data = { codepoint: res.codepoint, mods: res.mods, eventType: res.eventType };
+    else if (res.kind === "csi_t") token.data = { params: res.params };
+    else token.data = {};
+    tokens.push(token);
     scan += res.len;
     last = scan;
   }
