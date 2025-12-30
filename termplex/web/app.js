@@ -561,9 +561,47 @@ function createSink() {
     // For debugging in devtools.
     window.__TERM_CAPTURE_XTERM_TERM = term;
 
+    // xterm.write() is async (buffered). For bulk no-yield seeks, it can be useful to force synchronous processing
+    // so that the timing reflects actual terminal evaluation (not queued work that drains afterward).
+    //
+    // This uses private xterm internals when available; it is best-effort and safe to fall back to async write.
+    const writeAsync = (s) => term.write(s);
+    const tryWriteSync = (s) => {
+      const t = term;
+      const core = t && typeof t === "object" ? (t._core || t._coreTerminal || t._coreService || null) : null;
+      const wb =
+        core && typeof core === "object"
+          ? core.writeBuffer || core._writeBuffer || (core._core && core._core.writeBuffer) || null
+          : null;
+      if (wb && typeof wb.writeSync === "function") {
+        wb.writeSync(String(s));
+        return true;
+      }
+      return false;
+    };
+    const supportsWriteSync = (() => {
+      try {
+        return tryWriteSync("");
+      } catch {
+        return false;
+      }
+    })();
+
+    let writeImpl = writeAsync;
+
     return {
       kind: "xterm",
-      write: (s) => term.write(s),
+      supportsWriteSync,
+      setWriteMode: (mode) => {
+        if (mode === "sync" && supportsWriteSync) {
+          writeImpl = (s) => {
+            if (!tryWriteSync(s)) writeAsync(s);
+          };
+          return;
+        }
+        writeImpl = writeAsync;
+      },
+      write: (s) => writeImpl(s),
       flush: () =>
         new Promise((resolve) => {
           term.write("", () => resolve());
@@ -589,6 +627,8 @@ function createSink() {
       ui.fallback.textContent += s;
       ui.fallback.scrollTop = ui.fallback.scrollHeight;
     },
+    supportsWriteSync: false,
+    setWriteMode: (_mode) => {},
     flush: async () => {},
     reset: () => {
       ui.fallback.textContent = "";
@@ -1615,6 +1655,8 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
   const doNoYield = bulkNoYield;
   const doZeroScrollback = bulkZeroScrollback;
   const prevVisibility = ui.terminalStage ? ui.terminalStage.style.visibility : "";
+  const canWriteSync = !!(sink && sink.supportsWriteSync);
+  const useWriteSync = doNoYield && canWriteSync;
 
   const seekStart = performance.now();
   let seekMs = 0;
@@ -1628,6 +1670,7 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
   if (doZeroScrollback) applyScrollbackSetting(0);
 
   try {
+    if (useWriteSync && sink && typeof sink.setWriteMode === "function") sink.setWriteMode("sync");
     await player.seekToLocalOffset(localOffset, { yieldEveryMs: doNoYield ? null : 12 });
     seekMs = performance.now() - seekStart;
 
@@ -1636,6 +1679,7 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
     await sink.flush();
     flushMs = performance.now() - flushStart;
   } finally {
+    if (useWriteSync && sink && typeof sink.setWriteMode === "function") sink.setWriteMode("async");
     if (doZeroScrollback) applyScrollbackSetting(scrollbackLines);
     suppressUiProgress = false;
     if (doRenderOff) {
@@ -1670,7 +1714,7 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
     reloadMs,
     seekMs,
     flushMs,
-    bulk: { noYield: doNoYield, renderOff: doRenderOff, zeroScrollback: doZeroScrollback },
+    bulk: { noYield: doNoYield, renderOff: doRenderOff, zeroScrollback: doZeroScrollback, writeSync: useWriteSync },
     totalMs,
   });
   renderInfo();
