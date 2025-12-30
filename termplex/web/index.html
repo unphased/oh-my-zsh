@@ -89,6 +89,17 @@
                 </select>
               </label>
               <label class="panel-field">
+                <span>Playback clock</span>
+                <select id="playbackClock">
+                  <option value="bytes">Bytes (B/s)</option>
+                  <option value="tidx">TCAP time (x)</option>
+                </select>
+              </label>
+              <label class="panel-field">
+                <span>Playback speed (x)</span>
+                <input id="playbackSpeedX" type="number" min="0" step="0.1" value="1" />
+              </label>
+              <label class="panel-field">
                 <span>Scrollback lines (xterm)</span>
                 <input id="scrollbackLines" type="number" min="0" step="100" value="10000" />
               </label>
