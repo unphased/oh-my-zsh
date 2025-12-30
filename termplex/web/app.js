@@ -2854,7 +2854,7 @@ function syncInputLogToCurrentOutputOffset() {
   if (Number.isFinite(local)) renderInputLogFromLocalOffset(local, { absOffset: inputAbs, timeNs });
 }
 
-function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
+function onPlaybackProgress({ offset, total, done, clock, raf, tidx, extraBytesWritten }) {
   if (suppressUiProgress) return;
 
   if (raf) perfInfo.runtime.raf = raf;
@@ -2887,6 +2887,14 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
     lagNote = ` lag=${fmtBytesBigint(lagBytes)} lagT=${fmtNs(lagTimeNs)}`;
   }
 
+  let dynNote = "";
+  if (clock && clock.mode === "tidx" && tidx) {
+    const dyn = tidx.dynChunkBytes;
+    if (Number.isFinite(dyn) && dyn > 0) dynNote = ` dyn≈${fmtBytes(dyn)}`;
+    const wrote = clampInt(Number(extraBytesWritten), 0, 1_000_000_000);
+    if (wrote > 0) dynNote += ` wrote=${fmtBytes(wrote)}`;
+  }
+
   let idleNote = "";
   const idle = tidx && tidx.idle ? tidx.idle : null;
   if (idle && typeof idle.untilNextNs === "bigint" && idle.untilNextNs >= 250_000_000n) {
@@ -2896,7 +2904,7 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
 
   const sizeNote = currentTermSizeNote();
   ui.meta.textContent =
-    `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote}${lagNote}${idleNote} ${sizeNote} ${currentPlaybackConfigNote()}`.trim();
+    `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote}${lagNote}${dynNote}${idleNote} ${sizeNote} ${currentPlaybackConfigNote()}`.trim();
   syncScrubbersFromProgress({
     localOffset: offset,
     localTotal: total,
