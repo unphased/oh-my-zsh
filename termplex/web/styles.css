@@ -380,6 +380,18 @@ details.expando[open] > summary {
   font-size: 12px;
 }
 
+.input-chip--truncated {
+  border-color: rgba(154, 167, 180, 0.35);
+  background: rgba(154, 167, 180, 0.06);
+  color: var(--muted);
+  cursor: default;
+}
+
+.input-chip--truncated:hover {
+  border-color: rgba(154, 167, 180, 0.35);
+  box-shadow: none;
+}
+
 .input-chip--sgr_mouse_drag::before {
   content: "↔";
   color: rgba(214, 221, 230, 0.85);

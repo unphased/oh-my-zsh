@@ -1330,6 +1330,8 @@ function updateRuntimeSessionInfo() {
 // When enabled, this pass can condense verbose input escape sequences into compact tokens.
 // Start with: xterm SGR mouse reporting (1006): ESC [ < Cb ; Cx ; Cy (M|m)
 // -----------------------------------------------------------------------------
+const INPUT_LOG_MAX_RENDER_TOKENS = 1500;
+
 function parseAsciiIntFromBytes(u8, i, { max = 1_000_000 } = {}) {
   const len = u8.length;
   let n = 0;
@@ -1992,7 +1994,14 @@ function tokenizeInputBytes(u8) {
   return condensed;
 }
 
-function renderInputLogTokensToDom(container, u8, tokens, { initialLastWasNonprint = false } = {}) {
+function truncateInputTokensForRender(tokens, { maxTokens = INPUT_LOG_MAX_RENDER_TOKENS } = {}) {
+  const max = clampInt(Number(maxTokens), 50, 50_000);
+  if (!Array.isArray(tokens) || tokens.length <= max) return { tokens: Array.isArray(tokens) ? tokens : [], truncated: false, dropped: 0 };
+  const dropped = tokens.length - max;
+  return { tokens: tokens.slice(-max), truncated: true, dropped };
+}
+
+function renderInputLogTokensToDom(container, u8, tokens, { initialLastWasNonprint = false, truncated = false, dropped = 0 } = {}) {
   if (!container) return;
   container.textContent = "";
   const frag = document.createDocumentFragment();
@@ -2023,6 +2032,21 @@ function renderInputLogTokensToDom(container, u8, tokens, { initialLastWasNonpri
     appendText(" ");
     endedWithSpace = true;
   };
+
+  if (truncated) {
+    appendChip(
+      {
+        type: "truncated",
+        label: `… (${dropped} tokens hidden) …`,
+        title: `Interpret render was capped at ${INPUT_LOG_MAX_RENDER_TOKENS} tokens to avoid excessive DOM churn.`,
+      },
+      null,
+    );
+    const first = tokens && tokens.length ? tokens[0] : null;
+    if (first && first.kind === "bytes" && typeof first.start === "number" && first.start > 0) {
+      lastWasNonprint = !isHexflowPrintableByte(u8[first.start - 1]);
+    }
+  }
 
   for (const t of tokens) {
     if (t.kind === "bytes") {
@@ -2075,9 +2099,10 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
     ui.inputLog.textContent = hexflowFormatBytes(slice, { initialLastWasNonprint });
     ui.inputLog.dataset.windowAbsStart = "";
   } else {
-    const tokens = tokenizeInputBytes(slice);
+    const rawTokens = tokenizeInputBytes(slice);
+    const { tokens, truncated, dropped } = truncateInputTokensForRender(rawTokens);
     ui.inputLog.dataset.windowAbsStart = String(BigInt(currentInput.baseOffset || 0) + BigInt(start));
-    renderInputLogTokensToDom(ui.inputLog, slice, tokens, { initialLastWasNonprint });
+    renderInputLogTokensToDom(ui.inputLog, slice, tokens, { initialLastWasNonprint, truncated, dropped });
   }
   if (inputFollow) ui.inputLog.scrollTop = ui.inputLog.scrollHeight;
 
@@ -2089,7 +2114,8 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
   const windowNote = start > 0 ? ` (window ${fmtBytes(slice.length)}; showing tail)` : "";
   const clampNote = clampedToLoaded ? " (outside loaded range; increase Tail or set Tail=0)" : "";
   const modeNote = inputInterpretEscapes ? " mode=interpret" : "";
-  setInputStatus(`Input ${absNote}${timeNote}${windowNote}${clampNote}${modeNote}`);
+  const capNote = inputInterpretEscapes ? ` (cap ${INPUT_LOG_MAX_RENDER_TOKENS} tokens)` : "";
+  setInputStatus(`Input ${absNote}${timeNote}${windowNote}${clampNote}${modeNote}${capNote}`);
 
   updateRuntimeInputInfo();
   renderInfoThrottled();
@@ -2432,7 +2458,7 @@ let playbackSpeedX = 1.0;
 let tidxEmitHzCap = 0;
 let inputFollow = true;
 let inputInterpretEscapes = false;
-let inputWindowKiB = 64;
+let inputWindowKiB = 16;
 let scrollbackLines = 10000;
 let bulkNoYield = true;
 let bulkRenderOff = true;
