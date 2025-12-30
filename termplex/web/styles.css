@@ -356,6 +356,13 @@ details.expando[open] > summary {
 
 .input-log {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  hyphens: none;
+  -webkit-hyphens: none;
+  resize: vertical;
+  min-height: 140px;
+  max-height: 70vh;
 }
 
 .input-chip {
