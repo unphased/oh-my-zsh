@@ -61,6 +61,7 @@ const ui = {
   chunkSummary: document.getElementById("chunkSummary"),
   clearChunkGraph: document.getElementById("clearChunkGraph"),
   inputStatus: document.getElementById("inputStatus"),
+  inputHoverStatus: document.getElementById("inputHoverStatus"),
   inputLog: document.getElementById("inputLog"),
   inputFollow: document.getElementById("inputFollow"),
   inputInterpretEscapes: document.getElementById("inputInterpretEscapes"),
@@ -1263,6 +1264,8 @@ let currentInput = {
   lastTimeNs: null,
   decoder: new TextDecoder("utf-8", { fatal: false }),
 };
+let inputChipHover = null; // { inputAbs: bigint, timeNs: bigint|null, label: string|null }
+let inputChipHoverRaf = null;
 
 let lastInfoRenderAt = 0;
 function renderInfoThrottled({ force = false } = {}) {
@@ -2044,6 +2047,8 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
   if (!currentInput.u8) {
     ui.inputLog.textContent = "";
     setInputStatus("No input loaded.");
+    setInputHoverStatus("");
+    setInputChipHover(null);
     updateRuntimeInputInfo();
     renderInfoThrottled();
     return;
@@ -2068,6 +2073,7 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
   const initialLastWasNonprint = start > 0 ? !isHexflowPrintableByte(u8[start - 1]) : false;
   if (!inputInterpretEscapes) {
     ui.inputLog.textContent = hexflowFormatBytes(slice, { initialLastWasNonprint });
+    ui.inputLog.dataset.windowAbsStart = "";
   } else {
     const tokens = tokenizeInputBytes(slice);
     ui.inputLog.dataset.windowAbsStart = String(BigInt(currentInput.baseOffset || 0) + BigInt(start));
@@ -2184,6 +2190,57 @@ function setInputStatus(msg, { error = false } = {}) {
   if (!ui.inputStatus) return;
   ui.inputStatus.textContent = msg;
   ui.inputStatus.style.color = error ? "var(--bad)" : "var(--muted)";
+}
+
+function setInputHoverStatus(msg) {
+  if (!ui.inputHoverStatus) return;
+  ui.inputHoverStatus.textContent = msg || "";
+}
+
+function currentPlaybackTimeNs() {
+  // Prefer the playback clock time when in tidx mode (it advances even while "idle").
+  const clock = perfInfo && perfInfo.runtime && perfInfo.runtime.playback ? perfInfo.runtime.playback.clock : null;
+  if (clock && clock.mode === "tidx" && typeof clock.timeNs === "bigint") return clock.timeNs;
+
+  const outputTidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (!outputTidx) return null;
+  const outAbs = BigInt(currentAbsOffset());
+  return timeAtOffsetNs(outputTidx, outAbs);
+}
+
+function updateInputChipHoverStatus() {
+  if (!inputChipHover || !ui.inputHoverStatus) {
+    inputChipHoverRaf = null;
+    return;
+  }
+  const nowNs = currentPlaybackTimeNs();
+  const tNs = inputChipHover.timeNs;
+  if (typeof nowNs !== "bigint" || typeof tNs !== "bigint") {
+    setInputHoverStatus("hover: (needs input+output .tidx)");
+  } else {
+    const deltaNs = nowNs - tNs;
+    const sign = deltaNs < 0n ? "-" : "";
+    const abs = deltaNs < 0n ? -deltaNs : deltaNs;
+    const ms = Number(abs / 1_000_000n);
+    const sec = ms / 1000;
+    const label = inputChipHover.label ? ` ${inputChipHover.label}` : "";
+    setInputHoverStatus(`hover:${label} t=${fmtNs(tNs)} (Δ=${sign}${sec.toFixed(3)}s)`);
+  }
+  inputChipHoverRaf = requestAnimationFrame(() => updateInputChipHoverStatus());
+}
+
+function setInputChipHover({ inputAbs, label } = {}) {
+  if (inputAbs == null) {
+    inputChipHover = null;
+    if (inputChipHoverRaf != null) cancelAnimationFrame(inputChipHoverRaf);
+    inputChipHoverRaf = null;
+    setInputHoverStatus("");
+    return;
+  }
+  const abs = typeof inputAbs === "bigint" ? inputAbs : BigInt(String(inputAbs));
+  const timeNs = currentInput && currentInput.tidx ? timeAtOffsetNs(currentInput.tidx, abs) : null;
+  inputChipHover = { inputAbs: abs, timeNs: typeof timeNs === "bigint" ? timeNs : null, label: label || null };
+  if (inputChipHoverRaf == null) inputChipHoverRaf = requestAnimationFrame(() => updateInputChipHoverStatus());
 }
 
 function currentAbsOffset() {
@@ -3953,6 +4010,25 @@ ui.inputLog?.addEventListener("click", (e) => {
     await fullSeekToAbsOffset(outAbs, { source: "input-click" });
     if (wasPlaying) player.play();
   })();
+});
+
+ui.inputLog?.addEventListener("pointermove", (e) => {
+  const target = e.target instanceof Element ? e.target : null;
+  const chip = target ? target.closest(".input-chip") : null;
+  if (!chip) {
+    if (inputChipHover) setInputChipHover(null);
+    return;
+  }
+  const absStr = chip instanceof HTMLElement ? chip.dataset.inputAbs : null;
+  if (!absStr) return;
+  const inputAbs = BigInt(absStr);
+  if (inputChipHover && inputChipHover.inputAbs === inputAbs) return;
+  const label = chip.textContent ? chip.textContent.trim() : null;
+  setInputChipHover({ inputAbs, label });
+});
+
+ui.inputLog?.addEventListener("pointerleave", () => {
+  if (inputChipHover) setInputChipHover(null);
 });
 
 ui.inputWindowKiB?.addEventListener("change", () => {
