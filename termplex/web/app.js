@@ -1486,6 +1486,27 @@ function tryParseKittyKey(u8, i) {
   return { kind: "kitty_key", len: j - i, codepoint: codeRes.n, mods: modsRes.n, eventType: typeRes.n };
 }
 
+function tryParseCsiUKey(u8, i) {
+  // CSI codepoint ; mods u
+  const len = u8.length;
+  if (i + 6 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5b) return null; // ESC [
+  let j = i + 2;
+  const codeRes = parseAsciiIntFromBytes(u8, j, { max: 0x10ffff });
+  if (!codeRes) return null;
+  j = codeRes.next;
+  if (j >= len || u8[j] !== 0x3b) return null; // ;
+  j++;
+  const modsRes = parseAsciiIntFromBytes(u8, j, { max: 1_000_000 });
+  if (!modsRes) return null;
+  j = modsRes.next;
+  // Must be plain `u`, not kitty's `:...u`.
+  if (j < len && u8[j] === 0x3a) return null; // :
+  if (j >= len || u8[j] !== 0x75) return null; // u
+  j++;
+  return { kind: "csi_u_key", len: j - i, codepoint: codeRes.n, mods: modsRes.n };
+}
+
 function tryParseCsiWindowOpT(u8, i) {
   // CSI ... t
   const len = u8.length;
@@ -1581,6 +1602,7 @@ const INPUT_ESCAPE_PARSERS = [
   tryParseCsiFocus,
   tryParseCsiPrivateU,
   tryParseKittyKey,
+  tryParseCsiUKey,
   tryParseCsiWindowOpT,
 ];
 const INPUT_TOKEN_CONDENSERS = [condenseDecrpmTokens, condenseSgrMouseTokens];
@@ -1803,8 +1825,34 @@ function tokenToDisplayParts(token) {
       title: `Kitty keyboard protocol key event: ${chLabel} (${typeLabel}), mods=${mods}.\nraw: CSI ${cp};${mods}:${et}u`,
     };
   }
+  if (token.type === "csi_u_key") {
+    const cp = token.data.codepoint;
+    const mods = token.data.mods;
+    const ch = Number.isFinite(cp) && cp >= 32 && cp <= 0x10ffff ? String.fromCodePoint(cp) : null;
+    const chLabel = ch && ch !== " " ? ch : ch === " " ? "SPACE" : `U+${cp.toString(16).toUpperCase()}`;
+    const modsLabel = decodeCsiUMods(mods);
+    return {
+      type: "csi_u_key",
+      label: `key ${chLabel} ${modsLabel}`,
+      title: `CSI u key event: Unicode codepoint ${cp} with modifiers ${modsLabel}.\nraw: CSI ${cp};${mods}u`,
+    };
+  }
   if (token.type === "csi_t") {
     const params = token.data.params || "";
+    const nums = params
+      .split(";")
+      .map((p) => (p === "" ? null : Number(p)))
+      .filter((n) => Number.isFinite(n));
+    if (nums.length >= 3 && nums[0] === 48) {
+      const rows = nums[1];
+      const cols = nums[2];
+      const rest = nums.length > 3 ? ` +${nums.length - 3} more` : "";
+      return {
+        type: "csi_t",
+        label: `term size rows=${rows} cols=${cols}${rest}`,
+        title: `xterm window report (CSI … t): rows=${rows}, cols=${cols}.\nraw: CSI ${params} t`,
+      };
+    }
     return {
       type: "csi_t",
       label: `CSI t ${params}`,
@@ -1812,6 +1860,19 @@ function tokenToDisplayParts(token) {
     };
   }
   return { type: token.type || "macro", label: token.type || "macro", title: token.type || "macro" };
+}
+
+function decodeCsiUMods(mods) {
+  // Common xterm-style encoding: 1 + bitmask (Shift=1, Alt=2, Ctrl=4, Meta=8).
+  const m = clampInt(Number(mods), 0, 1_000_000);
+  if (m <= 1) return "mods=1 (none)";
+  const mask = m - 1;
+  const parts = [];
+  if (mask & 1) parts.push("Shift");
+  if (mask & 2) parts.push("Alt");
+  if (mask & 4) parts.push("Ctrl");
+  if (mask & 8) parts.push("Meta");
+  return parts.length ? `mods=${m} (${parts.join("+")})` : `mods=${m}`;
 }
 
 function tokenizeInputBytes(u8) {
@@ -1843,6 +1904,7 @@ function tokenizeInputBytes(u8) {
     else if (res.kind === "focus_in" || res.kind === "focus_out") token.data = {};
     else if (res.kind === "csi_private_u") token.data = { ps: res.ps };
     else if (res.kind === "kitty_key") token.data = { codepoint: res.codepoint, mods: res.mods, eventType: res.eventType };
+    else if (res.kind === "csi_u_key") token.data = { codepoint: res.codepoint, mods: res.mods };
     else if (res.kind === "csi_t") token.data = { params: res.params };
     else token.data = {};
     tokens.push(token);
@@ -1860,6 +1922,8 @@ function renderInputLogTokensToDom(container, u8, tokens, { initialLastWasNonpri
   if (!container) return;
   container.textContent = "";
   const frag = document.createDocumentFragment();
+  const windowAbsStartStr = container instanceof HTMLElement ? container.dataset.windowAbsStart : null;
+  const windowAbsStart = windowAbsStartStr != null && windowAbsStartStr !== "" ? BigInt(windowAbsStartStr) : 0n;
 
   let lastWasNonprint = !!initialLastWasNonprint;
   let endedWithSpace = true;
@@ -1877,8 +1941,8 @@ function renderInputLogTokensToDom(container, u8, tokens, { initialLastWasNonpri
     span.className = `input-chip input-chip--${parts.type}`;
     span.textContent = parts.label;
     if (parts.title) span.title = parts.title;
-    if (token && token.start != null && typeof currentInput?.baseOffset === "number") {
-      const absStart = BigInt(currentInput.baseOffset) + BigInt(token.start);
+    if (token && token.start != null) {
+      const absStart = windowAbsStart + BigInt(token.start);
       span.dataset.inputAbs = String(absStart);
     }
     frag.appendChild(span);
