@@ -62,6 +62,7 @@ const ui = {
   play: document.getElementById("play"),
   pause: document.getElementById("pause"),
   reset: document.getElementById("reset"),
+  hopNext: document.getElementById("hopNext"),
   status: document.getElementById("status"),
   leftPanel: document.getElementById("leftPanel"),
   panelResizer: document.getElementById("panelResizer"),
@@ -1262,6 +1263,31 @@ function updateButtons() {
   ui.play.disabled = !hasLoaded;
   ui.pause.disabled = !hasLoaded;
   ui.reset.disabled = !hasLoaded;
+  ui.hopNext.disabled =
+    !hasLoaded || currentLoadedKind !== "output" || !(currentTcap && currentTcap.outputTidx);
+}
+
+function nextTidxAbsOffsetAfter(tidx, absOffset) {
+  if (!tidx || typeof tidx !== "object") return null;
+  const arr = tidx.endOffsets;
+  if (!Array.isArray(arr) || !arr.length) return null;
+  let abs = 0n;
+  if (typeof absOffset === "bigint") abs = absOffset;
+  else abs = BigInt(clampInt(Number(absOffset), 0, Number.MAX_SAFE_INTEGER));
+  if (abs < 0n) abs = 0n;
+  const off = abs + 1n;
+
+  let lo = 0;
+  let hi = arr.length - 1;
+  const last = BigInt(arr[hi] ?? 0n);
+  if (off > last) return null;
+
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (BigInt(arr[mid]) >= off) hi = mid;
+    else lo = mid + 1;
+  }
+  return BigInt(arr[lo] ?? 0n);
 }
 
 // -----------------------------------------------------------------------------
@@ -1564,6 +1590,60 @@ ui.pause.addEventListener("click", () => {
 
 ui.reset.addEventListener("click", () => {
   player.reset();
+});
+
+ui.hopNext?.addEventListener("click", () => {
+  if (currentLoadedKind !== "output") {
+    setStatus("Hop next only applies to output playback.", { error: true });
+    return;
+  }
+  if (!player.hasLoaded()) return;
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (!tidx) {
+    setStatus("Hop next requires a .tidx sidecar (time-based index).", { error: true });
+    return;
+  }
+
+  const currentAbs = BigInt(currentAbsOffset());
+  const nextAbs = nextTidxAbsOffsetAfter(tidx, currentAbs);
+  if (nextAbs == null) {
+    setStatus("Hop next: already at the last indexed offset.");
+    return;
+  }
+  const baseAbs = BigInt(currentLoadedBaseOffset || 0);
+  const nextLocalBig = nextAbs - baseAbs;
+  if (nextLocalBig > BigInt(Number.MAX_SAFE_INTEGER)) {
+    setStatus("Hop next: next offset is too large for the current JS buffer model.", { error: true });
+    return;
+  }
+  const nextLocal = Number(nextLocalBig >= 0n ? nextLocalBig : 0n);
+  if (!Number.isFinite(nextLocal)) {
+    setStatus("Hop next: next offset is out of range.", { error: true });
+    return;
+  }
+  if (nextLocal > player.bytesTotal()) {
+    setStatus("Hop next: next event is outside the currently loaded bytes (increase Tail or set Tail=0).", {
+      error: true,
+    });
+    return;
+  }
+
+  const fmtAbs = (abs) => {
+    if (typeof abs === "bigint") {
+      if (abs <= BigInt(Number.MAX_SAFE_INTEGER)) return fmtBytes(Number(abs));
+      return `${abs} B`;
+    }
+    return fmtBytes(abs);
+  };
+
+  player.pause();
+  void (async () => {
+    const startedAt = performance.now();
+    await player.advanceToLocalOffset(nextLocal, { yieldEveryMs: 8 });
+    const ms = performance.now() - startedAt;
+    const tNs = timeAtOffsetNs(tidx, nextAbs);
+    setStatus(`Hopped to off=${fmtAbs(nextAbs)} (t=${fmtNs(tNs)}) in ${ms.toFixed(1)}ms.`);
+  })();
 });
 
 ui.rateBps.addEventListener("change", () => {
