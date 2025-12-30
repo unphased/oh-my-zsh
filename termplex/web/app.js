@@ -2550,9 +2550,10 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
   renderInfoThrottled();
 }
 
+const initialSink = sink;
 let player = new OutputPlayer({
-  write: (s) => sink.write(s),
-  reset: () => sink.reset(),
+  write: (s) => initialSink.write(s),
+  reset: () => initialSink.reset(),
   onProgress: onPlaybackProgress,
   onChunk: (info) => {
     if (chunkMonitor) chunkMonitor.record(info);
@@ -2562,6 +2563,15 @@ let player = new OutputPlayer({
 function setStatus(msg, { error = false } = {}) {
   ui.status.textContent = msg;
   ui.status.style.color = error ? "var(--bad)" : "var(--muted)";
+}
+
+function stopPlaybackForLoad() {
+  try {
+    if (player && typeof player.stop === "function") player.stop();
+  } catch {
+    // ignore
+  }
+  lastOutputOffsetForAutofollow = null;
 }
 
 function setInputStatus(msg, { error = false } = {}) {
@@ -3398,12 +3408,14 @@ function syncScrubbersFromProgress({ localOffset, localTotal, clockTimeNs } = {}
 //   - URL: HTTP GET + optional Range tailing + optional TCAP sidecars (output only)
 // -----------------------------------------------------------------------------
 function setupPlaybackPipeline() {
+  stopPlaybackForLoad();
   sink = createSink();
+  const sinkForPlayer = sink;
   applyScrollbackSetting(scrollbackLines);
   lastOutputOffsetForAutofollow = null;
   player = new OutputPlayer({
-    write: (s) => sink.write(s),
-    reset: () => sink.reset(),
+    write: (s) => sinkForPlayer.write(s),
+    reset: () => sinkForPlayer.reset(),
     onProgress: onPlaybackProgress,
     onChunk: (info) => {
       if (chunkMonitor) chunkMonitor.record(info);
@@ -3464,6 +3476,7 @@ function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
 async function loadLocalFile(file, { kind, tailBytesOverride = null } = {}) {
   if (!file) return;
   try {
+    stopPlaybackForLoad();
     savePrefs();
     const seq = ++loadSeq;
     const tailBytes =
@@ -3945,6 +3958,7 @@ async function loadTidxSidecarFromUrl(url, { rawLength } = {}) {
 
 async function loadFromUrl(url, { kind }) {
   try {
+    stopPlaybackForLoad();
     savePrefs();
     const seq = ++loadSeq;
     const tailBytes = clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
@@ -4055,6 +4069,7 @@ async function loadMetaFromUrl(url) {
 }
 
 async function loadSession(sess) {
+  stopPlaybackForLoad();
   const seq = ++sessionLoadSeq;
   currentSession = sess;
   currentSessionMeta = null;
