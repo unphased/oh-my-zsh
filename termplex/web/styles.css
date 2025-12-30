@@ -234,6 +234,14 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.input-hover-status {
+  margin-top: 8px;
+  min-height: 1.2em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 details.expando {
   border: 1px solid var(--border);
   background: var(--panel);
