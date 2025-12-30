@@ -60,6 +60,7 @@ const ui = {
   chunkCanvas: document.getElementById("chunkCanvas"),
   chunkSummary: document.getElementById("chunkSummary"),
   clearChunkGraph: document.getElementById("clearChunkGraph"),
+  outputFollow: document.getElementById("outputFollow"),
   inputStatus: document.getElementById("inputStatus"),
   inputHoverStatus: document.getElementById("inputHoverStatus"),
   inputLog: document.getElementById("inputLog"),
@@ -109,6 +110,8 @@ const NERD_FONT_WEBFONTS_CSS_URL =
 
 let preferNerdFont = true;
 let scrollbackLines = 10000;
+let outputFollow = true;
+let outputFollowHeld = true;
 let nerdFontCssState = { status: "idle", url: NERD_FONT_WEBFONTS_CSS_URL, error: null };
 let nerdFontVerifySeq = 0;
 
@@ -1244,7 +1247,18 @@ function createSink() {
     applyTermFontStack();
     // Defer measurement until xterm has had a chance to render.
     requestAnimationFrame(() => updateTerminalBounds());
-    requestAnimationFrame(() => scrollXtermToBottom(term));
+    if (outputFollow) requestAnimationFrame(() => scrollXtermToBottom(term));
+    setOutputFollowHeld(isXtermViewportAtBottom(term));
+
+    // If the user scrolls up while playing, pause follow until they return to the bottom.
+    const viewport = ui.terminal ? ui.terminal.querySelector(".xterm-viewport") : null;
+    if (viewport && typeof viewport.addEventListener === "function") {
+      viewport.addEventListener("scroll", () => {
+        if (!currentXterm || currentXterm !== term) return;
+        if (!outputFollow) return;
+        setOutputFollowHeld(isXtermViewportAtBottom(term));
+      });
+    }
 
     // For debugging in devtools.
     window.__TERM_CAPTURE_XTERM_TERM = term;
@@ -1369,6 +1383,7 @@ let inputChipHover = null; // { inputAbs: bigint, timeNs: bigint|null, label: st
 let inputChipHoverRaf = null;
 
 let lastInfoRenderAt = 0;
+let lastOutputOffsetForAutofollow = null;
 function renderInfoThrottled({ force = false } = {}) {
   if (!ui.infoPanel) return;
   const now = performance.now();
@@ -2524,7 +2539,14 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
   }
 
   updateHopNextUi();
-  maybeAutofollowOutput();
+  if (Number.isFinite(offset)) {
+    const last = lastOutputOffsetForAutofollow;
+    if (last == null) lastOutputOffsetForAutofollow = offset;
+    else if (offset !== last) {
+      lastOutputOffsetForAutofollow = offset;
+      maybeAutofollowOutput();
+    }
+  }
   renderInfoThrottled();
 }
 
@@ -2957,6 +2979,11 @@ function loadPrefs() {
       playbackSpeedX = Number.isFinite(v) ? Math.max(0, v) : 1.0;
       if (ui.playbackSpeedX) ui.playbackSpeedX.value = String(playbackSpeedX);
     }
+    if (typeof prefs.outputFollow === "boolean") {
+      outputFollow = prefs.outputFollow;
+      outputFollowHeld = outputFollowHeld && outputFollow;
+      syncOutputFollowUi();
+    }
     if (typeof prefs.tidxEmitHzCap === "number") {
       tidxEmitHzCap = clampInt(Number(prefs.tidxEmitHzCap), 0, 10_000);
       if (ui.tidxHzCap) ui.tidxHzCap.value = String(tidxEmitHzCap);
@@ -3013,6 +3040,7 @@ function savePrefs() {
       seekMode,
       playbackClock,
       playbackSpeedX,
+      outputFollow,
       tidxEmitHzCap,
       inputFollow,
       inputInterpretEscapes,
@@ -3102,18 +3130,39 @@ function scrollXtermToBottom(term) {
 }
 
 let lastOutputAutoscrollAt = 0;
+function syncOutputFollowUi() {
+  if (!ui.outputFollow) return;
+  if (!outputFollow) {
+    ui.outputFollow.checked = false;
+    ui.outputFollow.indeterminate = false;
+    return;
+  }
+  if (outputFollowHeld) {
+    ui.outputFollow.checked = true;
+    ui.outputFollow.indeterminate = false;
+    return;
+  }
+  // Paused follow (user scrolled up): show indeterminate so a click resumes follow.
+  ui.outputFollow.checked = false;
+  ui.outputFollow.indeterminate = true;
+}
+
+function setOutputFollowHeld(held) {
+  outputFollowHeld = !!held;
+  syncOutputFollowUi();
+}
+
 function maybeAutofollowOutput({ force = false } = {}) {
   const term = currentXterm;
   if (!term) return;
-  const playing = !!(player && typeof player.isPlaying === "function" && player.isPlaying());
-  if (!force && !playing) return;
+  if (!outputFollow) return;
+  if (!force && !outputFollowHeld) return;
 
   // Avoid doing this on every progress callback; it can be surprisingly expensive when xterm is busy.
   const now = performance.now();
   if (!force && now - lastOutputAutoscrollAt < 120) return;
   lastOutputAutoscrollAt = now;
 
-  if (!force && isXtermViewportAtBottom(term)) return;
   scrollXtermToBottom(term);
 }
 
@@ -3351,6 +3400,7 @@ function syncScrubbersFromProgress({ localOffset, localTotal, clockTimeNs } = {}
 function setupPlaybackPipeline() {
   sink = createSink();
   applyScrollbackSetting(scrollbackLines);
+  lastOutputOffsetForAutofollow = null;
   player = new OutputPlayer({
     write: (s) => sink.write(s),
     reset: () => sink.reset(),
@@ -4378,6 +4428,15 @@ ui.preferNerdFont?.addEventListener("change", () => {
   preferNerdFont = !!ui.preferNerdFont.checked;
   savePrefs();
   applyTermFontStack();
+  renderInfo();
+});
+
+ui.outputFollow?.addEventListener("change", () => {
+  outputFollow = !!ui.outputFollow.checked;
+  outputFollowHeld = outputFollow;
+  if (ui.outputFollow) ui.outputFollow.indeterminate = false;
+  savePrefs();
+  if (outputFollow) maybeAutofollowOutput({ force: true });
   renderInfo();
 });
 
