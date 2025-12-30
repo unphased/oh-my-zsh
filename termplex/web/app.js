@@ -2415,16 +2415,27 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
   if (currentLoadedBaseOffset > 0) {
     if (ui.tailBytes) ui.tailBytes.value = "0";
     savePrefs();
-    setStatus(`Reloading full ${kind} (Tail=0) for from-0 seek…`);
-    const src = kind === "output" ? currentOutputSource : currentInputSource;
-    const srcLabel = kind === "output" ? "output source" : "input source";
-    if (src && src.type === "url") {
-      await loadFromUrl(src.url, { kind });
-    } else if (src && src.type === "file") {
-      await loadLocalFile(src.file, { kind, tailBytesOverride: 0 });
+    if (kind === "output" && currentSession && currentSession.outputUrl && currentSession.inputUrl) {
+      setStatus("Reloading full session (Tail=0) for from-0 seek…");
+      setInputStatus("Reloading full input (Tail=0) for from-0 seek…");
+      await Promise.all([
+        loadFromUrl(currentSession.outputUrl, { kind: "output" }),
+        loadInputFromUrl(currentSession.inputUrl),
+      ]);
+      // Ensure input sync runs after both streams are ready.
+      syncInputLogToCurrentOutputOffset();
     } else {
-      setStatus(`Seek failed: missing ${srcLabel} for reload.`, { error: true });
-      return;
+      setStatus(`Reloading full ${kind} (Tail=0) for from-0 seek…`);
+      const src = kind === "output" ? currentOutputSource : currentInputSource;
+      const srcLabel = kind === "output" ? "output source" : "input source";
+      if (src && src.type === "url") {
+        await loadFromUrl(src.url, { kind });
+      } else if (src && src.type === "file") {
+        await loadLocalFile(src.file, { kind, tailBytesOverride: 0 });
+      } else {
+        setStatus(`Seek failed: missing ${srcLabel} for reload.`, { error: true });
+        return;
+      }
     }
     reloadMs = performance.now() - startedAt;
   }
@@ -2491,6 +2502,8 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
   const timeNote = kind === "output" && tidx ? ` t=${fmtNs(timeAtOffsetNs(tidx, BigInt(abs)))}` : "";
   setStatus(`Seeked to off=${fmtBytes(abs)}.${timeNote}`);
   syncScrubbersFromProgress({ localOffset, localTotal: player.bytesTotal() });
+  syncInputLogToCurrentOutputOffset();
+  updateHopNextUi();
 
   updateAggStats(perfInfo.fullSeek, totalMs, {
     kind,
