@@ -361,7 +361,7 @@ details.expando[open] > summary {
   hyphens: none;
   -webkit-hyphens: none;
   resize: vertical;
-  min-height: 140px;
+  min-height: 250px;
   max-height: 70vh;
 }
 
