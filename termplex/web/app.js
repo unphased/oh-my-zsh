@@ -73,6 +73,7 @@ const ui = {
   playbackClock: document.getElementById("playbackClock"),
   playbackSpeedX: document.getElementById("playbackSpeedX"),
   tidxHzCap: document.getElementById("tidxHzCap"),
+  preferNerdFont: document.getElementById("preferNerdFont"),
   scrollbackLines: document.getElementById("scrollbackLines"),
   bulkNoYield: document.getElementById("bulkNoYield"),
   bulkRenderOff: document.getElementById("bulkRenderOff"),
@@ -101,6 +102,32 @@ let lastMeasuredCellPx = null; // { cellW, cellH }
 let suppressBoundsUpdates = false;
 let boundsDirty = false;
 
+const DEFAULT_FONT_STACK = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+const NERD_FONT_STACK = `"IosevkaTerm Nerd Font Web","IosevkaTerm Nerd Font","IosevkaTerm NF","IosevkaTerm Nerd Font Mono","IosevkaTerm NF Mono",${DEFAULT_FONT_STACK}`;
+
+let preferNerdFont = true;
+
+function currentFontStack() {
+  return preferNerdFont ? NERD_FONT_STACK : DEFAULT_FONT_STACK;
+}
+
+function applyTermFontStack() {
+  const stack = currentFontStack();
+  if (ui.fallback) ui.fallback.style.fontFamily = stack;
+  lastMeasuredCellPx = null;
+
+  if (currentXterm) {
+    try {
+      if (typeof currentXterm.setOption === "function") currentXterm.setOption("fontFamily", stack);
+      else if (currentXterm.options) currentXterm.options.fontFamily = stack;
+    } catch {
+      // ignore
+    }
+  }
+
+  requestAnimationFrame(() => updateTerminalBounds());
+}
+
 // Tracks a capture “terminal size” (cols×rows) and sizes the rendering canvas to match.
 // This is intentionally separate from xterm’s fit/resize logic: we want to visualize the capture’s geometry.
 function setTermSize(cols, rows) {
@@ -121,7 +148,7 @@ function measureFallbackCellPx() {
   probe.textContent = "M";
   probe.style.position = "absolute";
   probe.style.visibility = "hidden";
-  probe.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+  probe.style.fontFamily = currentFontStack();
   probe.style.fontSize = "12px";
   probe.style.lineHeight = "1.0";
   ui.terminalStage.appendChild(probe);
@@ -1132,7 +1159,7 @@ function createSink() {
       allowProposedApi: false,
       convertEol: true,
       cursorBlink: false,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontFamily: currentFontStack(),
       fontSize: 12,
       lineHeight: 1.0,
       scrollback: 10000,
@@ -1144,6 +1171,7 @@ function createSink() {
     term.open(ui.terminal);
     term.focus();
     currentXterm = term;
+    applyTermFontStack();
     // Defer measurement until xterm has had a chance to render.
     requestAnimationFrame(() => updateTerminalBounds());
 
@@ -1209,6 +1237,7 @@ function createSink() {
   ui.fallback.hidden = false;
   ui.fallback.textContent = "";
   currentXterm = null;
+  applyTermFontStack();
 
   return {
     kind: "pre",
@@ -2881,6 +2910,10 @@ function loadPrefs() {
       scrollbackLines = clampInt(prefs.scrollbackLines, 0, 1_000_000);
       if (ui.scrollbackLines) ui.scrollbackLines.value = String(scrollbackLines);
     }
+    if (typeof prefs.preferNerdFont === "boolean") {
+      preferNerdFont = prefs.preferNerdFont;
+      if (ui.preferNerdFont) ui.preferNerdFont.checked = preferNerdFont;
+    }
     if (typeof prefs.bulkNoYield === "boolean") {
       bulkNoYield = prefs.bulkNoYield;
       if (ui.bulkNoYield) ui.bulkNoYield.checked = bulkNoYield;
@@ -2915,6 +2948,7 @@ function savePrefs() {
       inputWindowKiB,
       inputTokenCap,
       scrollbackLines,
+      preferNerdFont,
       bulkNoYield,
       bulkRenderOff,
       bulkZeroScrollback,
@@ -4230,6 +4264,13 @@ ui.scrollbackLines?.addEventListener("change", () => {
   renderInfo();
 });
 
+ui.preferNerdFont?.addEventListener("change", () => {
+  preferNerdFont = !!ui.preferNerdFont.checked;
+  savePrefs();
+  applyTermFontStack();
+  renderInfo();
+});
+
 ui.inputFollow?.addEventListener("change", () => {
   inputFollow = !!ui.inputFollow.checked;
   savePrefs();
@@ -4449,6 +4490,7 @@ ui.offsetScrub?.addEventListener("pointercancel", () => {
 // -----------------------------------------------------------------------------
 loadPrefs();
 chunkMonitor = installChunkMonitor();
+applyTermFontStack();
 updateRuntimeInputInfo();
 renderInfo();
 applyScrollbackSetting(scrollbackLines);

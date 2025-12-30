@@ -50,6 +50,19 @@ If you prefer to do it manually, place these files yourself:
 
 Once present, `index.html` will use them; otherwise it will fall back to loading xterm from a CDN.
 
+## Vendor a Nerd Font (optional, recommended)
+If you want Powerline / Nerd Font glyphs (common in prompts) to render in xterm.js, you can vendor IosevkaTerm Nerd Font:
+
+```sh
+./fetch-iosevka-term-nerd-font.sh
+```
+
+This downloads a minimal subset into:
+
+- `web/vendor/fonts/iosevka-term-nerd/IosevkaTermNerdFont-Regular.ttf`
+
+These files are ignored by git via `web/.gitignore` (`vendor/`).
+
 ## Notes
 - Default “Tail” is 2 MiB to keep big logs snappy; set Tail=0 to load the whole file.
 - “Chunk” + “Speed” control replay batching; the point is to avoid freezing the UI on large logs.
