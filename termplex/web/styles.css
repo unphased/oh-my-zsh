@@ -138,6 +138,7 @@ input#baseUrl {
 .buttons {
   display: inline-flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 button {
@@ -295,6 +296,11 @@ details.expando[open] > summary {
 }
 
 .panel-field select {
+  width: 100%;
+}
+
+.panel-field input[type="number"],
+.panel-field input[type="text"] {
   width: 100%;
 }
 

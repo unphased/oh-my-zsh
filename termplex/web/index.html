@@ -38,36 +38,6 @@
           </button>
           <select id="inputSelect" aria-label="Input capture"></select>
         </div>
-
-        <label class="field">
-          <span>Tail</span>
-          <input id="tailBytes" type="number" min="0" step="4096" value="0" />
-        </label>
-
-        <label class="field">
-          <span>Frame Cap</span>
-          <input id="chunkBytes" type="number" min="1024" step="1024" value="4096" />
-        </label>
-
-        <label class="field">
-          <span>Rate (B/s)</span>
-          <input id="rateBps" type="number" min="0" step="100" value="50000" list="ratePresets" />
-          <datalist id="ratePresets">
-            <option value="1"></option>
-            <option value="10"></option>
-            <option value="400"></option>
-            <option value="1200"></option>
-            <option value="50000"></option>
-            <option value="400000"></option>
-            <option value="0"></option>
-          </datalist>
-        </label>
-
-        <div class="buttons">
-          <button id="play" disabled>Play</button>
-          <button id="pause" disabled>Pause</button>
-          <button id="reset" disabled>Reset</button>
-        </div>
       </div>
     </header>
 
@@ -76,11 +46,24 @@
 
     <main class="main">
       <section class="panel" id="leftPanel">
-        <div class="status" id="status">No file loaded.</div>
         <details class="expando" open>
           <summary>Info</summary>
           <div class="expando-body">
+            <div class="status" id="status">No file loaded.</div>
+            <pre id="infoPanel" class="info-panel"></pre>
+          </div>
+        </details>
+        <details class="expando" open>
+          <summary>Playback controls</summary>
+          <div class="expando-body">
             <div class="panel-controls">
+              <div class="buttons">
+                <button id="play" disabled>Play</button>
+                <button id="pause" disabled>Pause</button>
+                <button id="reset" disabled>Reset</button>
+              </div>
+            </div>
+            <div class="panel-controls" style="margin-top: 10px">
               <label class="panel-field">
                 <span>Seek mode</span>
                 <select id="seekMode">
@@ -99,6 +82,36 @@
                 <span>Playback speed (x)</span>
                 <input id="playbackSpeedX" type="number" min="0" step="0.1" value="1" />
               </label>
+            </div>
+            <div class="panel-controls" style="margin-top: 10px">
+              <label class="panel-field">
+                <span>Tail</span>
+                <input id="tailBytes" type="number" min="0" step="4096" value="0" />
+              </label>
+              <label class="panel-field">
+                <span>Frame Cap</span>
+                <input id="chunkBytes" type="number" min="1024" step="1024" value="4096" />
+              </label>
+              <label class="panel-field">
+                <span>Rate (B/s)</span>
+                <input id="rateBps" type="number" min="0" step="100" value="50000" list="ratePresets" />
+              </label>
+              <datalist id="ratePresets">
+                <option value="1"></option>
+                <option value="10"></option>
+                <option value="400"></option>
+                <option value="1200"></option>
+                <option value="50000"></option>
+                <option value="400000"></option>
+                <option value="0"></option>
+              </datalist>
+            </div>
+          </div>
+        </details>
+        <details class="expando">
+          <summary>Global controls</summary>
+          <div class="expando-body">
+            <div class="panel-controls">
               <label class="panel-field">
                 <span>Scrollback lines (xterm)</span>
                 <input id="scrollbackLines" type="number" min="0" step="100" value="10000" />
@@ -119,7 +132,6 @@
                 <span>Override scrollback→0 during bulk seeks</span>
               </label>
             </div>
-            <pre id="infoPanel" class="info-panel"></pre>
           </div>
         </details>
         <details class="expando">
