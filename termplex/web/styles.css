@@ -168,7 +168,8 @@ button:disabled {
   width: 380px;
   border-right: 1px solid var(--border);
   padding: 14px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-width: 260px;
   max-width: 70vw;
   position: relative;
