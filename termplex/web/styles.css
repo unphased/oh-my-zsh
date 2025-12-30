@@ -388,6 +388,17 @@ details.expando[open] > summary {
   font-size: 12px;
 }
 
+.input-chip--bracketed_paste {
+  border-color: rgba(255, 214, 74, 0.6);
+  background: rgba(255, 214, 74, 0.16);
+  color: var(--text);
+}
+
+.input-chip--bracketed_paste::before {
+  content: "⎘";
+  font-size: 12px;
+}
+
 .input-chip--truncated {
   border-color: rgba(154, 167, 180, 0.35);
   background: rgba(154, 167, 180, 0.06);

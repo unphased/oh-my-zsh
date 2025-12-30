@@ -1334,6 +1334,8 @@ function updateRuntimeSessionInfo() {
 // Start with: xterm SGR mouse reporting (1006): ESC [ < Cb ; Cx ; Cy (M|m)
 // -----------------------------------------------------------------------------
 const DEFAULT_INPUT_LOG_MAX_RENDER_TOKENS = 1500;
+const INPUT_LOG_MAX_PASTE_TOOLTIP_CHARS = 4000;
+const inputPasteDecoder = new TextDecoder("utf-8", { fatal: false });
 
 function parseAsciiIntFromBytes(u8, i, { max = 1_000_000 } = {}) {
   const len = u8.length;
@@ -1620,6 +1622,39 @@ function tryParseCsiArrowKey(u8, i) {
   return null;
 }
 
+function tryParseBracketedPasteMarker(u8, i) {
+  // Bracketed paste markers:
+  // - start: CSI 200~
+  // - end:   CSI 201~
+  const len = u8.length;
+  if (i + 5 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5b) return null; // ESC [
+  if (u8[i + 2] !== 0x32 || u8[i + 3] !== 0x30) return null; // "20"
+  const third = u8[i + 4];
+  if (third !== 0x30 && third !== 0x31) return null; // "0" | "1"
+  if (u8[i + 5] !== 0x7e) return null; // ~
+  return { kind: third === 0x30 ? "bp_start" : "bp_end", len: 6 };
+}
+
+function findBracketedPasteEnd(u8, startAt) {
+  for (let i = Math.max(0, startAt); i + 5 < u8.length; i++) {
+    if (u8[i] !== 0x1b) continue;
+    const m = tryParseBracketedPasteMarker(u8, i);
+    if (m && m.kind === "bp_end") return { index: i, len: m.len };
+  }
+  return null;
+}
+
+function formatPasteTooltipText(u8) {
+  if (!(u8 instanceof Uint8Array) || !u8.length) return "";
+  let text = inputPasteDecoder.decode(u8);
+  // Normalize newlines a bit for tooltips.
+  text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (text.length <= INPUT_LOG_MAX_PASTE_TOOLTIP_CHARS) return text;
+  const extra = text.length - INPUT_LOG_MAX_PASTE_TOOLTIP_CHARS;
+  return `${text.slice(0, INPUT_LOG_MAX_PASTE_TOOLTIP_CHARS)}\n… (+${extra} chars)`;
+}
+
 function tryParseOsc11(u8, i) {
   // OSC 11;... BEL|ST
   const len = u8.length;
@@ -1855,6 +1890,29 @@ function condenseDecrpmTokens(inTokens) {
 
 function tokenToDisplayParts(token) {
   if (!token || token.kind !== "macro") return null;
+  if (token.type === "bracketed_paste") {
+    const bytes = token.data.bytes || 0;
+    const preview = token.data.preview || "";
+    return {
+      type: "bracketed_paste",
+      label: `paste ${fmtBytes(bytes)}`,
+      title: `Bracketed paste: ${bytes} bytes.\n${preview}`,
+    };
+  }
+  if (token.type === "bracketed_paste_start") {
+    return {
+      type: "bracketed_paste",
+      label: "paste start",
+      title: "Bracketed paste start marker.\nraw: CSI 200~",
+    };
+  }
+  if (token.type === "bracketed_paste_end") {
+    return {
+      type: "bracketed_paste",
+      label: "paste end",
+      title: "Bracketed paste end marker.\nraw: CSI 201~",
+    };
+  }
   if (token.type === "sgr_mouse") {
     const ev = token.data;
     const btn = sgrMouseButtonLabel(ev.cb);
@@ -2074,6 +2132,41 @@ function tokenizeInputBytes(u8) {
       scan++;
       continue;
     }
+
+    // Bracketed paste: collapse `CSI 200~ ... CSI 201~` into a single macro token.
+    const bp = tryParseBracketedPasteMarker(u8, scan);
+    if (bp && bp.kind === "bp_start") {
+      if (last < scan) tokens.push({ kind: "bytes", start: last, end: scan });
+      const end = findBracketedPasteEnd(u8, scan + bp.len);
+      if (!end) {
+        tokens.push({ kind: "macro", type: "bracketed_paste_start", data: {}, start: scan, end: scan + bp.len });
+        scan += bp.len;
+        last = scan;
+        continue;
+      }
+      const bodyStart = scan + bp.len;
+      const bodyEnd = end.index;
+      const body = u8.subarray(bodyStart, bodyEnd);
+      const preview = formatPasteTooltipText(body);
+      tokens.push({
+        kind: "macro",
+        type: "bracketed_paste",
+        data: { bytes: body.length, preview },
+        start: scan,
+        end: end.index + end.len,
+      });
+      scan = end.index + end.len;
+      last = scan;
+      continue;
+    }
+    if (bp && bp.kind === "bp_end") {
+      if (last < scan) tokens.push({ kind: "bytes", start: last, end: scan });
+      tokens.push({ kind: "macro", type: "bracketed_paste_end", data: {}, start: scan, end: scan + bp.len });
+      scan += bp.len;
+      last = scan;
+      continue;
+    }
+
     let res = null;
     for (const parser of INPUT_ESCAPE_PARSERS) {
       res = parser(u8, scan);
