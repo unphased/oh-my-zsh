@@ -300,11 +300,13 @@ details.expando[open] > summary {
 
 .panel-field select {
   width: 100%;
+  box-sizing: border-box;
 }
 
 .panel-field input[type="number"],
 .panel-field input[type="text"] {
   width: 100%;
+  box-sizing: border-box;
 }
 
 .info-panel {
