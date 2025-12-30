@@ -106,15 +106,7 @@
               </label>
               <label class="panel-field">
                 <span title="TCAP time mode + time-scrub: lag governor (ms). Larger = smoother (smaller chunks near realtime) but allows more lag; smaller = more aggressive catch-up.">Lag governor (ms, tidx)</span>
-                <input id="tidxLagTauMs" type="number" min="1" step="10" value="120" list="tidxLagPresets" />
-                <datalist id="tidxLagPresets">
-                  <option value="30"></option>
-                  <option value="60"></option>
-                  <option value="120"></option>
-                  <option value="250"></option>
-                  <option value="500"></option>
-                  <option value="1000"></option>
-                </datalist>
+                <input id="tidxLagTauMs" type="number" min="1" step="1" value="120" />
               </label>
             </div>
             <div class="panel-controls" style="margin-top: 10px">
