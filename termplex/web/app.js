@@ -2808,6 +2808,24 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
     timeNote = ` t=${fmtNs(timeAtOffsetNs(currentTcap.outputTidx, BigInt(currentLoadedBaseOffset || 0) + BigInt(offset)))}`;
   }
 
+  let lagNote = "";
+  if (
+    clock &&
+    clock.mode === "tidx" &&
+    typeof clock.timeNs === "bigint" &&
+    tidx &&
+    typeof tidx.desiredAbs === "bigint" &&
+    typeof tidx.currentAbs === "bigint" &&
+    currentTcap &&
+    currentTcap.outputTidx
+  ) {
+    const lagBytes = tidx.desiredAbs > tidx.currentAbs ? tidx.desiredAbs - tidx.currentAbs : 0n;
+    const renderedTimeNs = timeAtOffsetNs(currentTcap.outputTidx, tidx.currentAbs);
+    const lagTimeNs = clock.timeNs > renderedTimeNs ? clock.timeNs - renderedTimeNs : 0n;
+    // Always show while in tidx mode; it’s the key diagnostic for “falling behind”.
+    lagNote = ` lag=${fmtBytesBig(lagBytes)} lagT=${fmtNs(lagTimeNs)}`;
+  }
+
   let idleNote = "";
   const idle = tidx && tidx.idle ? tidx.idle : null;
   if (idle && typeof idle.untilNextNs === "bigint" && idle.untilNextNs >= 250_000_000n) {
@@ -2816,7 +2834,8 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
   }
 
   const sizeNote = currentTermSizeNote();
-  ui.meta.textContent = `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote}${idleNote} ${sizeNote} ${currentPlaybackConfigNote()}`.trim();
+  ui.meta.textContent =
+    `${fmtBytes(offset)} / ${fmtBytes(total)} (${pct}%)${done ? " done" : ""}${timeNote}${lagNote}${idleNote} ${sizeNote} ${currentPlaybackConfigNote()}`.trim();
   syncScrubbersFromProgress({
     localOffset: offset,
     localTotal: total,

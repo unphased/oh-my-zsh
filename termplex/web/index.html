@@ -94,7 +94,7 @@
                 <input id="playbackSpeedX" type="number" min="0" step="0.1" value="1" />
               </label>
               <label class="panel-field">
-                <span title="In TCAP time mode (tidx), cap how often playback emits/render updates by grouping events into frame buckets. 0 = uncapped.">Time render cap (Hz, tidx)</span>
+                <span title="TCAP time mode only: throttle how often we emit/write output (max Hz). 0=auto (≈rAF). Lower Hz reduces work but increases burstiness; Frame Cap still limits bytes per update.">Time render cap (Hz, tidx)</span>
                 <input id="tidxHzCap" type="number" min="0" step="1" value="0" list="tidxHzPresets" />
                 <datalist id="tidxHzPresets">
                   <option value="0"></option>
