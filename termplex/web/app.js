@@ -493,54 +493,50 @@ class DensityStrip {
       return;
     }
 
-    let i = 0;
-    let tPrev = 0;
-    let offPrev = 0;
-    let tEnd = Number(BigInt(tArr[0] ?? 0n));
-    let offEnd = Number(BigInt(offArr[0] ?? 0n));
-
     const startTs = performance.now();
     let lastYield = startTs;
 
     for (let x = 0; x < bins; x++) {
       if (seq !== this._seq) return;
 
-      const frac = bins <= 1 ? 0 : x / (bins - 1);
-      const target = total * frac;
-      if (this.mode === "time") {
-        while (i < n - 1 && tEnd < target) {
-          i++;
-          tPrev = tEnd;
-          offPrev = offEnd;
-          tEnd = Number(BigInt(tArr[i] ?? 0n));
-          offEnd = Number(BigInt(offArr[i] ?? 0n));
-        }
-      } else {
-        while (i < n - 1 && offEnd < target) {
-          i++;
-          tPrev = tEnd;
-          offPrev = offEnd;
-          tEnd = Number(BigInt(tArr[i] ?? 0n));
-          offEnd = Number(BigInt(offArr[i] ?? 0n));
-        }
-      }
-
-      const dtNs = tEnd - tPrev;
-      const dBytes = offEnd - offPrev;
+      // Use *window-based* sampling so brightness corresponds to “how much happened in this region”
+      // rather than the instantaneous rate of the single nearest tidx interval.
       let v = 0;
-      if (dtNs > 0 && dBytes > 0) {
-        if (this.mode === "time") {
-          v = (dBytes * 1_000_000_000) / dtNs; // B/s
-        } else {
-          // ms per KiB (higher => "slower"/more idle per byte).
-          v = (dtNs * 1024) / (dBytes * 1_000_000); // ms/KiB
-        }
-      } else if (this.mode === "time" && dtNs > 0 && dBytes === 0) {
-        v = 0;
+      let dtMs = 0;
+      let dBytes = 0;
+
+      if (this.mode === "time") {
+        // Pixel represents a time slice: [t0, t1].
+        const frac0 = bins <= 1 ? 0 : x / bins;
+        const frac1 = bins <= 1 ? 1 : (x + 1) / bins;
+        const t0 = Math.max(0, Math.floor(totalTimeNs * frac0));
+        const t1 = Math.max(t0, Math.floor(totalTimeNs * frac1));
+        const off0 = offsetAtTimeNs(tidx, BigInt(t0));
+        const off1 = offsetAtTimeNs(tidx, BigInt(t1));
+        const dOffBig = off1 > off0 ? off1 - off0 : 0n;
+        dBytes = dOffBig <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(dOffBig) : Number.MAX_SAFE_INTEGER;
+        dtMs = (t1 - t0) / 1_000_000;
+
+        // Color encodes volume (bytes per slice). Hover can still show an approximate rate.
+        v = dBytes;
+      } else {
+        // Pixel represents a byte slice: [off0, off1].
+        const frac0 = bins <= 1 ? 0 : x / bins;
+        const frac1 = bins <= 1 ? 1 : (x + 1) / bins;
+        const o0 = Math.max(0, Math.floor(totalBytes * frac0));
+        const o1 = Math.max(o0, Math.floor(totalBytes * frac1));
+        const t0 = timeAtOffsetNs(tidx, BigInt(o0));
+        const t1 = timeAtOffsetNs(tidx, BigInt(o1));
+        const dtNs = t1 > t0 ? t1 - t0 : 0n;
+        dtMs = Number(dtNs) / 1_000_000;
+        dBytes = o1 - o0;
+
+        // ms per KiB (higher => "slower"/more idle per byte).
+        v = dBytes > 0 ? (dtMs * 1024) / dBytes : 0;
       }
 
       values[x] = v;
-      dtMsArr[x] = dtNs > 0 ? dtNs / 1_000_000 : 0;
+      dtMsArr[x] = dtMs > 0 ? dtMs : 0;
       dBytesArr[x] = dBytes > 0 ? dBytes : 0;
       if (v > max) max = v;
 
@@ -627,7 +623,8 @@ class DensityStrip {
     if (this.mode === "time") {
       const totalNs = this._meta.total;
       const tNs = Math.max(0, Math.floor(totalNs * frac));
-      hoverEl.title = `t≈${fmtNs(BigInt(tNs))} rate≈${fmtRate(v)} (hotter=more bytes/sec) Δt≈${dtMs.toFixed(1)}ms ΔB≈${fmtBytes(dBytes)}`;
+      const rate = dtMs > 0 ? (dBytes * 1000) / dtMs : 0;
+      hoverEl.title = `t≈${fmtNs(BigInt(tNs))} bytes≈${fmtBytes(dBytes)} (hotter=more bytes) rate≈${fmtRate(rate)} Δt≈${dtMs.toFixed(1)}ms`;
     } else {
       const totalBytes = this._meta.total;
       const off = Math.max(0, Math.floor(totalBytes * frac));
