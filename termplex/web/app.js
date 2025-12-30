@@ -562,8 +562,27 @@ class DensityStrip {
     ctx.fillRect(0, 0, w, h);
 
     const bins = this._bins;
-    const max = Math.max(1e-9, Number(this._meta.max || 0));
-    const denom = Math.log1p(max);
+    const rawMax = Math.max(1e-9, Number(this._meta.max || 0));
+
+    // Linear scale (not logarithmic). To keep a single spike from crushing contrast, use a high quantile cap.
+    // This is still linear w.r.t. values <= cap.
+    let scaleMax = rawMax;
+    try {
+      const positives = [];
+      for (let i = 0; i < bins; i++) {
+        const v = this._values[i] || 0;
+        if (v > 0) positives.push(v);
+      }
+      if (positives.length >= 8) {
+        positives.sort((a, b) => a - b);
+        const q = 0.98;
+        const idx = clampInt(Math.floor(q * (positives.length - 1)), 0, positives.length - 1);
+        const cap = positives[idx] || rawMax;
+        if (Number.isFinite(cap) && cap > 0) scaleMax = Math.max(cap, rawMax * 0.05);
+      }
+    } catch {
+      scaleMax = rawMax;
+    }
 
     const hi = this.mode === "time" ? [61, 220, 151] : [255, 107, 107];
     const lo = [30, 38, 48];
@@ -572,7 +591,7 @@ class DensityStrip {
     for (let x = 0; x < bins; x++) {
       const v = this._values[x] || 0;
       if (v <= 0) continue;
-      const t = denom > 0 ? Math.log1p(v) / denom : 0;
+      const t = scaleMax > 0 ? Math.max(0, Math.min(1, v / scaleMax)) : 0;
       ctx.fillStyle = lerpRgb(lo, hi, t);
       ctx.fillRect(x * barW, 0, barW, h);
     }
