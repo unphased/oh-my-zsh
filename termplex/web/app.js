@@ -57,6 +57,9 @@ const ui = {
   reset: document.getElementById("reset"),
   hopNext: document.getElementById("hopNext"),
   status: document.getElementById("status"),
+  chunkCanvas: document.getElementById("chunkCanvas"),
+  chunkSummary: document.getElementById("chunkSummary"),
+  clearChunkGraph: document.getElementById("clearChunkGraph"),
   inputStatus: document.getElementById("inputStatus"),
   inputLog: document.getElementById("inputLog"),
   inputFollow: document.getElementById("inputFollow"),
@@ -263,6 +266,256 @@ function hexflowFormatBytes(u8, { initialLastWasNonprint = false } = {}) {
 }
 
 // -----------------------------------------------------------------------------
+// Chunk perf monitor (canvas graph)
+//
+// Records the size/frequency of chunks fed into the output sink (xterm.js writes).
+// -----------------------------------------------------------------------------
+function cssVar(name, fallback) {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+class ChunkPerfMonitor {
+  constructor({ canvas, summaryEl, windowMs = 6000 } = {}) {
+    this.canvas = canvas || null;
+    this.summaryEl = summaryEl || null;
+    this.windowMs = clampInt(Number(windowMs), 250, 60_000);
+    this._bins = 0;
+    this._binMs = 0;
+    this._head = 0;
+    this._lastBinTsMs = null;
+    this._bytes = null;
+    this._writes = null;
+    this._phase = null;
+    this._scaleMaxBytes = 1;
+    this._last = null;
+    this._raf = null;
+    this._dpr = 1;
+    this._colors = {
+      none: cssVar("--muted", "#9aa7b4"),
+      playback: cssVar("--good", "#3ddc97"),
+      mode1: cssVar("--accent", "#4aa3ff"),
+      seek: "#a17cff",
+      bulk: cssVar("--bad", "#ff6b6b"),
+    };
+    this._bg = "#0e1217";
+
+    this.resize();
+    this.clear();
+  }
+
+  get binMs() {
+    return this._binMs;
+  }
+
+  get bins() {
+    return this._bins;
+  }
+
+  resize() {
+    const c = this.canvas;
+    if (!c) return;
+    const dpr = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+    const cssW = Math.max(1, Math.floor(c.clientWidth || c.getBoundingClientRect().width || c.width || 1));
+    const cssH = Math.max(1, Math.floor(c.clientHeight || c.getBoundingClientRect().height || c.height || 64));
+    const w = Math.max(1, Math.floor(cssW * dpr));
+    const h = Math.max(1, Math.floor(cssH * dpr));
+    if (c.width !== w) c.width = w;
+    if (c.height !== h) c.height = h;
+    this._dpr = dpr;
+
+    const nextBins = clampInt(cssW, 16, 2400);
+    if (nextBins !== this._bins) {
+      this._bins = nextBins;
+      this._binMs = this.windowMs / Math.max(1, this._bins);
+      this._bytes = new Float64Array(this._bins);
+      this._writes = new Uint32Array(this._bins);
+      this._phase = new Uint8Array(this._bins);
+      this._head = 0;
+      this._lastBinTsMs = null;
+      this._scaleMaxBytes = 1;
+      this._last = null;
+    } else {
+      this._binMs = this.windowMs / Math.max(1, this._bins);
+    }
+
+    this._scheduleRender();
+  }
+
+  clear() {
+    if (this._bytes) this._bytes.fill(0);
+    if (this._writes) this._writes.fill(0);
+    if (this._phase) this._phase.fill(0);
+    this._head = 0;
+    this._lastBinTsMs = null;
+    this._scaleMaxBytes = 1;
+    this._last = null;
+    if (this.summaryEl) this.summaryEl.textContent = "No chunks yet.";
+    this._scheduleRender();
+  }
+
+  _phaseId(phase) {
+    if (phase === "bulk_seek") return 4;
+    if (phase === "seek") return 3;
+    if (phase === "mode1") return 2;
+    if (phase === "playback") return 1;
+    return 0;
+  }
+
+  _phaseColor(id) {
+    if (id === 4) return this._colors.bulk;
+    if (id === 3) return this._colors.seek;
+    if (id === 2) return this._colors.mode1;
+    if (id === 1) return this._colors.playback;
+    return this._colors.none;
+  }
+
+  _advanceTo(tsMs) {
+    if (!Number.isFinite(tsMs)) return;
+    if (this._lastBinTsMs == null) {
+      this._lastBinTsMs = tsMs;
+      return;
+    }
+    const deltaMs = tsMs - this._lastBinTsMs;
+    if (deltaMs <= 0) return;
+    const steps = Math.floor(deltaMs / this._binMs);
+    if (steps <= 0) return;
+
+    if (steps >= this._bins) {
+      this._bytes.fill(0);
+      this._writes.fill(0);
+      this._phase.fill(0);
+      this._head = 0;
+      this._lastBinTsMs = tsMs;
+      return;
+    }
+
+    for (let i = 0; i < steps; i++) {
+      this._head = (this._head + 1) % this._bins;
+      this._bytes[this._head] = 0;
+      this._writes[this._head] = 0;
+      this._phase[this._head] = 0;
+    }
+    this._lastBinTsMs += steps * this._binMs;
+  }
+
+  record({ tsMs, phase, bytes, chars, absStart, absEnd } = {}) {
+    if (!this._bytes || !this._writes || !this._phase) return;
+    const b = clampInt(Number(bytes), 0, 1_000_000_000);
+    if (b <= 0) return;
+    const now = Number.isFinite(tsMs) ? tsMs : performance.now();
+    this._advanceTo(now);
+    const id = this._phaseId(phase);
+    this._bytes[this._head] += b;
+    this._writes[this._head] += 1;
+    if (id > this._phase[this._head]) this._phase[this._head] = id;
+    this._last = {
+      tsMs: now,
+      phase: typeof phase === "string" ? phase : null,
+      bytes: b,
+      chars: clampInt(Number(chars), 0, 1_000_000_000),
+      absStart: typeof absStart === "bigint" ? absStart : null,
+      absEnd: typeof absEnd === "bigint" ? absEnd : null,
+    };
+    this._scheduleRender();
+  }
+
+  _scheduleRender() {
+    if (this._raf != null) return;
+    this._raf = requestAnimationFrame(() => {
+      this._raf = null;
+      this.render();
+    });
+  }
+
+  render() {
+    const c = this.canvas;
+    if (!c || !this._bytes || !this._writes || !this._phase) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+
+    const barW = Math.max(1, Math.floor(this._dpr));
+    const w = c.width;
+    const h = c.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = this._bg;
+    ctx.fillRect(0, 0, w, h);
+
+    let maxBytes = 1;
+    for (let i = 0; i < this._bins; i++) {
+      if (this._bytes[i] > maxBytes) maxBytes = this._bytes[i];
+    }
+    this._scaleMaxBytes = Math.max(maxBytes, Math.floor(this._scaleMaxBytes * 0.95));
+    const denom = Math.max(1, this._scaleMaxBytes);
+    const denomSqrt = Math.sqrt(denom);
+
+    for (let x = 0; x < this._bins; x++) {
+      const idx = (this._head + 1 + x) % this._bins; // left=oldest, right=newest
+      const b = this._bytes[idx];
+      if (b <= 0) continue;
+      const y = Math.max(1, Math.round((Math.sqrt(b) / denomSqrt) * h));
+      ctx.fillStyle = this._phaseColor(this._phase[idx]);
+      ctx.fillRect(x * barW, h - y, barW, y);
+    }
+
+    // Summary + runtime info.
+    const last1sBins = Math.max(1, Math.floor(1000 / this._binMs));
+    let bytes1s = 0;
+    let writes1s = 0;
+    for (let i = 0; i < Math.min(this._bins, last1sBins); i++) {
+      const idx = (this._head - i + this._bins) % this._bins;
+      bytes1s += this._bytes[idx];
+      writes1s += this._writes[idx];
+    }
+
+    let bytesWindow = 0;
+    let writesWindow = 0;
+    for (let i = 0; i < this._bins; i++) {
+      bytesWindow += this._bytes[i];
+      writesWindow += this._writes[i];
+    }
+
+    const last = this._last;
+    const lastNote = last ? `last=${fmtBytes(last.bytes)} ${last.phase || ""}`.trim() : "last=?";
+    const rateNote = `1s=${fmtRate(bytes1s)} (${writes1s}/s)`;
+    const binNote = `bin=${this._binMs.toFixed(1)}ms win=${(this._binMs * this._bins).toFixed(0)}ms`;
+    if (this.summaryEl) this.summaryEl.textContent = `${lastNote} • ${rateNote} • window=${fmtBytes(bytesWindow)} (${writesWindow} writes) • ${binNote}`;
+
+    perfInfo.runtime.chunks = {
+      windowMs: Math.round(this._binMs * this._bins),
+      binMs: this._binMs,
+      bins: this._bins,
+      scaleMaxBytes: this._scaleMaxBytes,
+      last: last
+        ? {
+            tsMs: last.tsMs,
+            phase: last.phase,
+            bytes: last.bytes,
+            chars: last.chars,
+            absStart: typeof last.absStart === "bigint" ? String(last.absStart) : null,
+            absEnd: typeof last.absEnd === "bigint" ? String(last.absEnd) : null,
+          }
+        : null,
+      last1s: {
+        bytes: bytes1s,
+        writes: writes1s,
+        bytesPerSec: bytes1s,
+        writesPerSec: writes1s,
+      },
+      window: {
+        bytes: bytesWindow,
+        writes: writesWindow,
+      },
+    };
+    renderInfoThrottled();
+  }
+}
+
+// -----------------------------------------------------------------------------
 // OutputPlayer: core replay engine (bytes -> decoded text -> sink.write)
 //
 // This class is intentionally UI-agnostic:
@@ -272,10 +525,11 @@ function hexflowFormatBytes(u8, { initialLastWasNonprint = false } = {}) {
 // Refactor candidate: move to `web/viewer/player.js` and unit test it with a fake sink.
 // -----------------------------------------------------------------------------
 class OutputPlayer {
-  constructor({ write, reset, onProgress }) {
+  constructor({ write, reset, onProgress, onChunk } = {}) {
     this._write = write;
     this._reset = reset;
     this._onProgress = onProgress;
+    this._onChunk = typeof onChunk === "function" ? onChunk : null;
     this._decoder = new TextDecoder("utf-8", { fatal: false });
     this._buf = null;
     this._offset = 0;
@@ -296,6 +550,7 @@ class OutputPlayer {
     this._rafAvgMs = null;
     this._tidxEmitHzCap = 0;
     this._tidxSinceEmitMs = 0;
+    this._chunkPhase = null;
   }
 
   hasLoaded() {
@@ -393,7 +648,7 @@ class OutputPlayer {
   // Full recompute seek: resets state and replays from local offset 0 up to `targetOffset`.
   // - Default behavior yields periodically to keep the UI responsive.
   // - Bulk seeks can disable yielding by passing `yieldEveryMs: null`.
-  async seekToLocalOffset(targetOffset, { yieldEveryMs = 12 } = {}) {
+  async seekToLocalOffset(targetOffset, { yieldEveryMs = 12, phase = null } = {}) {
     if (!this._buf) return;
     const target = clampInt(Number(targetOffset), 0, this._buf.length);
 
@@ -420,27 +675,33 @@ class OutputPlayer {
     const shouldYield = Number.isFinite(yieldEveryMs) && yieldEveryMs > 0;
     let lastYield = shouldYield ? performance.now() : 0;
 
-    while (this._offset < target) {
-      const start = this._offset;
-      const end = Math.min(target, start + this._chunkBytes);
-      this._offset = end;
-      this._writeBytesWithResizeEvents(start, end);
-      this._emitProgress(end - start);
+    const prevPhase = this._chunkPhase;
+    this._chunkPhase = phase || (shouldYield ? "seek" : "bulk_seek");
+    try {
+      while (this._offset < target) {
+        const start = this._offset;
+        const end = Math.min(target, start + this._chunkBytes);
+        this._offset = end;
+        this._writeBytesWithResizeEvents(start, end);
+        this._emitProgress(end - start);
 
-      if (shouldYield) {
-        const now = performance.now();
-        if (now - lastYield >= yieldEveryMs) {
-          lastYield = now;
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        if (shouldYield) {
+          const now = performance.now();
+          if (now - lastYield >= yieldEveryMs) {
+            lastYield = now;
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+          }
         }
       }
+    } finally {
+      this._chunkPhase = prevPhase;
     }
   }
 
   // Incremental seek: advances forward from the *current* offset to `targetOffset`.
   // Used by seek mode 1 (drag-right evaluation); never rewinds (drag-left does no work).
-  async advanceToLocalOffset(targetOffset, { yieldEveryMs = 12 } = {}) {
+  async advanceToLocalOffset(targetOffset, { yieldEveryMs = 12, phase = "mode1" } = {}) {
     if (!this._buf) return;
     const target = clampInt(Number(targetOffset), 0, this._buf.length);
     if (target <= this._offset) return;
@@ -448,20 +709,26 @@ class OutputPlayer {
     // Ensure playback RAF isn't running, but keep the current terminal/decoder state.
     this.stop();
 
-    let lastYield = performance.now();
-    while (this._offset < target) {
-      const start = this._offset;
-      const end = Math.min(target, start + this._chunkBytes);
-      this._offset = end;
-      this._writeBytesWithResizeEvents(start, end);
-      this._emitProgress(end - start);
+    const prevPhase = this._chunkPhase;
+    this._chunkPhase = phase || "mode1";
+    try {
+      let lastYield = performance.now();
+      while (this._offset < target) {
+        const start = this._offset;
+        const end = Math.min(target, start + this._chunkBytes);
+        this._offset = end;
+        this._writeBytesWithResizeEvents(start, end);
+        this._emitProgress(end - start);
 
-      const now = performance.now();
-      if (now - lastYield >= yieldEveryMs) {
-        lastYield = now;
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        const now = performance.now();
+        if (now - lastYield >= yieldEveryMs) {
+          lastYield = now;
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        }
       }
+    } finally {
+      this._chunkPhase = prevPhase;
     }
 
     if (this._offset >= this._buf.length) {
@@ -546,6 +813,7 @@ class OutputPlayer {
   _tick(ts) {
     if (!this._playing || !this._buf) return;
 
+    this._chunkPhase = "playback";
     const dtMs = Math.max(0, ts - this._lastTs);
     this._lastTs = ts;
     this._estimateRaf(dtMs);
@@ -688,7 +956,19 @@ class OutputPlayer {
     if (!this._events || !this._onEvent) {
       const chunk = this._buf.subarray(start, end);
       const text = this._decoder.decode(chunk, { stream: true });
-      if (text) this._write(text);
+      if (text) {
+        if (this._onChunk) {
+          this._onChunk({
+            tsMs: performance.now(),
+            phase: this._chunkPhase,
+            bytes: chunk.length,
+            chars: text.length,
+            absStart: this._baseOffset + BigInt(start),
+            absEnd: this._baseOffset + BigInt(end),
+          });
+        }
+        this._write(text);
+      }
       return;
     }
 
@@ -720,7 +1000,19 @@ class OutputPlayer {
       const chunk = this._buf.subarray(cursor, cut);
       cursor = cut;
       const text = this._decoder.decode(chunk, { stream: true });
-      if (text) this._write(text);
+      if (text) {
+        if (this._onChunk) {
+          this._onChunk({
+            tsMs: performance.now(),
+            phase: this._chunkPhase,
+            bytes: chunk.length,
+            chars: text.length,
+            absStart: this._baseOffset + BigInt(cursor - chunk.length),
+            absEnd: this._baseOffset + BigInt(cursor),
+          });
+        }
+        this._write(text);
+      }
     }
   }
 }
@@ -860,6 +1152,7 @@ let currentOutputSource = null; // { type:"url", url } | { type:"file", file } |
 let currentInputSource = null; // { type:"url", url } | { type:"file", file } | null
 let loadSeq = 0;
 let suppressUiProgress = false;
+let chunkMonitor = null; // ChunkPerfMonitor | null
 
 let sessionLoadSeq = 0;
 let inputLoadSeq = 0;
@@ -882,6 +1175,22 @@ function renderInfoThrottled({ force = false } = {}) {
   if (!force && now - lastInfoRenderAt < 250) return;
   lastInfoRenderAt = now;
   renderInfo();
+}
+
+function installChunkMonitor() {
+  if (!ui.chunkCanvas) return null;
+  const monitor = new ChunkPerfMonitor({ canvas: ui.chunkCanvas, summaryEl: ui.chunkSummary, windowMs: 6000 });
+  ui.clearChunkGraph?.addEventListener("click", () => monitor.clear());
+
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(() => monitor.resize());
+    ro.observe(ui.chunkCanvas);
+  } else {
+    window.addEventListener("resize", () => monitor.resize());
+  }
+
+  monitor.resize();
+  return monitor;
 }
 
 function updateRuntimeInputInfo() {
@@ -1039,6 +1348,9 @@ let player = new OutputPlayer({
   write: (s) => sink.write(s),
   reset: () => sink.reset(),
   onProgress: onPlaybackProgress,
+  onChunk: (info) => {
+    if (chunkMonitor) chunkMonitor.record(info);
+  },
 });
 
 function setStatus(msg, { error = false } = {}) {
@@ -1228,6 +1540,7 @@ const perfInfo = {
     playback: { clock: null, tidx: null },
     input: null,
     session: null,
+    chunks: null,
   },
   fullSeek: { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null },
   incremental: { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null },
@@ -1752,6 +2065,9 @@ function setupPlaybackPipeline() {
     write: (s) => sink.write(s),
     reset: () => sink.reset(),
     onProgress: onPlaybackProgress,
+    onChunk: (info) => {
+      if (chunkMonitor) chunkMonitor.record(info);
+    },
   });
 
   const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
@@ -1772,6 +2088,7 @@ function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
   currentLoadedBaseOffset = typeof startOffset === "number" ? startOffset : 0;
   currentLoadedAbsSize = Number.isFinite(size) ? size : null;
   setupPlaybackPipeline();
+  if (chunkMonitor) chunkMonitor.clear();
   resetGestureUi();
   if (ui.terminalTitle) ui.terminalTitle.textContent = kind === "input" ? "Input" : "Output";
   if (currentTcap && currentTcap.outputEvents) {
@@ -2403,6 +2720,7 @@ async function loadSession(sess) {
   currentSessionMeta = null;
   updateRuntimeSessionInfo();
   renderInfoThrottled({ force: true });
+  if (chunkMonitor) chunkMonitor.clear();
 
   // Clear input while loading so the panel reflects the session boundary.
   currentInputSource = { type: "url", url: sess.inputUrl };
@@ -2911,6 +3229,7 @@ ui.offsetScrub?.addEventListener("pointercancel", () => {
 // Initializes prefs/UI state, applies initial playback config, and (best-effort) auto-scans if served under /web/.
 // -----------------------------------------------------------------------------
 loadPrefs();
+chunkMonitor = installChunkMonitor();
 updateRuntimeInputInfo();
 renderInfo();
 applyScrollbackSetting(scrollbackLines);
