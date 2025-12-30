@@ -23,26 +23,12 @@
           <button id="scan">Scan</button>
         </div>
 
-        <div class="field file-drop" id="outputField">
-          <span>Output</span>
-          <button id="pickOutputFile" class="filepick" type="button" title="Choose a local .output (or drop a file onto this field)">
-            File
-          </button>
-          <select id="outputSelect" aria-label="Output capture"></select>
-        </div>
-
-        <div class="field file-drop" id="inputField">
-          <span>Input</span>
-          <button id="pickInputFile" class="filepick" type="button" title="Choose a local .input (or drop a file onto this field)">
-            File
-          </button>
-          <select id="inputSelect" aria-label="Input capture"></select>
+        <div class="field" id="sessionField">
+          <span>Session</span>
+          <select id="sessionSelect" aria-label="Session"></select>
         </div>
       </div>
     </header>
-
-    <input id="fileOutput" type="file" accept=".output,.output.tcap" hidden />
-    <input id="fileInput" type="file" accept=".input,.input.tcap" hidden />
 
     <main class="main">
       <section class="panel" id="leftPanel">
@@ -169,7 +155,7 @@
             <ol>
               <li>Run <code>./term-capture mylog</code> and use the shell as normal.</li>
               <li>Serve the repo dir: <code>cd .. &amp;&amp; python3 -m http.server 7878</code></li>
-              <li>Open <code>/web/</code> and click Scan to find <code>mylog.output</code>.</li>
+              <li>Open <code>/web/</code>, click Scan, and select the <code>mylog</code> session.</li>
             </ol>
             <p>
               Optional: vendor xterm.js at <code>web/vendor/xterm/xterm.js</code> and <code>web/vendor/xterm/xterm.css</code>

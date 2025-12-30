@@ -46,16 +46,9 @@ import {
 // DOM bindings + terminal sizing overlay (purely view concerns)
 // -----------------------------------------------------------------------------
 const ui = {
-  fileOutput: document.getElementById("fileOutput"),
-  fileInput: document.getElementById("fileInput"),
   baseUrl: document.getElementById("baseUrl"),
   scan: document.getElementById("scan"),
-  outputField: document.getElementById("outputField"),
-  inputField: document.getElementById("inputField"),
-  pickOutputFile: document.getElementById("pickOutputFile"),
-  pickInputFile: document.getElementById("pickInputFile"),
-  outputSelect: document.getElementById("outputSelect"),
-  inputSelect: document.getElementById("inputSelect"),
+  sessionSelect: document.getElementById("sessionSelect"),
   tailBytes: document.getElementById("tailBytes"),
   chunkBytes: document.getElementById("chunkBytes"),
   rateBps: document.getElementById("rateBps"),
@@ -812,6 +805,9 @@ function createSink() {
 // Refactor candidate: collect these into a single `viewerState` object (and group per-kind sources in a map).
 // -----------------------------------------------------------------------------
 let currentUrl = null;
+let scannedSessionsByBase = new Map(); // base -> { base, outputUrl, inputUrl, metaUrl }
+let currentSession = null; // { base, outputUrl, inputUrl, metaUrl } | null
+let currentSessionMeta = null; // object | null
 let sink = createSink();
 let currentTcap = null;
 let currentLoadedKind = null; // "output" | "input" | null
@@ -822,8 +818,8 @@ let currentInputSource = null; // { type:"url", url } | { type:"file", file } | 
 let loadSeq = 0;
 let suppressUiProgress = false;
 
+let sessionLoadSeq = 0;
 let inputLoadSeq = 0;
-let inputPinned = false;
 let currentInput = {
   name: null,
   size: null,
@@ -857,6 +853,22 @@ function updateRuntimeInputInfo() {
     lastTimeNs: typeof currentInput.lastTimeNs === "bigint" ? fmtNs(currentInput.lastTimeNs) : null,
     follow: inputFollow,
     windowKiB: inputWindowKiB,
+  };
+}
+
+function updateRuntimeSessionInfo() {
+  if (!currentSession) {
+    perfInfo.runtime.session = null;
+    return;
+  }
+  const outputName = decodeURIComponent(new URL(currentSession.outputUrl).pathname.split("/").pop() || "output");
+  const inputName = decodeURIComponent(new URL(currentSession.inputUrl).pathname.split("/").pop() || "input");
+  perfInfo.runtime.session = {
+    base: currentSession.base,
+    output: outputName,
+    input: inputName,
+    urls: { output: currentSession.outputUrl, input: currentSession.inputUrl, meta: currentSession.metaUrl },
+    meta: currentSessionMeta,
   };
 }
 
@@ -925,40 +937,6 @@ function syncInputLogToCurrentOutputOffset() {
   const localBig = inputAbs - base;
   const local = Number(localBig > 0n ? localBig : 0n);
   if (Number.isFinite(local)) renderInputLogFromLocalOffset(local, { absOffset: inputAbs, timeNs });
-}
-
-function prefixFromCaptureName(name) {
-  if (typeof name !== "string") return null;
-  if (name.endsWith(".output")) return name.slice(0, -".output".length);
-  if (name.endsWith(".output.tcap")) return name.slice(0, -".output.tcap".length);
-  if (name.endsWith(".input")) return name.slice(0, -".input".length);
-  if (name.endsWith(".input.tcap")) return name.slice(0, -".input.tcap".length);
-  return null;
-}
-
-function maybeAutoLoadMatchingInputForOutputUrl(outputUrl) {
-  if (inputPinned) return;
-  if (!ui.inputSelect || !ui.inputSelect.options) return;
-  if (!outputUrl) return;
-
-  const outputName = decodeURIComponent(new URL(outputUrl).pathname.split("/").pop() || "");
-  const prefix = prefixFromCaptureName(outputName);
-  if (!prefix) return;
-
-  const wantA = `${prefix}.input`;
-  const wantB = `${prefix}.input.tcap`;
-  const opts = Array.from(ui.inputSelect.options || []);
-  const match = opts.find((o) => {
-    if (!o || !o.value) return false;
-    const n = decodeURIComponent(new URL(o.value).pathname.split("/").pop() || "");
-    return n === wantA || n === wantB;
-  });
-  if (!match) return;
-
-  ui.inputSelect.value = match.value;
-  currentInputSource = { type: "url", url: match.value };
-  setInputStatus(`Loading ${decodeURIComponent(new URL(match.value).pathname.split("/").pop() || "input")}…`);
-  void loadInputFromUrl(match.value);
 }
 
 function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
@@ -1206,6 +1184,7 @@ const perfInfo = {
     raf: { avgMs: null, hz: null },
     playback: { clock: null, tidx: null },
     input: null,
+    session: null,
   },
   fullSeek: { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null },
   incremental: { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null },
@@ -1727,7 +1706,6 @@ async function loadInputLocalFile(file, { tailBytesOverride = null } = {}) {
 function pickLocalFile(file, { kind }) {
   currentUrl = null;
   if (kind === "input") {
-    inputPinned = true;
     if (!file) {
       currentInputSource = null;
       currentInput = {
@@ -1941,6 +1919,7 @@ function resolvedBaseUrl() {
 // Refactor candidate: move all listing parsing + scan into `web/viewer/listing_scan.js`.
 // -----------------------------------------------------------------------------
 function setSelectOptions(selectEl, items, placeholder) {
+  if (!selectEl) return;
   selectEl.innerHTML = "";
   const ph = document.createElement("option");
   ph.value = "";
@@ -2024,57 +2003,81 @@ async function scanHttpServerListing() {
     }
 
     const nameSet = new Set(Array.from(byName.keys()));
-    const outputs = [];
-    const inputs = [];
-    for (const url of links) {
-      if (url.pathname.endsWith("/")) continue;
-      const name = decodeURIComponent(url.pathname.split("/").pop() || "");
-      const info = byName.get(name) || { name, href: url.toString(), lastModifiedText: null, sizeBytes: null };
-      if (name.endsWith(".output") || name.endsWith(".output.tcap")) {
-        const prefix = name.endsWith(".output") ? name.slice(0, -".output".length) : name.slice(0, -".output.tcap".length);
-        const hasTidx = nameSet.has(`${name}.tidx`);
-        const eventsName = `${prefix}.events.jsonl`;
-        const hasEvents = nameSet.has(eventsName);
-        const sidecarNote =
-          hasTidx || hasEvents ? `sidecars:${hasTidx ? " tidx" : ""}${hasEvents ? " events" : ""}`.trim() : "";
-        const label = fmtListingLabel({ ...info, sidecarNote });
-        const titleParts = [
-          info.name,
-          info.lastModifiedText ? `modified: ${info.lastModifiedText}` : null,
-          Number.isFinite(info.sizeBytes) ? `size: ${info.sizeBytes} bytes` : null,
-          hasTidx ? `${name}.tidx` : null,
-          hasEvents ? eventsName : null,
-        ].filter(Boolean);
-        outputs.push({ ...info, label, title: titleParts.join("\n") });
-      } else if (name.endsWith(".input") || name.endsWith(".input.tcap")) {
-        const hasTidx = nameSet.has(`${name}.tidx`);
-        const sidecarNote = hasTidx ? "sidecars: tidx" : "";
-        const label = fmtListingLabel({ ...info, sidecarNote });
-        const titleParts = [
-          info.name,
-          info.lastModifiedText ? `modified: ${info.lastModifiedText}` : null,
-          Number.isFinite(info.sizeBytes) ? `size: ${info.sizeBytes} bytes` : null,
-          hasTidx ? `${name}.tidx` : null,
-        ].filter(Boolean);
-        inputs.push({ ...info, label, title: titleParts.join("\n") });
-      }
+
+    // Session gating: only list sessions that have all required TCAP artifacts present.
+    // Required (v1):
+    // - <base>.output + <base>.output.tidx
+    // - <base>.input  + <base>.input.tidx
+    // - <base>.meta.json
+    // - <base>.events.jsonl
+    const bases = new Set();
+    for (const name of nameSet) {
+      if (name.endsWith(".meta.json")) bases.add(name.slice(0, -".meta.json".length));
     }
 
-    const sortKey = (x) => x.lastModifiedText || "";
-    outputs.sort((a, b) => sortKey(b).localeCompare(sortKey(a)) || a.name.localeCompare(b.name));
-    inputs.sort((a, b) => sortKey(b).localeCompare(sortKey(a)) || a.name.localeCompare(b.name));
+    const sessions = [];
+    for (const base of bases) {
+      const metaName = `${base}.meta.json`;
+      const eventsName = `${base}.events.jsonl`;
+      const outputName = nameSet.has(`${base}.output`) ? `${base}.output` : nameSet.has(`${base}.output.tcap`) ? `${base}.output.tcap` : null;
+      const inputName = nameSet.has(`${base}.input`) ? `${base}.input` : nameSet.has(`${base}.input.tcap`) ? `${base}.input.tcap` : null;
+      if (!outputName || !inputName) continue;
 
-    setSelectOptions(ui.outputSelect, outputs, outputs.length ? "Select…" : "No .output found");
-    setSelectOptions(ui.inputSelect, inputs, inputs.length ? "Select…" : "No .input found");
+      const outputTidxName = `${outputName}.tidx`;
+      const inputTidxName = `${inputName}.tidx`;
+      const ok =
+        nameSet.has(metaName) &&
+        nameSet.has(eventsName) &&
+        nameSet.has(outputName) &&
+        nameSet.has(outputTidxName) &&
+        nameSet.has(inputName) &&
+        nameSet.has(inputTidxName);
+      if (!ok) continue;
 
-    setStatus(
-      `Scanned ${currentUrl}: ${outputs.length} output, ${inputs.length} input. Select one to load.`,
-    );
+      const metaInfo = byName.get(metaName) || { name: metaName, lastModifiedText: null, sizeBytes: null };
+      const outInfo = byName.get(outputName) || { name: outputName, lastModifiedText: null, sizeBytes: null };
+      const inInfo = byName.get(inputName) || { name: inputName, lastModifiedText: null, sizeBytes: null };
+
+      const parts = [base];
+      if (metaInfo.lastModifiedText) parts.push(metaInfo.lastModifiedText);
+      if (Number.isFinite(outInfo.sizeBytes)) parts.push(`out ${fmtBytes(outInfo.sizeBytes)}`);
+      if (Number.isFinite(inInfo.sizeBytes)) parts.push(`in ${fmtBytes(inInfo.sizeBytes)}`);
+      const label = parts.join(" — ");
+
+      const titleParts = [
+        base,
+        metaInfo.lastModifiedText ? `modified: ${metaInfo.lastModifiedText}` : null,
+        outputName,
+        outputTidxName,
+        inputName,
+        inputTidxName,
+        metaName,
+        eventsName,
+      ].filter(Boolean);
+
+      sessions.push({
+        base,
+        href: base,
+        label,
+        title: titleParts.join("\n"),
+        outputUrl: new URL(outputName, currentUrl).toString(),
+        inputUrl: new URL(inputName, currentUrl).toString(),
+        metaUrl: new URL(metaName, currentUrl).toString(),
+      });
+    }
+
+    const sortKey = (x) => byName.get(`${x.base}.meta.json`)?.lastModifiedText || "";
+    sessions.sort((a, b) => sortKey(b).localeCompare(sortKey(a)) || a.base.localeCompare(b.base));
+
+    scannedSessionsByBase = new Map(sessions.map((s) => [s.base, s]));
+    setSelectOptions(ui.sessionSelect, sessions, sessions.length ? "Select…" : "No complete sessions found");
+
+    setStatus(`Scanned ${currentUrl}: ${sessions.length} complete sessions. Select one to load.`);
     updateButtons();
   } catch (e) {
     currentUrl = null;
-    setSelectOptions(ui.outputSelect, [], "Scan failed");
-    setSelectOptions(ui.inputSelect, [], "Scan failed");
+    scannedSessionsByBase = new Map();
+    setSelectOptions(ui.sessionSelect, [], "Scan failed");
     setStatus(
       `Scan failed: ${e instanceof Error ? e.message : String(e)}. Tip: run the server from the repo root and open /web/.`,
       { error: true },
@@ -2215,6 +2218,65 @@ async function loadInputFromUrl(url) {
       decoder: new TextDecoder("utf-8", { fatal: false }),
     };
     renderInputLogTail();
+  }
+}
+
+async function loadMetaFromUrl(url) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
+  return await res.json();
+}
+
+async function loadSession(sess) {
+  const seq = ++sessionLoadSeq;
+  currentSession = sess;
+  currentSessionMeta = null;
+  updateRuntimeSessionInfo();
+  renderInfoThrottled({ force: true });
+
+  // Clear input while loading so the panel reflects the session boundary.
+  currentInputSource = { type: "url", url: sess.inputUrl };
+  currentInput = {
+    name: null,
+    size: null,
+    baseOffset: 0,
+    absSize: null,
+    u8: null,
+    tidx: null,
+    lastAbsOffset: 0n,
+    lastTimeNs: null,
+    decoder: new TextDecoder("utf-8", { fatal: false }),
+  };
+  renderInputLogTail();
+  setInputStatus(`Loading ${decodeURIComponent(new URL(sess.inputUrl).pathname.split("/").pop() || "input")}…`);
+
+  setStatus(`Loading session ${sess.base}…`);
+
+  try {
+    const [meta] = await Promise.all([
+      loadMetaFromUrl(sess.metaUrl),
+      loadFromUrl(sess.outputUrl, { kind: "output" }),
+      loadInputFromUrl(sess.inputUrl),
+    ]);
+    if (seq !== sessionLoadSeq) return;
+    currentSessionMeta = meta && typeof meta === "object" ? meta : null;
+    updateRuntimeSessionInfo();
+
+    // Defensive checks: sessions should only be listed when these exist, but the directory may change mid-load.
+    if (!currentTcap || !currentTcap.outputTidx) setStatus("Session load incomplete: missing output .tidx.", { error: true });
+    if (!currentTcap || !currentTcap.outputEvents) setStatus("Session load incomplete: missing .events.jsonl.", { error: true });
+    if (!currentInput.u8) setInputStatus("Session load incomplete: missing input bytes.", { error: true });
+    if (!currentInput.tidx) setInputStatus("Session load incomplete: missing input .tidx.", { error: true });
+    if (!currentSessionMeta) setStatus("Session load incomplete: missing .meta.json.", { error: true });
+
+    syncInputLogToCurrentOutputOffset();
+    renderInfoThrottled({ force: true });
+  } catch (e) {
+    if (seq !== sessionLoadSeq) return;
+    currentSessionMeta = null;
+    updateRuntimeSessionInfo();
+    setStatus(`Session load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
+    renderInfoThrottled({ force: true });
   }
 }
 
@@ -2445,39 +2507,16 @@ ui.scan.addEventListener("click", () => {
   void scanHttpServerListing();
 });
 
-ui.outputSelect.addEventListener("change", () => {
+ui.sessionSelect?.addEventListener("change", () => {
   updateButtons();
-  if (!ui.outputSelect.value) return;
-  setStatus(`Loading ${decodeURIComponent(new URL(ui.outputSelect.value).pathname.split("/").pop() || "output")}…`);
-  currentOutputSource = { type: "url", url: ui.outputSelect.value };
-  maybeAutoLoadMatchingInputForOutputUrl(ui.outputSelect.value);
-  void loadFromUrl(ui.outputSelect.value, { kind: "output" });
-});
-
-ui.inputSelect.addEventListener("change", () => {
-  updateButtons();
-  if (!ui.inputSelect.value) {
-    inputPinned = false;
-    currentInputSource = null;
-    currentInput = {
-      name: null,
-      size: null,
-      baseOffset: 0,
-      absSize: null,
-      u8: null,
-      tidx: null,
-      lastAbsOffset: 0n,
-      lastTimeNs: null,
-      decoder: new TextDecoder("utf-8", { fatal: false }),
-    };
-    renderInputLogTail();
-    updateButtons();
+  const base = ui.sessionSelect && ui.sessionSelect.value ? String(ui.sessionSelect.value) : "";
+  if (!base) return;
+  const sess = scannedSessionsByBase.get(base);
+  if (!sess) {
+    setStatus(`Unknown session: ${base}`, { error: true });
     return;
   }
-  setInputStatus(`Loading ${decodeURIComponent(new URL(ui.inputSelect.value).pathname.split("/").pop() || "input")}…`);
-  currentInputSource = { type: "url", url: ui.inputSelect.value };
-  inputPinned = true;
-  void loadInputFromUrl(ui.inputSelect.value);
+  void loadSession(sess);
 });
 
 ui.seekMode?.addEventListener("change", () => {
