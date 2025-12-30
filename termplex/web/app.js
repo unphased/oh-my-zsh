@@ -185,6 +185,13 @@ function fmtBytes(bytes) {
   return `${gib.toFixed(1)} GiB`;
 }
 
+function fmtBytesBigint(bytes) {
+  if (typeof bytes !== "bigint") return "?";
+  if (bytes < 0n) return "?";
+  if (bytes <= BigInt(Number.MAX_SAFE_INTEGER)) return fmtBytes(Number(bytes));
+  return `${bytes} B`;
+}
+
 function clampInt(n, min, max) {
   if (!Number.isFinite(n)) return min;
   return Math.max(min, Math.min(max, Math.floor(n)));
@@ -221,6 +228,38 @@ function currentPlaybackConfigNote() {
 function currentTermSizeNote() {
   if (!currentTermSize) return "";
   return `size=${currentTermSize.cols}×${currentTermSize.rows}`;
+}
+
+// Mirror `hexflow` formatting for raw bytes:
+// - printable ASCII -> literal character (with an extra space when transitioning from nonprintable->printable)
+// - \n, \r, \t -> " \\n"/" \\r"/" \\t"
+// - other nonprintables -> " xx" (2-digit lowercase hex)
+function isHexflowPrintableByte(b) {
+  return b >= 0x20 && b <= 0x7e;
+}
+
+function hexflowFormatBytes(u8, { initialLastWasNonprint = false } = {}) {
+  if (!(u8 instanceof Uint8Array)) return "";
+  let lastWasNonprint = !!initialLastWasNonprint;
+  const out = [];
+  for (let i = 0; i < u8.length; i++) {
+    const c = u8[i];
+    const isPrint = isHexflowPrintableByte(c);
+    if (isPrint && lastWasNonprint) out.push(" ");
+    if (isPrint) {
+      out.push(String.fromCharCode(c));
+    } else if (c === 0x0a) {
+      out.push(" \\n");
+    } else if (c === 0x0d) {
+      out.push(" \\r");
+    } else if (c === 0x09) {
+      out.push(" \\t");
+    } else {
+      out.push(` ${c.toString(16).padStart(2, "0")}`);
+    }
+    lastWasNonprint = !isPrint;
+  }
+  return out.join("");
 }
 
 // -----------------------------------------------------------------------------
@@ -261,6 +300,10 @@ class OutputPlayer {
 
   hasLoaded() {
     return !!this._buf;
+  }
+
+  isPlaying() {
+    return !!this._playing;
   }
 
   bytesTotal() {
@@ -898,9 +941,8 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
   const windowBytes = clampInt(inputWindowKiB * 1024, 1, 16 * 1024 * 1024);
   const start = Math.max(0, local - windowBytes);
   const slice = u8.subarray(start, local);
-  currentInput.decoder = new TextDecoder("utf-8", { fatal: false });
-  const text = currentInput.decoder.decode(slice);
-  ui.inputLog.textContent = text;
+  const initialLastWasNonprint = start > 0 ? !isHexflowPrintableByte(u8[start - 1]) : false;
+  ui.inputLog.textContent = hexflowFormatBytes(slice, { initialLastWasNonprint });
   if (inputFollow) ui.inputLog.scrollTop = ui.inputLog.scrollHeight;
 
   currentInput.lastAbsOffset = absOffset != null ? BigInt(absOffset) : BigInt(currentInput.baseOffset) + BigInt(local);
@@ -989,6 +1031,7 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
     }
   }
 
+  updateHopNextUi();
   renderInfoThrottled();
 }
 
@@ -1416,8 +1459,7 @@ function updateButtons() {
   ui.play.disabled = !hasLoaded;
   ui.pause.disabled = !hasLoaded;
   ui.reset.disabled = !hasLoaded;
-  ui.hopNext.disabled =
-    !hasLoaded || currentLoadedKind !== "output" || !(currentTcap && currentTcap.outputTidx);
+  updateHopNextUi();
 }
 
 function nextTidxAbsOffsetAfter(tidx, absOffset) {
@@ -1441,6 +1483,64 @@ function nextTidxAbsOffsetAfter(tidx, absOffset) {
     else lo = mid + 1;
   }
   return BigInt(arr[lo] ?? 0n);
+}
+
+let lastHopNextLabel = null;
+let lastHopNextTitle = null;
+function updateHopNextUi() {
+  if (!ui.hopNext) return;
+  const hasLoaded = player.hasLoaded();
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (!hasLoaded || currentLoadedKind !== "output" || !tidx) {
+    ui.hopNext.disabled = true;
+    const label = "Hop next";
+    const title = "Fast-forward to the next output event (requires output .tidx).";
+    if (label !== lastHopNextLabel) ui.hopNext.textContent = label;
+    if (title !== lastHopNextTitle) ui.hopNext.title = title;
+    lastHopNextLabel = label;
+    lastHopNextTitle = title;
+    return;
+  }
+
+  const currentAbs = BigInt(currentLoadedBaseOffset || 0) + BigInt(player.bytesOffset());
+  const nextAbs = nextTidxAbsOffsetAfter(tidx, currentAbs);
+  if (nextAbs == null) {
+    ui.hopNext.disabled = true;
+    const label = "Hop next";
+    const title = "Already at the last indexed output offset.";
+    if (label !== lastHopNextLabel) ui.hopNext.textContent = label;
+    if (title !== lastHopNextTitle) ui.hopNext.title = title;
+    lastHopNextLabel = label;
+    lastHopNextTitle = title;
+    return;
+  }
+
+  const bytesDelta = nextAbs - currentAbs;
+  const nextTimeNs = timeAtOffsetNs(tidx, nextAbs);
+  const clock = perfInfo.runtime.playback.clock;
+  const nowTimeNs =
+    clock && clock.mode === "tidx" && typeof clock.timeNs === "bigint" ? clock.timeNs : timeAtOffsetNs(tidx, currentAbs);
+  const timeDeltaNs = nextTimeNs > nowTimeNs ? nextTimeNs - nowTimeNs : 0n;
+
+  const baseAbs = BigInt(currentLoadedBaseOffset || 0);
+  const nextLocalBig = nextAbs - baseAbs;
+  const withinLoaded =
+    nextLocalBig >= 0n &&
+    nextLocalBig <= BigInt(Number.MAX_SAFE_INTEGER) &&
+    Number(nextLocalBig) <= player.bytesTotal();
+
+  ui.hopNext.disabled = !withinLoaded;
+
+  const deltaNote = timeDeltaNs > 0n ? ` (+${fmtNs(timeDeltaNs)})` : "";
+  const label = `Hop next${deltaNote}`;
+  const title = withinLoaded
+    ? `Hop forward by ${fmtBytesBigint(bytesDelta)} (${fmtNs(timeDeltaNs)}) to off=${fmtBytesBigint(nextAbs)}.`
+    : `Next hop is ${fmtBytesBigint(bytesDelta)} (${fmtNs(timeDeltaNs)}) ahead, but outside the loaded bytes (set Tail=0).`;
+
+  if (label !== lastHopNextLabel) ui.hopNext.textContent = label;
+  if (title !== lastHopNextTitle) ui.hopNext.title = title;
+  lastHopNextLabel = label;
+  lastHopNextTitle = title;
 }
 
 // -----------------------------------------------------------------------------
@@ -1827,6 +1927,7 @@ ui.hopNext?.addEventListener("click", () => {
     return;
   }
 
+  const wasPlaying = typeof player.isPlaying === "function" ? player.isPlaying() : false;
   const currentAbs = BigInt(currentAbsOffset());
   const nextAbs = nextTidxAbsOffsetAfter(tidx, currentAbs);
   if (nextAbs == null) {
@@ -1851,21 +1952,14 @@ ui.hopNext?.addEventListener("click", () => {
     return;
   }
 
-  const fmtAbs = (abs) => {
-    if (typeof abs === "bigint") {
-      if (abs <= BigInt(Number.MAX_SAFE_INTEGER)) return fmtBytes(Number(abs));
-      return `${abs} B`;
-    }
-    return fmtBytes(abs);
-  };
-
-  player.pause();
   void (async () => {
     const startedAt = performance.now();
     await player.advanceToLocalOffset(nextLocal, { yieldEveryMs: 8 });
     const ms = performance.now() - startedAt;
     const tNs = timeAtOffsetNs(tidx, nextAbs);
-    setStatus(`Hopped to off=${fmtAbs(nextAbs)} (t=${fmtNs(tNs)}) in ${ms.toFixed(1)}ms.`);
+    setStatus(`Hopped to off=${fmtBytesBigint(nextAbs)} (t=${fmtNs(tNs)}) in ${ms.toFixed(1)}ms.`);
+    if (wasPlaying) player.play();
+    updateHopNextUi();
   })();
 });
 
