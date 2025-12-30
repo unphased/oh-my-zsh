@@ -499,17 +499,24 @@ textarea.info-panel.info-panel--stats {
   position: relative;
   flex: 1;
   min-width: 120px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
 .range-track {
   position: relative;
+  overflow: visible;
+  height: 26px;
+  border: 1px solid var(--border);
+  background: #0e1217;
+  border-radius: 999px;
 }
 
 .range-track input[type="range"] {
+  position: relative;
+  z-index: 2;
   width: 100%;
+  height: 26px;
+  margin: 0;
+  background: transparent;
 }
 
 .range-mark {
@@ -521,16 +528,22 @@ textarea.info-panel.info-panel--stats {
   background: rgba(74, 163, 255, 0.85);
   border-radius: 1px;
   pointer-events: none;
+  z-index: 3;
 }
 
 .density-canvas {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -4px;
+  bottom: -4px;
   width: 100%;
-  height: 10px;
+  height: calc(100% + 8px);
   display: block;
   box-sizing: border-box;
-  border: 1px solid var(--border);
-  background: #0e1217;
-  border-radius: 8px;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .expando-body ol {

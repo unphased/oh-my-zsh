@@ -213,20 +213,20 @@
         </div>
         <div class="scrubber">
           <div class="range">
-            <div class="range-track">
+            <div class="range-track" id="timeRangeTrack">
+              <canvas id="timeDensityCanvas" class="density-canvas" height="10"></canvas>
               <input id="timeScrub" type="range" min="0" max="0" value="0" step="1" disabled />
               <div id="timeMaxMark" class="range-mark" hidden></div>
             </div>
-            <canvas id="timeDensityCanvas" class="density-canvas" height="10"></canvas>
           </div>
         </div>
         <div class="scrubber">
           <div class="range">
-            <div class="range-track">
+            <div class="range-track" id="offsetRangeTrack">
+              <canvas id="offsetDensityCanvas" class="density-canvas" height="10"></canvas>
               <input id="offsetScrub" type="range" min="0" max="0" value="0" step="1" disabled />
               <div id="offsetMaxMark" class="range-mark" hidden></div>
             </div>
-            <canvas id="offsetDensityCanvas" class="density-canvas" height="10"></canvas>
           </div>
         </div>
         <div id="terminalStage" class="terminal-stage">

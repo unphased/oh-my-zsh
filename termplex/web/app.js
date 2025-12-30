@@ -90,10 +90,12 @@ const ui = {
   timeScrub: document.getElementById("timeScrub"),
   timeScrubText: document.getElementById("timeScrubText"),
   timeMaxMark: document.getElementById("timeMaxMark"),
+  timeRangeTrack: document.getElementById("timeRangeTrack"),
   timeDensityCanvas: document.getElementById("timeDensityCanvas"),
   offsetScrub: document.getElementById("offsetScrub"),
   offsetScrubText: document.getElementById("offsetScrubText"),
   offsetMaxMark: document.getElementById("offsetMaxMark"),
+  offsetRangeTrack: document.getElementById("offsetRangeTrack"),
   offsetDensityCanvas: document.getElementById("offsetDensityCanvas"),
   boundsOverlay: document.getElementById("boundsOverlay"),
   boundsLabel: document.getElementById("boundsLabel"),
@@ -397,8 +399,9 @@ function lerpRgb(a, b, t) {
 }
 
 class DensityStrip {
-  constructor({ canvas, mode } = {}) {
+  constructor({ canvas, trackEl, mode } = {}) {
     this.canvas = canvas || null;
+    this.trackEl = trackEl || null;
     this.mode = mode === "offset" ? "offset" : "time"; // time | offset
     this._dpr = 1;
     this._bins = 0;
@@ -412,9 +415,10 @@ class DensityStrip {
       lo: cssVar("--border", "#1e2630"),
     };
 
-    if (this.canvas) {
-      this.canvas.addEventListener("pointermove", (e) => this._onPointerMove(e));
-      this.canvas.addEventListener("pointerleave", () => this._clearHover());
+    const hoverEl = this.trackEl || this.canvas;
+    if (hoverEl) {
+      hoverEl.addEventListener("pointermove", (e) => this._onPointerMove(e));
+      hoverEl.addEventListener("pointerleave", () => this._clearHover());
     }
   }
 
@@ -425,7 +429,8 @@ class DensityStrip {
     if (!ctx) return;
     ctx.fillStyle = this._colors.bg;
     ctx.fillRect(0, 0, c.width, c.height);
-    if (this.canvas) this.canvas.title = "";
+    const hoverEl = this.trackEl || this.canvas;
+    if (hoverEl) hoverEl.title = "";
     this._values = null;
     this._meta = null;
   }
@@ -580,7 +585,8 @@ class DensityStrip {
   }
 
   _onPointerMove(e) {
-    if (!this._values || !this._meta || !this.canvas) return;
+    const hoverEl = this.trackEl || this.canvas;
+    if (!this._values || !this._meta || !hoverEl) return;
     const x = this._pickX(e);
     if (x == null) return;
     const v = this._values[x] || 0;
@@ -588,16 +594,17 @@ class DensityStrip {
     if (this.mode === "time") {
       const totalNs = this._meta.total;
       const tNs = Math.max(0, Math.floor(totalNs * frac));
-      this.canvas.title = `t≈${fmtNs(BigInt(tNs))} rate≈${fmtRate(v)}`;
+      hoverEl.title = `t≈${fmtNs(BigInt(tNs))} rate≈${fmtRate(v)}`;
     } else {
       const totalBytes = this._meta.total;
       const off = Math.max(0, Math.floor(totalBytes * frac));
-      this.canvas.title = `off≈${fmtBytes(off)} dt≈${v.toFixed(1)} ms/KiB`;
+      hoverEl.title = `off≈${fmtBytes(off)} dt≈${v.toFixed(1)} ms/KiB`;
     }
   }
 
   _clearHover() {
-    if (this.canvas) this.canvas.title = "";
+    const hoverEl = this.trackEl || this.canvas;
+    if (hoverEl) hoverEl.title = "";
   }
 }
 
@@ -1648,8 +1655,16 @@ function installChunkMonitor() {
 }
 
 function installDensityStrips() {
-  if (ui.timeDensityCanvas) timeDensityStrip = new DensityStrip({ canvas: ui.timeDensityCanvas, mode: "time" });
-  if (ui.offsetDensityCanvas) offsetDensityStrip = new DensityStrip({ canvas: ui.offsetDensityCanvas, mode: "offset" });
+  if (ui.timeDensityCanvas) {
+    timeDensityStrip = new DensityStrip({ canvas: ui.timeDensityCanvas, trackEl: ui.timeRangeTrack, mode: "time" });
+  }
+  if (ui.offsetDensityCanvas) {
+    offsetDensityStrip = new DensityStrip({
+      canvas: ui.offsetDensityCanvas,
+      trackEl: ui.offsetRangeTrack,
+      mode: "offset",
+    });
+  }
 
   const redraw = () => {
     const outTidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
@@ -3724,8 +3739,6 @@ function setupPlaybackPipeline() {
   });
 
   // Density strips depend on output tidx.
-  if (!timeDensityStrip && ui.timeDensityCanvas) timeDensityStrip = new DensityStrip({ canvas: ui.timeDensityCanvas, mode: "time" });
-  if (!offsetDensityStrip && ui.offsetDensityCanvas) offsetDensityStrip = new DensityStrip({ canvas: ui.offsetDensityCanvas, mode: "offset" });
   const outTidx = currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
   if (timeDensityStrip) timeDensityStrip.setTidx(outTidx);
   if (offsetDensityStrip) offsetDensityStrip.setTidx(outTidx);
