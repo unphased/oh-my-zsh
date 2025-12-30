@@ -64,6 +64,10 @@ const ui = {
   reset: document.getElementById("reset"),
   hopNext: document.getElementById("hopNext"),
   status: document.getElementById("status"),
+  inputStatus: document.getElementById("inputStatus"),
+  inputLog: document.getElementById("inputLog"),
+  inputFollow: document.getElementById("inputFollow"),
+  inputWindowKiB: document.getElementById("inputWindowKiB"),
   leftPanel: document.getElementById("leftPanel"),
   panelResizer: document.getElementById("panelResizer"),
   seekMode: document.getElementById("seekMode"),
@@ -818,6 +822,20 @@ let currentInputSource = null; // { type:"url", url } | { type:"file", file } | 
 let loadSeq = 0;
 let suppressUiProgress = false;
 
+let inputLoadSeq = 0;
+let inputPinned = false;
+let currentInput = {
+  name: null,
+  size: null,
+  baseOffset: 0,
+  absSize: null,
+  u8: null,
+  tidx: null,
+  lastAbsOffset: 0n,
+  lastTimeNs: null,
+  decoder: new TextDecoder("utf-8", { fatal: false }),
+};
+
 let lastInfoRenderAt = 0;
 function renderInfoThrottled({ force = false } = {}) {
   if (!ui.infoPanel) return;
@@ -825,6 +843,122 @@ function renderInfoThrottled({ force = false } = {}) {
   if (!force && now - lastInfoRenderAt < 250) return;
   lastInfoRenderAt = now;
   renderInfo();
+}
+
+function updateRuntimeInputInfo() {
+  perfInfo.runtime.input = {
+    loaded: !!currentInput.u8,
+    name: currentInput.name,
+    size: currentInput.size,
+    baseOffset: currentInput.baseOffset,
+    absSize: currentInput.absSize,
+    hasTidx: !!currentInput.tidx,
+    lastAbsOffset: typeof currentInput.lastAbsOffset === "bigint" ? String(currentInput.lastAbsOffset) : null,
+    lastTimeNs: typeof currentInput.lastTimeNs === "bigint" ? fmtNs(currentInput.lastTimeNs) : null,
+    follow: inputFollow,
+    windowKiB: inputWindowKiB,
+  };
+}
+
+function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs = null } = {}) {
+  if (!ui.inputLog) return;
+  if (!currentInput.u8) {
+    ui.inputLog.textContent = "";
+    setInputStatus("No input loaded.");
+    updateRuntimeInputInfo();
+    renderInfoThrottled();
+    return;
+  }
+
+  const fmtAbs = (abs) => {
+    if (typeof abs === "bigint") {
+      if (abs <= BigInt(Number.MAX_SAFE_INTEGER)) return fmtBytes(Number(abs));
+      return `${abs} B`;
+    }
+    if (Number.isFinite(abs)) return fmtBytes(abs);
+    return "?";
+  };
+
+  const u8 = currentInput.u8;
+  const desiredLocal = Number(localOffset);
+  const local = clampInt(desiredLocal, 0, u8.length);
+  const clampedToLoaded = Number.isFinite(desiredLocal) && desiredLocal > u8.length;
+  const windowBytes = clampInt(inputWindowKiB * 1024, 1, 16 * 1024 * 1024);
+  const start = Math.max(0, local - windowBytes);
+  const slice = u8.subarray(start, local);
+  currentInput.decoder = new TextDecoder("utf-8", { fatal: false });
+  const text = currentInput.decoder.decode(slice);
+  ui.inputLog.textContent = text;
+  if (inputFollow) ui.inputLog.scrollTop = ui.inputLog.scrollHeight;
+
+  currentInput.lastAbsOffset = absOffset != null ? BigInt(absOffset) : BigInt(currentInput.baseOffset) + BigInt(local);
+  currentInput.lastTimeNs = typeof timeNs === "bigint" ? timeNs : null;
+  const absNote =
+    absOffset != null ? `off=${fmtAbs(absOffset)}` : `off=${fmtBytes(currentInput.baseOffset + local)}`;
+  const timeNote = typeof timeNs === "bigint" ? ` t=${fmtNs(timeNs)}` : "";
+  const windowNote = start > 0 ? ` (window ${fmtBytes(slice.length)}; showing tail)` : "";
+  const clampNote = clampedToLoaded ? " (outside loaded range; increase Tail or set Tail=0)" : "";
+  setInputStatus(`Input ${absNote}${timeNote}${windowNote}${clampNote}`);
+
+  updateRuntimeInputInfo();
+  renderInfoThrottled();
+}
+
+function renderInputLogTail() {
+  if (!currentInput.u8) {
+    renderInputLogFromLocalOffset(0);
+    return;
+  }
+  renderInputLogFromLocalOffset(currentInput.u8.length);
+}
+
+function syncInputLogToCurrentOutputOffset() {
+  if (!currentInput.tidx) return;
+  if (!player || !player.hasLoaded()) return;
+  const outputTidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (!outputTidx) return;
+
+  const outputAbs = BigInt(currentLoadedBaseOffset || 0) + BigInt(player.bytesOffset());
+  const timeNs = timeAtOffsetNs(outputTidx, outputAbs);
+  const inputAbs = offsetAtTimeNs(currentInput.tidx, timeNs);
+  const base = BigInt(currentInput.baseOffset || 0);
+  const localBig = inputAbs - base;
+  const local = Number(localBig > 0n ? localBig : 0n);
+  if (Number.isFinite(local)) renderInputLogFromLocalOffset(local, { absOffset: inputAbs, timeNs });
+}
+
+function prefixFromCaptureName(name) {
+  if (typeof name !== "string") return null;
+  if (name.endsWith(".output")) return name.slice(0, -".output".length);
+  if (name.endsWith(".output.tcap")) return name.slice(0, -".output.tcap".length);
+  if (name.endsWith(".input")) return name.slice(0, -".input".length);
+  if (name.endsWith(".input.tcap")) return name.slice(0, -".input.tcap".length);
+  return null;
+}
+
+function maybeAutoLoadMatchingInputForOutputUrl(outputUrl) {
+  if (inputPinned) return;
+  if (!ui.inputSelect || !ui.inputSelect.options) return;
+  if (!outputUrl) return;
+
+  const outputName = decodeURIComponent(new URL(outputUrl).pathname.split("/").pop() || "");
+  const prefix = prefixFromCaptureName(outputName);
+  if (!prefix) return;
+
+  const wantA = `${prefix}.input`;
+  const wantB = `${prefix}.input.tcap`;
+  const opts = Array.from(ui.inputSelect.options || []);
+  const match = opts.find((o) => {
+    if (!o || !o.value) return false;
+    const n = decodeURIComponent(new URL(o.value).pathname.split("/").pop() || "");
+    return n === wantA || n === wantB;
+  });
+  if (!match) return;
+
+  ui.inputSelect.value = match.value;
+  currentInputSource = { type: "url", url: match.value };
+  setInputStatus(`Loading ${decodeURIComponent(new URL(match.value).pathname.split("/").pop() || "input")}…`);
+  void loadInputFromUrl(match.value);
 }
 
 function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
@@ -856,6 +990,27 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
     localTotal: total,
     clockTimeNs: clock && clock.mode === "tidx" ? clock.timeNs : null,
   });
+
+  // If we have both an output time and an input time index, keep the input log synced.
+  const outputTidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  const outputAbs = BigInt(currentLoadedBaseOffset || 0) + BigInt(offset);
+  const timeNs =
+    clock && clock.mode === "tidx" && typeof clock.timeNs === "bigint"
+      ? clock.timeNs
+      : outputTidx
+        ? timeAtOffsetNs(outputTidx, outputAbs)
+        : null;
+  if (typeof timeNs === "bigint" && currentInput.tidx) {
+    const inputAbs = offsetAtTimeNs(currentInput.tidx, timeNs);
+    const base = BigInt(currentInput.baseOffset || 0);
+    const localBig = inputAbs - base;
+    const local = Number(localBig > 0n ? localBig : 0n);
+    const lastAbs = typeof currentInput.lastAbsOffset === "bigint" ? currentInput.lastAbsOffset : null;
+    if (lastAbs == null || inputAbs !== lastAbs) {
+      if (Number.isFinite(local)) renderInputLogFromLocalOffset(local, { absOffset: inputAbs, timeNs });
+    }
+  }
+
   renderInfoThrottled();
 }
 
@@ -868,6 +1023,12 @@ let player = new OutputPlayer({
 function setStatus(msg, { error = false } = {}) {
   ui.status.textContent = msg;
   ui.status.style.color = error ? "var(--bad)" : "var(--muted)";
+}
+
+function setInputStatus(msg, { error = false } = {}) {
+  if (!ui.inputStatus) return;
+  ui.inputStatus.textContent = msg;
+  ui.inputStatus.style.color = error ? "var(--bad)" : "var(--muted)";
 }
 
 function currentAbsOffset() {
@@ -1044,6 +1205,7 @@ const perfInfo = {
   runtime: {
     raf: { avgMs: null, hz: null },
     playback: { clock: null, tidx: null },
+    input: null,
   },
   fullSeek: { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null },
   incremental: { count: 0, lastMs: null, minMs: null, maxMs: null, avgMs: null, last: null },
@@ -1053,6 +1215,8 @@ let seekMode = 0; // 0 | 1
 let playbackClock = "bytes"; // "bytes" | "tidx"
 let playbackSpeedX = 1.0;
 let tidxEmitHzCap = 0;
+let inputFollow = true;
+let inputWindowKiB = 64;
 let scrollbackLines = 10000;
 let bulkNoYield = true;
 let bulkRenderOff = true;
@@ -1149,6 +1313,14 @@ function loadPrefs() {
       tidxEmitHzCap = clampInt(Number(prefs.tidxEmitHzCap), 0, 10_000);
       if (ui.tidxHzCap) ui.tidxHzCap.value = String(tidxEmitHzCap);
     }
+    if (typeof prefs.inputFollow === "boolean") {
+      inputFollow = prefs.inputFollow;
+      if (ui.inputFollow) ui.inputFollow.checked = inputFollow;
+    }
+    if (typeof prefs.inputWindowKiB === "number") {
+      inputWindowKiB = clampInt(Number(prefs.inputWindowKiB), 1, 16 * 1024);
+      if (ui.inputWindowKiB) ui.inputWindowKiB.value = String(inputWindowKiB);
+    }
     if (typeof prefs.scrollbackLines === "number") {
       scrollbackLines = clampInt(prefs.scrollbackLines, 0, 1_000_000);
       if (ui.scrollbackLines) ui.scrollbackLines.value = String(scrollbackLines);
@@ -1182,6 +1354,8 @@ function savePrefs() {
       playbackClock,
       playbackSpeedX,
       tidxEmitHzCap,
+      inputFollow,
+      inputWindowKiB,
       scrollbackLines,
       bulkNoYield,
       bulkRenderOff,
@@ -1501,10 +1675,82 @@ async function loadLocalFile(file, { kind, tailBytesOverride = null } = {}) {
   }
 }
 
+async function loadInputLocalFile(file, { tailBytesOverride = null } = {}) {
+  if (!file) return;
+  try {
+    savePrefs();
+    const seq = ++inputLoadSeq;
+    const tailBytes =
+      tailBytesOverride != null
+        ? clampInt(Number(tailBytesOverride), 0, Number.MAX_SAFE_INTEGER)
+        : clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
+    const fileSize = file.size;
+    const start = tailBytes > 0 ? Math.max(0, fileSize - tailBytes) : 0;
+    const blob = file.slice(start, fileSize);
+    const buf = await blob.arrayBuffer();
+    if (seq !== inputLoadSeq) return;
+    currentInput = {
+      name: file.name || "input",
+      size: fileSize,
+      baseOffset: start,
+      absSize: fileSize,
+      u8: new Uint8Array(buf),
+      tidx: null,
+      lastAbsOffset: 0n,
+      lastTimeNs: null,
+      decoder: new TextDecoder("utf-8", { fatal: false }),
+    };
+    currentInputSource = { type: "file", file };
+    setInputStatus(`Loaded ${currentInput.name}${start > 0 ? ` (tail ${fmtBytes(currentInput.u8.length)})` : ""}.`);
+    renderInputLogTail();
+    updateButtons();
+  } catch (e) {
+    setInputStatus(`Input load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
+    currentInputSource = null;
+    currentInput = {
+      name: null,
+      size: null,
+      baseOffset: 0,
+      absSize: null,
+      u8: null,
+      tidx: null,
+      lastAbsOffset: 0n,
+      lastTimeNs: null,
+      decoder: new TextDecoder("utf-8", { fatal: false }),
+    };
+    renderInputLogTail();
+  }
+}
+
 // UI entry point for local files: records "source" (so we can reload with Tail=0 during bulk seeks)
 // and then delegates to the async loader.
 function pickLocalFile(file, { kind }) {
   currentUrl = null;
+  if (kind === "input") {
+    inputPinned = true;
+    if (!file) {
+      currentInputSource = null;
+      currentInput = {
+        name: null,
+        size: null,
+        baseOffset: 0,
+        absSize: null,
+        u8: null,
+        tidx: null,
+        lastAbsOffset: 0n,
+        lastTimeNs: null,
+        decoder: new TextDecoder("utf-8", { fatal: false }),
+      };
+      renderInputLogTail();
+      updateButtons();
+      return;
+    }
+    setInputStatus(`Selected ${file.name} (${fmtBytes(file.size)}). Loading…`);
+    updateButtons();
+    currentInputSource = { type: "file", file };
+    void loadInputLocalFile(file);
+    return;
+  }
   if (!file) {
     setStatus("No file loaded.");
     ui.meta.textContent = "";
@@ -1515,7 +1761,6 @@ function pickLocalFile(file, { kind }) {
   setStatus(`Selected ${file.name} (${fmtBytes(file.size)}). Loading…`);
   updateButtons();
   if (kind === "output") currentOutputSource = { type: "file", file };
-  if (kind === "input") currentInputSource = { type: "file", file };
   void loadLocalFile(file, { kind });
 }
 
@@ -1802,11 +2047,14 @@ async function scanHttpServerListing() {
         ].filter(Boolean);
         outputs.push({ ...info, label, title: titleParts.join("\n") });
       } else if (name.endsWith(".input") || name.endsWith(".input.tcap")) {
-        const label = fmtListingLabel({ ...info, sidecarNote: "" });
+        const hasTidx = nameSet.has(`${name}.tidx`);
+        const sidecarNote = hasTidx ? "sidecars: tidx" : "";
+        const label = fmtListingLabel({ ...info, sidecarNote });
         const titleParts = [
           info.name,
           info.lastModifiedText ? `modified: ${info.lastModifiedText}` : null,
           Number.isFinite(info.sizeBytes) ? `size: ${info.sizeBytes} bytes` : null,
+          hasTidx ? `${name}.tidx` : null,
         ].filter(Boolean);
         inputs.push({ ...info, label, title: titleParts.join("\n") });
       }
@@ -1853,6 +2101,18 @@ async function fetchArrayBufferWithOptionalRange(url, startByte) {
   return await res.arrayBuffer();
 }
 
+async function loadTidxSidecarFromUrl(url, { rawLength } = {}) {
+  try {
+    const tidxUrl = `${url}.tidx`;
+    const buf = await fetchArrayBufferWithOptionalRange(tidxUrl, 0);
+    let tidx = parseTidx(new Uint8Array(buf));
+    if (tidx && Number.isFinite(rawLength)) tidx = truncateTidxToRawLength(tidx, BigInt(rawLength));
+    return tidx;
+  } catch {
+    return null;
+  }
+}
+
 async function loadFromUrl(url, { kind }) {
   try {
     savePrefs();
@@ -1890,6 +2150,71 @@ async function loadFromUrl(url, { kind }) {
   } catch (e) {
     setStatus(`Load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
     updateButtons();
+  }
+}
+
+async function loadInputFromUrl(url) {
+  try {
+    savePrefs();
+    const seq = ++inputLoadSeq;
+    const tailBytes = clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER);
+
+    let size = null;
+    try {
+      const head = await fetch(url, { method: "HEAD", cache: "no-store" });
+      if (head.ok) {
+        const len = head.headers.get("content-length");
+        if (len) size = Number(len);
+      }
+    } catch {
+      // ignore
+    }
+
+    if (seq !== inputLoadSeq) return;
+
+    const start = size != null && tailBytes > 0 ? Math.max(0, size - tailBytes) : 0;
+    const buf = await fetchArrayBufferWithOptionalRange(url, start);
+    const u8 = new Uint8Array(buf);
+
+    if (seq !== inputLoadSeq) return;
+
+    const tidx = await loadTidxSidecarFromUrl(url, { rawLength: size != null ? size : u8.length });
+
+    if (seq !== inputLoadSeq) return;
+
+    const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || "input");
+    currentInput = {
+      name,
+      size: size != null ? size : u8.length,
+      baseOffset: start,
+      absSize: size != null ? size : null,
+      u8,
+      tidx,
+      lastAbsOffset: 0n,
+      lastTimeNs: null,
+      decoder: new TextDecoder("utf-8", { fatal: false }),
+    };
+
+    currentInputSource = { type: "url", url };
+    setInputStatus(`Loaded ${name}${start > 0 ? ` (tail ${fmtBytes(u8.length)})` : ""}${tidx ? " (tidx)" : ""}.`);
+    if (tidx) syncInputLogToCurrentOutputOffset();
+    else renderInputLogTail();
+    updateButtons();
+  } catch (e) {
+    setInputStatus(`Input load failed: ${e instanceof Error ? e.message : String(e)}`, { error: true });
+    currentInputSource = null;
+    currentInput = {
+      name: null,
+      size: null,
+      baseOffset: 0,
+      absSize: null,
+      u8: null,
+      tidx: null,
+      lastAbsOffset: 0n,
+      lastTimeNs: null,
+      decoder: new TextDecoder("utf-8", { fatal: false }),
+    };
+    renderInputLogTail();
   }
 }
 
@@ -2125,14 +2450,34 @@ ui.outputSelect.addEventListener("change", () => {
   if (!ui.outputSelect.value) return;
   setStatus(`Loading ${decodeURIComponent(new URL(ui.outputSelect.value).pathname.split("/").pop() || "output")}…`);
   currentOutputSource = { type: "url", url: ui.outputSelect.value };
+  maybeAutoLoadMatchingInputForOutputUrl(ui.outputSelect.value);
   void loadFromUrl(ui.outputSelect.value, { kind: "output" });
 });
 
 ui.inputSelect.addEventListener("change", () => {
   updateButtons();
-  if (!ui.inputSelect.value) return;
-  setStatus(`Loading ${decodeURIComponent(new URL(ui.inputSelect.value).pathname.split("/").pop() || "input")}…`);
-  void loadFromUrl(ui.inputSelect.value, { kind: "input" });
+  if (!ui.inputSelect.value) {
+    inputPinned = false;
+    currentInputSource = null;
+    currentInput = {
+      name: null,
+      size: null,
+      baseOffset: 0,
+      absSize: null,
+      u8: null,
+      tidx: null,
+      lastAbsOffset: 0n,
+      lastTimeNs: null,
+      decoder: new TextDecoder("utf-8", { fatal: false }),
+    };
+    renderInputLogTail();
+    updateButtons();
+    return;
+  }
+  setInputStatus(`Loading ${decodeURIComponent(new URL(ui.inputSelect.value).pathname.split("/").pop() || "input")}…`);
+  currentInputSource = { type: "url", url: ui.inputSelect.value };
+  inputPinned = true;
+  void loadInputFromUrl(ui.inputSelect.value);
 });
 
 ui.seekMode?.addEventListener("change", () => {
@@ -2195,6 +2540,28 @@ ui.scrollbackLines?.addEventListener("change", () => {
   scrollbackLines = clampInt(Number(ui.scrollbackLines.value), 0, 1_000_000);
   applyScrollbackSetting(scrollbackLines);
   savePrefs();
+  renderInfo();
+});
+
+ui.inputFollow?.addEventListener("change", () => {
+  inputFollow = !!ui.inputFollow.checked;
+  savePrefs();
+  updateRuntimeInputInfo();
+  renderInfo();
+});
+
+ui.inputWindowKiB?.addEventListener("change", () => {
+  inputWindowKiB = clampInt(Number(ui.inputWindowKiB.value), 1, 16 * 1024);
+  if (ui.inputWindowKiB) ui.inputWindowKiB.value = String(inputWindowKiB);
+  savePrefs();
+  if (currentInput && currentInput.u8) {
+    const base = BigInt(currentInput.baseOffset || 0);
+    const last = typeof currentInput.lastAbsOffset === "bigint" ? currentInput.lastAbsOffset : base;
+    const localBig = last - base;
+    const local = Number(localBig > 0n ? localBig : 0n);
+    if (Number.isFinite(local)) renderInputLogFromLocalOffset(local, { absOffset: last });
+    else renderInputLogTail();
+  }
   renderInfo();
 });
 
@@ -2322,6 +2689,7 @@ ui.offsetScrub?.addEventListener("pointercancel", () => {
 // Initializes prefs/UI state, applies initial playback config, and (best-effort) auto-scans if served under /web/.
 // -----------------------------------------------------------------------------
 loadPrefs();
+updateRuntimeInputInfo();
 renderInfo();
 applyScrollbackSetting(scrollbackLines);
 installPanelResizer();

@@ -120,6 +120,23 @@
             </div>
           </div>
         </details>
+        <details class="expando">
+          <summary>Input log</summary>
+          <div class="expando-body">
+            <div class="status" id="inputStatus">No input loaded.</div>
+            <div class="panel-controls" style="margin-top: 10px">
+              <label class="panel-check">
+                <input id="inputFollow" type="checkbox" checked />
+                <span>Follow</span>
+              </label>
+              <label class="panel-field">
+                <span>Window (KiB)</span>
+                <input id="inputWindowKiB" type="number" min="1" step="1" value="64" />
+              </label>
+            </div>
+            <pre id="inputLog" class="info-panel"></pre>
+          </div>
+        </details>
         <details class="expando" open>
           <summary>Global controls</summary>
           <div class="expando-body">
