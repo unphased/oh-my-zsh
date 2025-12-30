@@ -321,6 +321,18 @@ details.expando[open] > summary {
   overflow: auto;
 }
 
+textarea.info-panel.info-panel--stats {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 220px;
+  max-height: 70vh;
+  height: 240px;
+  line-height: 1.35;
+  white-space: pre;
+  overflow: auto;
+}
+
 .range {
   position: relative;
   flex: 1;

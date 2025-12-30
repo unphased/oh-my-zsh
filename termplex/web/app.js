@@ -1288,13 +1288,89 @@ function safeJson(obj) {
   );
 }
 
+function yamlNeedsQuotes(s) {
+  if (s === "") return true;
+  if (/[\n\r]/.test(s)) return false; // handled separately
+  // YAML gotchas: leading/trailing whitespace, ":" in ambiguous positions, "#", "-", "{", "}", "[", "]", commas, etc.
+  if (/^\s|\s$/.test(s)) return true;
+  if (/^[-?:,[\]{}#&*!|>'"%@`]/.test(s)) return true;
+  if (s.includes(": ")) return true;
+  if (s.includes("#")) return true;
+  if (/^(null|true|false|yes|no|on|off|nan|~)$/i.test(s)) return true;
+  if (/^[0-9]+(\.[0-9]+)?$/.test(s)) return true;
+  return false;
+}
+
+function yamlScalar(v, indent) {
+  if (v == null) return "null";
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) return String(v);
+    return String(v);
+  }
+  if (typeof v === "bigint") return `${v}n`;
+  if (typeof v === "string") {
+    if (v.includes("\n")) {
+      const pad = " ".repeat(indent);
+      const lines = v.replace(/\r\n/g, "\n").split("\n");
+      return `|\n${lines.map((ln) => `${pad}  ${ln}`).join("\n")}`;
+    }
+    if (!yamlNeedsQuotes(v)) return v;
+    return JSON.stringify(v);
+  }
+  return JSON.stringify(v);
+}
+
+function safeYaml(obj) {
+  const seen = new Set();
+  const walk = (v, indent) => {
+    if (v == null || typeof v !== "object") return yamlScalar(v, indent);
+    if (seen.has(v)) return '"[circular]"';
+    seen.add(v);
+
+    if (Array.isArray(v)) {
+      if (!v.length) return "[]";
+      const lines = [];
+      for (const item of v) {
+        if (item != null && typeof item === "object") {
+          const inner = walk(item, indent + 2);
+          const parts = String(inner).split("\n");
+          lines.push(`${" ".repeat(indent)}- ${parts[0]}`);
+          for (let i = 1; i < parts.length; i++) lines.push(`${" ".repeat(indent + 2)}${parts[i]}`);
+        } else {
+          lines.push(`${" ".repeat(indent)}- ${yamlScalar(item, indent + 2)}`);
+        }
+      }
+      return lines.join("\n");
+    }
+
+    const keys = Object.keys(v);
+    if (!keys.length) return "{}";
+    const lines = [];
+    for (const key of keys) {
+      const safeKey = /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key);
+      const val = v[key];
+      if (val != null && typeof val === "object") {
+        const inner = walk(val, indent + 2);
+        lines.push(`${" ".repeat(indent)}${safeKey}:`);
+        const parts = String(inner).split("\n");
+        for (const p of parts) lines.push(`${" ".repeat(indent + 2)}${p}`);
+      } else {
+        lines.push(`${" ".repeat(indent)}${safeKey}: ${yamlScalar(val, indent + 2)}`);
+      }
+    }
+    return lines.join("\n");
+  };
+  return walk(obj, 0);
+}
+
 function renderInfo() {
   if (!ui.infoPanel) return;
   perfInfo.seekMode = seekMode;
   perfInfo.settings.scrollbackLines = scrollbackLines;
   perfInfo.settings.bulk = { noYield: bulkNoYield, renderOff: bulkRenderOff, zeroScrollback: bulkZeroScrollback };
   perfInfo.settings.playback = { clock: playbackClock, speedX: playbackSpeedX, tidxEmitHzCap };
-  ui.infoPanel.textContent = safeJson(perfInfo);
+  ui.infoPanel.value = safeYaml(perfInfo);
 }
 
 function clearPerfInfo() {
