@@ -1447,6 +1447,35 @@ function condenseSgrMouseTokens(inTokens) {
   return outTokens;
 }
 
+function tokenToDisplayParts(token) {
+  if (!token || token.kind !== "macro") return null;
+  if (token.type === "sgr_mouse") {
+    const ev = token.event;
+    const btn = sgrMouseButtonLabel(ev.cb);
+    const mods = sgrMouseModsLabel(ev.cb);
+    const motion = (ev.cb & 32) !== 0;
+    const kind = ev.up ? "up" : motion ? "move" : "down";
+    return {
+      type: "sgr_mouse",
+      label: `mouse ${btn}${mods ? `+${mods}` : ""} (${ev.x},${ev.y}) ${kind}`,
+      title: `SGR mouse: cb=${ev.cb} x=${ev.x} y=${ev.y} ${kind}`,
+    };
+  }
+  if (token.type === "sgr_mouse_drag") {
+    const first = token.events[0];
+    const lastEv = token.events[token.events.length - 1];
+    const btn = sgrMouseButtonLabel(first.cb);
+    const mods = sgrMouseModsLabel(first.cb);
+    const upNote = lastEv.up ? " up" : "";
+    return {
+      type: "sgr_mouse_drag",
+      label: `mouse drag ${btn}${mods ? `+${mods}` : ""} (${first.x},${first.y})…(${lastEv.x},${lastEv.y}) n=${token.events.length}${upNote}`,
+      title: `SGR mouse drag: cb=${first.cb} from (${first.x},${first.y}) to (${lastEv.x},${lastEv.y}) n=${token.events.length}${upNote}`,
+    };
+  }
+  return { type: token.type || "macro", label: token.type || "macro", title: token.type || "macro" };
+}
+
 function formatInputBytesForLog(u8, { initialLastWasNonprint = false, interpretEscapes = false } = {}) {
   if (!(u8 instanceof Uint8Array) || !u8.length) return "";
   if (!interpretEscapes) return hexflowFormatBytes(u8, { initialLastWasNonprint });
@@ -1486,31 +1515,10 @@ function formatInputBytesForLog(u8, { initialLastWasNonprint = false, interpretE
       continue;
     }
 
-    if (t.kind === "macro" && t.type === "sgr_mouse") {
-      const ev = t.event;
-      const btn = sgrMouseButtonLabel(ev.cb);
-      const mods = sgrMouseModsLabel(ev.cb);
-      const motion = (ev.cb & 32) !== 0;
-      const kind = ev.up ? "up" : motion ? "move" : "down";
-      let s = ` [mouse ${btn}${mods ? `+${mods}` : ""} (${ev.x},${ev.y}) ${kind}]`;
-      if (next && next.kind === "bytes") {
-        const b0 = u8[next.start];
-        if (b0 != null && isHexflowPrintableByte(b0)) s += " ";
-      } else if (next && next.kind === "macro") {
-        s += " ";
-      }
-      out.push(s);
-      lastWasNonprint = false;
-      continue;
-    }
-
-    if (t.kind === "macro" && t.type === "sgr_mouse_drag") {
-      const first = t.events[0];
-      const lastEv = t.events[t.events.length - 1];
-      const btn = sgrMouseButtonLabel(first.cb);
-      const mods = sgrMouseModsLabel(first.cb);
-      const upNote = lastEv.up ? " up" : "";
-      let s = ` [mouse-drag ${btn}${mods ? `+${mods}` : ""} (${first.x},${first.y})...(${lastEv.x},${lastEv.y}) n=${t.events.length}${upNote}]`;
+    if (t.kind === "macro") {
+      const parts = tokenToDisplayParts(t);
+      if (!parts) continue;
+      let s = ` [${parts.label}]`;
       if (next && next.kind === "bytes") {
         const b0 = u8[next.start];
         if (b0 != null && isHexflowPrintableByte(b0)) s += " ";
@@ -1524,6 +1532,76 @@ function formatInputBytesForLog(u8, { initialLastWasNonprint = false, interpretE
   }
 
   return out.join("");
+}
+
+function tokenizeInputBytes(u8) {
+  const tokens = [];
+  let scan = 0;
+  let last = 0;
+  while (scan < u8.length) {
+    let res = null;
+    for (const parser of INPUT_ESCAPE_PARSERS) {
+      res = parser(u8, scan);
+      if (res) break;
+    }
+    if (!res) {
+      scan++;
+      continue;
+    }
+    if (last < scan) tokens.push({ kind: "bytes", start: last, end: scan });
+    tokens.push({ kind: res.kind, event: res.event });
+    scan += res.len;
+    last = scan;
+  }
+  if (last < u8.length) tokens.push({ kind: "bytes", start: last, end: u8.length });
+
+  let condensed = tokens;
+  for (const condense of INPUT_TOKEN_CONDENSERS) condensed = condense(condensed);
+  return condensed;
+}
+
+function renderInputLogTokensToDom(container, u8, tokens, { initialLastWasNonprint = false } = {}) {
+  if (!container) return;
+  container.textContent = "";
+  const frag = document.createDocumentFragment();
+
+  let lastWasNonprint = !!initialLastWasNonprint;
+  let endedWithSpace = true;
+
+  const appendText = (text) => {
+    if (!text) return;
+    frag.appendChild(document.createTextNode(text));
+    endedWithSpace = /\s$/.test(text);
+  };
+
+  const appendChip = (parts) => {
+    if (!parts) return;
+    if (!endedWithSpace) appendText(" ");
+    const span = document.createElement("span");
+    span.className = `input-chip input-chip--${parts.type}`;
+    span.textContent = parts.label;
+    if (parts.title) span.title = parts.title;
+    frag.appendChild(span);
+    appendText(" ");
+    endedWithSpace = true;
+  };
+
+  for (const t of tokens) {
+    if (t.kind === "bytes") {
+      const slice = u8.subarray(t.start, t.end);
+      const text = hexflowFormatBytes(slice, { initialLastWasNonprint: lastWasNonprint });
+      appendText(text);
+      if (slice.length) lastWasNonprint = !isHexflowPrintableByte(slice[slice.length - 1]);
+      continue;
+    }
+    if (t.kind === "macro") {
+      appendChip(tokenToDisplayParts(t));
+      lastWasNonprint = false;
+      continue;
+    }
+  }
+
+  container.appendChild(frag);
 }
 
 function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs = null } = {}) {
@@ -1553,7 +1631,12 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
   const start = Math.max(0, local - windowBytes);
   const slice = u8.subarray(start, local);
   const initialLastWasNonprint = start > 0 ? !isHexflowPrintableByte(u8[start - 1]) : false;
-  ui.inputLog.textContent = formatInputBytesForLog(slice, { initialLastWasNonprint, interpretEscapes: inputInterpretEscapes });
+  if (!inputInterpretEscapes) {
+    ui.inputLog.textContent = hexflowFormatBytes(slice, { initialLastWasNonprint });
+  } else {
+    const tokens = tokenizeInputBytes(slice);
+    renderInputLogTokensToDom(ui.inputLog, slice, tokens, { initialLastWasNonprint });
+  }
   if (inputFollow) ui.inputLog.scrollTop = ui.inputLog.scrollHeight;
 
   currentInput.lastAbsOffset = absOffset != null ? BigInt(absOffset) : BigInt(currentInput.baseOffset) + BigInt(local);

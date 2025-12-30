@@ -333,6 +333,36 @@ details.expando[open] > summary {
   overflow: auto;
 }
 
+.input-log {
+  white-space: pre-wrap;
+}
+
+.input-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(74, 163, 255, 0.08);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.input-chip--sgr_mouse_drag {
+  border-color: rgba(74, 163, 255, 0.35);
+  background: rgba(74, 163, 255, 0.12);
+}
+
+.input-chip--sgr_mouse {
+  border-color: rgba(61, 220, 151, 0.35);
+  background: rgba(61, 220, 151, 0.1);
+}
+
 textarea.info-panel.info-panel--stats {
   width: 100%;
   box-sizing: border-box;
