@@ -1198,7 +1198,7 @@ class OutputPlayer {
 
   // Incremental seek: advances forward from the *current* offset to `targetOffset`.
   // Used by seek mode 1 (drag-right evaluation); never rewinds (drag-left does no work).
-  async advanceToLocalOffset(targetOffset, { yieldEveryMs = 12, phase = "mode1" } = {}) {
+  async advanceToLocalOffset(targetOffset, { yieldEveryMs = 12, phase = "mode1", tidxTargetTimeNs = null } = {}) {
     if (!this._buf) return;
     const target = clampInt(Number(targetOffset), 0, this._buf.length);
     if (target <= this._offset) return;
@@ -1206,22 +1206,58 @@ class OutputPlayer {
     // Ensure playback RAF isn't running, but keep the current terminal/decoder state.
     this.stop();
 
+    const shouldYield = Number.isFinite(yieldEveryMs) && yieldEveryMs > 0;
+    let lastYield = shouldYield ? performance.now() : 0;
+
+    const hasTidxTarget = typeof tidxTargetTimeNs === "bigint" && this._clockTidx;
+    const tidx = hasTidxTarget ? this._clockTidx : null;
+    const desiredAbs = hasTidxTarget ? offsetAtTimeNs(tidx, tidxTargetTimeNs) : null;
+    let lastDynTs = performance.now();
+
     const prevPhase = this._chunkPhase;
     this._chunkPhase = phase || "mode1";
     try {
-      let lastYield = performance.now();
       while (this._offset < target) {
+        const now = performance.now();
+        const dtMsRaw = Math.max(0, now - lastDynTs);
+        lastDynTs = now;
+        const dtMs = shouldYield ? dtMsRaw : Math.max(16.667, dtMsRaw);
+
         const start = this._offset;
-        const end = Math.min(target, start + this._chunkBytes);
+        let budget = this._chunkBytes;
+        let tidxExtra = null;
+
+        if (hasTidxTarget && tidx && desiredAbs != null) {
+          const currentAbsStart = this._baseOffset + BigInt(start);
+          const renderedTimeNs = timeAtOffsetNs(tidx, currentAbsStart);
+          const lagTimeNs = tidxTargetTimeNs > renderedTimeNs ? tidxTargetTimeNs - renderedTimeNs : 0n;
+          const lagMs = Number(lagTimeNs / 1_000_000n);
+          budget = this._tidxDynamicChunkBytes({ lagMs, dtMs, maxChunkBytes: this._chunkBytes });
+
+          const predictedEnd = Math.min(target, start + budget);
+          const currentAbsEnd = this._baseOffset + BigInt(predictedEnd);
+          tidxExtra = {
+            desiredAbs,
+            currentAbs: currentAbsEnd,
+            dynChunkBytes: this._tidxChunkEma != null ? Math.floor(this._tidxChunkEma) : budget,
+            lagBytes: desiredAbs > currentAbsEnd ? desiredAbs - currentAbsEnd : 0n,
+            setpointTimeNs: tidxTargetTimeNs,
+            lagTimeNs,
+          };
+        }
+
+        const end = Math.min(target, start + budget);
         this._offset = end;
         this._writeBytesWithResizeEvents(start, end);
-        this._emitProgress(end - start);
+        if (tidxExtra) this._emitProgress(end - start, { tidx: tidxExtra });
+        else this._emitProgress(end - start);
 
-        const now = performance.now();
-        if (now - lastYield >= yieldEveryMs) {
-          lastYield = now;
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        if (shouldYield) {
+          if (now - lastYield >= yieldEveryMs) {
+            lastYield = now;
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+          }
         }
       }
     } finally {
@@ -3118,7 +3154,7 @@ function mode1ObserveTarget({ source, abs, ms }) {
   return false;
 }
 
-async function mode1AdvanceToAbsOffset(absOffset, { source = "scrub" } = {}) {
+async function mode1AdvanceToAbsOffset(absOffset, { source = "scrub", ms = null } = {}) {
   if (!player.hasLoaded()) return;
   if (!isMode1Enabled()) return;
   if (currentLoadedBaseOffset > 0) return;
@@ -3128,25 +3164,50 @@ async function mode1AdvanceToAbsOffset(absOffset, { source = "scrub" } = {}) {
 
   const seq = mode1State.pumpSeq;
   const startedAt = performance.now();
-  await player.advanceToLocalOffset(localTarget, { yieldEveryMs: 8 });
-  if (seq !== mode1State.pumpSeq) return;
-  const ms = performance.now() - startedAt;
 
-  updateAggStats(perfInfo.incremental, ms, {
+  let yieldEveryMs = 8;
+  let tidxTargetTimeNs = null;
+  const setpointMs =
+    typeof ms === "number" && Number.isFinite(ms)
+      ? clampInt(Number(ms), 0, Number.MAX_SAFE_INTEGER)
+      : typeof mode1State.maxMs === "number" && Number.isFinite(mode1State.maxMs)
+        ? clampInt(Number(mode1State.maxMs), 0, Number.MAX_SAFE_INTEGER)
+        : null;
+  if (mode1State.source === "time") {
+    const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+    if (tidx && typeof setpointMs === "number" && Number.isFinite(setpointMs)) {
+      tidxTargetTimeNs = BigInt(clampInt(Number(setpointMs), 0, Number.MAX_SAFE_INTEGER)) * 1_000_000n;
+      const currentAbs = BigInt(currentLoadedBaseOffset || 0) + BigInt(player.bytesOffset());
+      const renderedTimeNs = timeAtOffsetNs(tidx, currentAbs);
+      const lagTimeNs = tidxTargetTimeNs > renderedTimeNs ? tidxTargetTimeNs - renderedTimeNs : 0n;
+      const lagMs = Number(lagTimeNs / 1_000_000n);
+      if (bulkNoYield && lagMs > tidxLagTauMs) yieldEveryMs = null;
+    }
+  }
+
+  await player.advanceToLocalOffset(localTarget, { yieldEveryMs, tidxTargetTimeNs });
+  if (seq !== mode1State.pumpSeq) return;
+  const elapsedMs = performance.now() - startedAt;
+
+  updateAggStats(perfInfo.incremental, elapsedMs, {
     kind: currentLoadedKind,
     source,
     absOffset: abs,
     localOffset: localTarget,
-    ms,
+    ms: elapsedMs,
   });
   renderInfo();
 }
 
-function mode1RequestAdvance(absOffset) {
+function mode1RequestAdvance(absOffset, { ms } = {}) {
   if (!isMode1Enabled()) return;
   if (currentLoadedBaseOffset > 0) return;
   const abs = clampInt(Number(absOffset), 0, Number.MAX_SAFE_INTEGER);
   mode1State.pendingAbs = mode1State.pendingAbs == null ? abs : Math.max(mode1State.pendingAbs, abs);
+  if (typeof ms === "number" && Number.isFinite(ms)) {
+    const clampedMs = clampInt(Number(ms), 0, Number.MAX_SAFE_INTEGER);
+    mode1State.pendingMs = mode1State.pendingMs == null ? clampedMs : Math.max(mode1State.pendingMs, clampedMs);
+  }
   if (mode1State.pumping) return;
 
   mode1State.pumping = true;
@@ -3155,9 +3216,11 @@ function mode1RequestAdvance(absOffset) {
     try {
       while (mode1State.pendingAbs != null && pumpSeq === mode1State.pumpSeq) {
         const target = mode1State.pendingAbs;
+        const targetMs = mode1State.pendingMs;
         mode1State.pendingAbs = null;
+        mode1State.pendingMs = null;
         // eslint-disable-next-line no-await-in-loop
-        await mode1AdvanceToAbsOffset(target, { source: "mode1-drag" });
+        await mode1AdvanceToAbsOffset(target, { source: "mode1-drag", ms: targetMs });
       }
     } finally {
       if (pumpSeq === mode1State.pumpSeq) mode1State.pumping = false;
@@ -3220,6 +3283,7 @@ const mode1State = {
   maxAbs: 0,
   maxMs: 0,
   pendingAbs: null,
+  pendingMs: null,
   pumping: false,
   pumpSeq: 0,
 };
@@ -3230,6 +3294,7 @@ function resetGestureUi() {
   mode1State.maxAbs = 0;
   mode1State.maxMs = 0;
   mode1State.pendingAbs = null;
+  mode1State.pendingMs = null;
   mode1State.pumping = false;
   mode1State.pumpSeq++;
   hideRangeMark(ui.timeMaxMark);
@@ -4775,7 +4840,7 @@ async function handleScrubRelease({ source, abs, ms }) {
   }
 
   // Ensure we're fully caught up to the farthest-right position, then keep that state.
-  mode1RequestAdvance(mode1State.maxAbs);
+  mode1RequestAdvance(mode1State.maxAbs, { ms: mode1State.source === "time" ? mode1State.maxMs : null });
   await mode1WaitForIdle();
   resetGestureUi();
 }
@@ -5110,7 +5175,7 @@ ui.timeScrub?.addEventListener("input", () => {
   }
 
   if (isMode1Enabled() && abs != null && mode1ObserveTarget({ source: "time", abs, ms })) {
-    mode1RequestAdvance(abs);
+    mode1RequestAdvance(abs, { ms });
   }
   syncScrubberThumbs();
 });
@@ -5162,7 +5227,7 @@ ui.offsetScrub?.addEventListener("input", () => {
   }
 
   if (isMode1Enabled() && mode1ObserveTarget({ source: "offset", abs, ms })) {
-    mode1RequestAdvance(abs);
+    mode1RequestAdvance(abs, { ms });
   }
   syncScrubberThumbs();
 });
