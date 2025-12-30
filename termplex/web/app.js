@@ -1494,6 +1494,49 @@ function tryParseKittyKey(u8, i) {
   return { kind: "kitty_key", len: j - i, codepoint: codeRes.n, mods: modsRes.n, eventType: typeRes.n };
 }
 
+function tryParseKittyCsiArrowEvent(u8, i) {
+  // kitty keyboard protocol (non-unicode keys): CSI 1 ; mods : type A/B/C/D
+  // Example: ESC [ 1 ; 1 : 1 A  (Up press, mods=1 (none))
+  const len = u8.length;
+  if (i + 8 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5b) return null; // ESC [
+  let j = i + 2;
+  const p1Res = parseAsciiIntFromBytes(u8, j, { max: 1_000_000 });
+  if (!p1Res) return null;
+  j = p1Res.next;
+  if (j >= len || u8[j] !== 0x3b) return null; // ;
+  j++;
+  const modsRes = parseAsciiIntFromBytes(u8, j, { max: 1_000_000 });
+  if (!modsRes) return null;
+  j = modsRes.next;
+  if (j >= len || u8[j] !== 0x3a) return null; // :
+  j++;
+  const typeRes = parseAsciiIntFromBytes(u8, j, { max: 32 });
+  if (!typeRes) return null;
+  j = typeRes.next;
+  if (j >= len) return null;
+  const finalByte = u8[j];
+  let key = null;
+  let final = null;
+  if (finalByte === 0x41) {
+    key = "Up";
+    final = "A";
+  } else if (finalByte === 0x42) {
+    key = "Down";
+    final = "B";
+  } else if (finalByte === 0x43) {
+    key = "Right";
+    final = "C";
+  } else if (finalByte === 0x44) {
+    key = "Left";
+    final = "D";
+  } else {
+    return null;
+  }
+  j++;
+  return { kind: "kitty_csi_arrow", len: j - i, p1: p1Res.n, mods: modsRes.n, eventType: typeRes.n, key, final };
+}
+
 function tryParseCsiUKey(u8, i) {
   // CSI codepoint ; mods u
   const len = u8.length;
@@ -1644,6 +1687,7 @@ const INPUT_ESCAPE_PARSERS = [
   tryParseCsiFocus,
   tryParseCsiPrivateU,
   tryParseKittyKey,
+  tryParseKittyCsiArrowEvent,
   tryParseCsiUKey,
   tryParseCsiWindowOpT,
 ];
@@ -1957,6 +2001,20 @@ function tokenToDisplayParts(token) {
       title: `Kitty keyboard protocol key event: ${chLabel} (${typeLabel}), ${md.label}.\nraw: CSI ${cp};${mods}:${et}u (mods=${md.m} => ${md.names})`,
     };
   }
+  if (token.type === "kitty_csi_arrow") {
+    const key = token.data.key || "?";
+    const final = token.data.final || "?";
+    const mods = token.data.mods;
+    const et = token.data.eventType;
+    const p1 = token.data.p1;
+    const md = decodeCsiUMods(mods);
+    const typeLabel = et === 1 ? "press" : et === 2 ? "repeat" : et === 3 ? "release" : `type=${et}`;
+    return {
+      type: "kitty_key",
+      label: `key ${key} ${typeLabel} ${md.label}`,
+      title: `Kitty keyboard protocol arrow key: ${key} (${typeLabel}), ${md.label}.\nraw: CSI ${p1};${mods}:${et}${final} (mods=${md.m} => ${md.names})`,
+    };
+  }
   if (token.type === "csi_u_key") {
     const cp = token.data.codepoint;
     const mods = token.data.mods;
@@ -2038,6 +2096,7 @@ function tokenizeInputBytes(u8) {
     else if (res.kind === "focus_in" || res.kind === "focus_out") token.data = {};
     else if (res.kind === "csi_private_u") token.data = { ps: res.ps };
     else if (res.kind === "kitty_key") token.data = { codepoint: res.codepoint, mods: res.mods, eventType: res.eventType };
+    else if (res.kind === "kitty_csi_arrow") token.data = { p1: res.p1, mods: res.mods, eventType: res.eventType, key: res.key, final: res.final };
     else if (res.kind === "csi_u_key") token.data = { codepoint: res.codepoint, mods: res.mods };
     else if (res.kind === "csi_t") token.data = { params: res.params };
     else token.data = {};
