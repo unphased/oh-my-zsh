@@ -408,6 +408,8 @@ class DensityStrip {
     this._dpr = 1;
     this._bins = 0;
     this._values = null; // Float32Array (per pixel)
+    this._dtMs = null; // Float32Array (per pixel)
+    this._dBytes = null; // Float32Array (per pixel)
     this._meta = null; // { max, total } where total is ms or bytes
     this._tidx = null;
     this._seq = 0;
@@ -434,6 +436,8 @@ class DensityStrip {
     const hoverEl = this.trackEl || this.canvas;
     if (hoverEl) hoverEl.title = "";
     this._values = null;
+    this._dtMs = null;
+    this._dBytes = null;
     this._meta = null;
   }
 
@@ -469,6 +473,8 @@ class DensityStrip {
     const seq = ++this._seq;
     const bins = this._bins;
     const values = new Float32Array(bins);
+    const dtMsArr = new Float32Array(bins);
+    const dBytesArr = new Float32Array(bins);
     let max = 0;
 
     const tArr = tidx.tNs;
@@ -534,6 +540,8 @@ class DensityStrip {
       }
 
       values[x] = v;
+      dtMsArr[x] = dtNs > 0 ? dtNs / 1_000_000 : 0;
+      dBytesArr[x] = dBytes > 0 ? dBytes : 0;
       if (v > max) max = v;
 
       const now = performance.now();
@@ -546,6 +554,8 @@ class DensityStrip {
 
     if (seq !== this._seq) return;
     this._values = values;
+    this._dtMs = dtMsArr;
+    this._dBytes = dBytesArr;
     this._meta = { max, total };
     this._renderCanvas();
   }
@@ -611,15 +621,17 @@ class DensityStrip {
     const x = this._pickX(e);
     if (x == null) return;
     const v = this._values[x] || 0;
+    const dtMs = this._dtMs ? this._dtMs[x] || 0 : 0;
+    const dBytes = this._dBytes ? this._dBytes[x] || 0 : 0;
     const frac = this._bins <= 1 ? 0 : x / (this._bins - 1);
     if (this.mode === "time") {
       const totalNs = this._meta.total;
       const tNs = Math.max(0, Math.floor(totalNs * frac));
-      hoverEl.title = `t≈${fmtNs(BigInt(tNs))} rate≈${fmtRate(v)} (hotter=more bytes/sec)`;
+      hoverEl.title = `t≈${fmtNs(BigInt(tNs))} rate≈${fmtRate(v)} (hotter=more bytes/sec) Δt≈${dtMs.toFixed(1)}ms ΔB≈${fmtBytes(dBytes)}`;
     } else {
       const totalBytes = this._meta.total;
       const off = Math.max(0, Math.floor(totalBytes * frac));
-      hoverEl.title = `off≈${fmtBytes(off)} dt≈${v.toFixed(1)} ms/KiB (hotter=slower/more idle)`;
+      hoverEl.title = `off≈${fmtBytes(off)} dt≈${v.toFixed(1)} ms/KiB (hotter=slower/more idle) Δt≈${dtMs.toFixed(1)}ms ΔB≈${fmtBytes(dBytes)}`;
     }
   }
 
