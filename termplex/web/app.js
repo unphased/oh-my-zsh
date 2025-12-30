@@ -92,11 +92,13 @@ const ui = {
   timeMaxMark: document.getElementById("timeMaxMark"),
   timeRangeTrack: document.getElementById("timeRangeTrack"),
   timeDensityCanvas: document.getElementById("timeDensityCanvas"),
+  timeThumb: document.getElementById("timeThumb"),
   offsetScrub: document.getElementById("offsetScrub"),
   offsetScrubText: document.getElementById("offsetScrubText"),
   offsetMaxMark: document.getElementById("offsetMaxMark"),
   offsetRangeTrack: document.getElementById("offsetRangeTrack"),
   offsetDensityCanvas: document.getElementById("offsetDensityCanvas"),
+  offsetThumb: document.getElementById("offsetThumb"),
   boundsOverlay: document.getElementById("boundsOverlay"),
   boundsLabel: document.getElementById("boundsLabel"),
 };
@@ -594,11 +596,11 @@ class DensityStrip {
     if (this.mode === "time") {
       const totalNs = this._meta.total;
       const tNs = Math.max(0, Math.floor(totalNs * frac));
-      hoverEl.title = `t≈${fmtNs(BigInt(tNs))} rate≈${fmtRate(v)}`;
+      hoverEl.title = `t≈${fmtNs(BigInt(tNs))} rate≈${fmtRate(v)} (hotter=more bytes/sec)`;
     } else {
       const totalBytes = this._meta.total;
       const off = Math.max(0, Math.floor(totalBytes * frac));
-      hoverEl.title = `off≈${fmtBytes(off)} dt≈${v.toFixed(1)} ms/KiB`;
+      hoverEl.title = `off≈${fmtBytes(off)} dt≈${v.toFixed(1)} ms/KiB (hotter=slower/more idle)`;
     }
   }
 
@@ -3624,6 +3626,7 @@ function setScrubber({ enabled, text, ms, maxMs } = {}) {
   if (Number.isFinite(ms)) ui.timeScrub.value = String(Math.max(0, Math.floor(ms)));
   ui.timeScrub.disabled = !enabled;
   if (typeof text === "string") ui.timeScrubText.textContent = text;
+  syncScrubberThumbs();
 }
 
 function setOffsetScrubber({ enabled, text, absOffset, absMax } = {}) {
@@ -3632,6 +3635,7 @@ function setOffsetScrubber({ enabled, text, absOffset, absMax } = {}) {
   if (Number.isFinite(absOffset)) ui.offsetScrub.value = String(Math.max(0, Math.floor(absOffset)));
   ui.offsetScrub.disabled = !enabled;
   if (typeof text === "string") ui.offsetScrubText.textContent = text;
+  syncScrubberThumbs();
 }
 
 function configureTimeScrubber() {
@@ -3689,8 +3693,84 @@ function configureScrubbers() {
   configureOffsetScrubber();
 }
 
+function installCustomScrubberTracks() {
+  const install = ({ kind, trackEl, rangeEl }) => {
+    if (!trackEl || !rangeEl) return;
+    let dragging = false;
+
+    const setFromPointer = (ev) => {
+      const rect = trackEl.getBoundingClientRect();
+      if (!rect || rect.width <= 0) return;
+      const x = ev.clientX - rect.left;
+      const frac = Math.max(0, Math.min(1, x / rect.width));
+      const min = Number(rangeEl.min || 0);
+      const max = Number(rangeEl.max || 0);
+      const raw = min + frac * (max - min);
+      const next = clampInt(raw, min, max);
+      if (String(next) === String(rangeEl.value)) return;
+      rangeEl.value = String(next);
+      rangeEl.dispatchEvent(new Event("input"));
+      syncScrubberThumbs();
+    };
+
+    trackEl.addEventListener("pointerdown", (e) => {
+      if (rangeEl.disabled) return;
+      try {
+        trackEl.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+      dragging = true;
+      scrubUserActive = kind;
+      mode1BeginGesture(kind);
+      setFromPointer(e);
+    });
+    trackEl.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      setFromPointer(e);
+    });
+    trackEl.addEventListener("pointerup", (e) => {
+      if (!dragging) return;
+      dragging = false;
+      scrubUserActive = null;
+      setFromPointer(e);
+      rangeEl.dispatchEvent(new Event("change"));
+    });
+    trackEl.addEventListener("pointercancel", () => {
+      if (!dragging) return;
+      dragging = false;
+      scrubUserActive = null;
+      if (isMode1Enabled()) resetGestureUi();
+    });
+  };
+
+  install({ kind: "time", trackEl: ui.timeRangeTrack, rangeEl: ui.timeScrub });
+  install({ kind: "offset", trackEl: ui.offsetRangeTrack, rangeEl: ui.offsetScrub });
+  syncScrubberThumbs();
+}
+
 let scrubSyncGuard = false;
 let scrubUserActive = null; // "time" | "offset" | null
+
+function setScrubThumb(thumbEl, rangeEl) {
+  if (!thumbEl || !rangeEl) return;
+  if (rangeEl.disabled) {
+    thumbEl.hidden = true;
+    return;
+  }
+  thumbEl.hidden = false;
+  const min = Number(rangeEl.min || 0);
+  const max = Number(rangeEl.max || 0);
+  const v = clampInt(Number(rangeEl.value), min, max);
+  const denom = Math.max(1, max - min);
+  const pct = ((v - min) / denom) * 100;
+  thumbEl.style.left = `${pct}%`;
+}
+
+function syncScrubberThumbs() {
+  setScrubThumb(ui.timeThumb, ui.timeScrub);
+  setScrubThumb(ui.offsetThumb, ui.offsetScrub);
+}
 
 function syncScrubbersFromProgress({ localOffset, localTotal, clockTimeNs } = {}) {
   if (scrubUserActive) return;
@@ -3721,6 +3801,7 @@ function syncScrubbersFromProgress({ localOffset, localTotal, clockTimeNs } = {}
   } finally {
     scrubSyncGuard = false;
   }
+  syncScrubberThumbs();
 }
 
 // -----------------------------------------------------------------------------
@@ -4926,6 +5007,7 @@ ui.timeScrub?.addEventListener("input", () => {
   if (isMode1Enabled() && abs != null && mode1ObserveTarget({ source: "time", abs, ms })) {
     mode1RequestAdvance(abs);
   }
+  syncScrubberThumbs();
 });
 
 ui.timeScrub?.addEventListener("change", () => {
@@ -4977,6 +5059,7 @@ ui.offsetScrub?.addEventListener("input", () => {
   if (isMode1Enabled() && mode1ObserveTarget({ source: "offset", abs, ms })) {
     mode1RequestAdvance(abs);
   }
+  syncScrubberThumbs();
 });
 
 ui.offsetScrub?.addEventListener("change", () => {
@@ -5009,6 +5092,7 @@ updateRuntimeInputInfo();
 renderInfo();
 applyScrollbackSetting(scrollbackLines);
 installPanelResizer();
+installCustomScrubberTracks();
 player.configure({
   speedBps: rateToBytesPerSec(),
   chunkBytes: clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024),

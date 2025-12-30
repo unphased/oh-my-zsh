@@ -504,19 +504,20 @@ textarea.info-panel.info-panel--stats {
 .range-track {
   position: relative;
   overflow: visible;
-  height: 26px;
+  height: 24px;
   border: 1px solid var(--border);
   background: #0e1217;
   border-radius: 999px;
 }
 
 .range-track input[type="range"] {
-  position: relative;
-  z-index: 2;
+  position: absolute;
+  inset: 0;
   width: 100%;
-  height: 26px;
+  height: 100%;
   margin: 0;
-  background: transparent;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .range-mark {
@@ -528,22 +529,60 @@ textarea.info-panel.info-panel--stats {
   background: rgba(74, 163, 255, 0.85);
   border-radius: 1px;
   pointer-events: none;
-  z-index: 3;
+  z-index: 5;
 }
 
 .density-canvas {
   position: absolute;
   left: 0;
   right: 0;
-  top: -4px;
-  bottom: -4px;
+  top: -6px;
+  bottom: -6px;
   width: 100%;
-  height: calc(100% + 8px);
+  height: calc(100% + 12px);
   display: block;
   box-sizing: border-box;
   border-radius: 999px;
   pointer-events: none;
   z-index: 1;
+}
+
+.scrub-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  transform: translate(-50%, -50%);
+  width: 18px;
+  height: 28px;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.scrub-thumb::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 5px;
+  bottom: 8px;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: rgba(214, 221, 230, 0.85);
+  box-shadow: 0 0 0 1px rgba(11, 13, 16, 0.7);
+}
+
+.scrub-thumb::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid rgba(214, 221, 230, 0.85);
+  filter: drop-shadow(0 0 0.5px rgba(11, 13, 16, 0.7));
 }
 
 .expando-body ol {
