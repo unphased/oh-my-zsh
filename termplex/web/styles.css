@@ -533,6 +533,13 @@ textarea.info-panel.info-panel--stats {
   background: rgba(17, 21, 26, 0.65);
 }
 
+.terminal-header-readouts {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  min-width: 0;
+}
+
 .terminal-statusbar {
   display: flex;
   align-items: center;
