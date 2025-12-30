@@ -82,6 +82,17 @@
                 <span>Playback speed (x)</span>
                 <input id="playbackSpeedX" type="number" min="0" step="0.1" value="1" />
               </label>
+              <label class="panel-field">
+                <span>Time render cap (Hz, tidx)</span>
+                <input id="tidxHzCap" type="number" min="0" step="1" value="0" list="tidxHzPresets" />
+                <datalist id="tidxHzPresets">
+                  <option value="0"></option>
+                  <option value="30"></option>
+                  <option value="60"></option>
+                  <option value="120"></option>
+                  <option value="240"></option>
+                </datalist>
+              </label>
             </div>
             <div class="panel-controls" style="margin-top: 10px">
               <label class="panel-field">
