@@ -57,7 +57,7 @@ If you want Powerline / Nerd Font glyphs (common in prompts) to render in xterm.
 ./fetch-iosevka-term-nerd-font.sh
 ```
 
-If you don’t vendor it, the viewer will try to load it from a CDN (and will also use an installed local Nerd Font if you already have one).
+If you don’t vendor it, the viewer will try to load IosevkaTerm Nerd Font via `nerdfont-webfonts` on jsDelivr (and will also use an installed local Nerd Font if you already have one).
 
 This downloads a minimal subset into:
 

@@ -22,8 +22,6 @@
     local("IosevkaTerm NF"),
     local("IosevkaTerm Nerd Font Mono"),
     local("IosevkaTerm NF Mono"),
-    url("https://cdn.jsdelivr.net/gh/ryanoasis/nerd-fonts@v3.4.0/patched-fonts/IosevkaTerm/Regular/complete/IosevkaTermNerdFont-Regular.ttf")
-      format("truetype"),
     url("./vendor/fonts/iosevka-term-nerd/IosevkaTermNerdFont-Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;

@@ -103,16 +103,85 @@ let suppressBoundsUpdates = false;
 let boundsDirty = false;
 
 const DEFAULT_FONT_STACK = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-const NERD_FONT_STACK = `"IosevkaTerm Nerd Font Web","IosevkaTerm Nerd Font","IosevkaTerm NF","IosevkaTerm Nerd Font Mono","IosevkaTerm NF Mono",${DEFAULT_FONT_STACK}`;
+const NERD_FONT_STACK = `"IosevkaTerm NF","IosevkaTerm Nerd Font","IosevkaTerm NF Mono","IosevkaTerm Nerd Font Mono","IosevkaTerm Nerd Font Web",${DEFAULT_FONT_STACK}`;
+const NERD_FONT_WEBFONTS_CSS_URL =
+  "https://cdn.jsdelivr.net/gh/mshaugh/nerdfont-webfonts@v3.3.0/build/iosevkaterm.css";
 
 let preferNerdFont = true;
 let scrollbackLines = 10000;
+let nerdFontCssState = { status: "idle", url: NERD_FONT_WEBFONTS_CSS_URL, error: null };
+let nerdFontVerifySeq = 0;
 
 function currentFontStack() {
   return preferNerdFont ? NERD_FONT_STACK : DEFAULT_FONT_STACK;
 }
 
+function ensureNerdFontCssLoaded() {
+  if (!preferNerdFont) return;
+  if (!document || !document.head) return;
+  const url = NERD_FONT_WEBFONTS_CSS_URL;
+
+  let link = document.getElementById("nerdFontWebfontsCss");
+  if (link) return;
+
+  link = document.createElement("link");
+  link.id = "nerdFontWebfontsCss";
+  link.rel = "stylesheet";
+  link.href = url;
+
+  nerdFontCssState = { status: "loading", url, error: null };
+  link.addEventListener(
+    "load",
+    () => {
+      nerdFontCssState = { status: "loaded", url, error: null };
+    },
+    { once: true },
+  );
+  link.addEventListener(
+    "error",
+    () => {
+      nerdFontCssState = { status: "error", url, error: "stylesheet load failed" };
+      console.error(`[termplex] Nerd Font CSS failed to load: ${url}`);
+      console.error(
+        "[termplex] Falling back to system fonts / optional vendored TTF. You can also run ./fetch-iosevka-term-nerd-font.sh to serve it locally.",
+      );
+    },
+    { once: true },
+  );
+
+  document.head.appendChild(link);
+}
+
+function verifyNerdFontEventually() {
+  if (!preferNerdFont) return;
+  const seq = ++nerdFontVerifySeq;
+
+  // If the CSS fails to load (or fonts are blocked), browsers can silently fall back.
+  // Emit an explicit console error after a grace period so it’s obvious what happened.
+  void (async () => {
+    const deadline = performance.now() + 6000;
+    while (performance.now() < deadline && seq === nerdFontVerifySeq) {
+      try {
+        if (document.fonts) {
+          const ok = document.fonts.check('12px "IosevkaTerm NF"') || document.fonts.check('12px "IosevkaTerm Nerd Font"');
+          if (ok) return;
+        }
+      } catch {
+        // ignore
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (seq !== nerdFontVerifySeq) return;
+    console.error(
+      `[termplex] Nerd Font did not become available within 6s; giving up. (CSS state: ${nerdFontCssState.status})`,
+    );
+  })();
+}
+
 function applyTermFontStack() {
+  ensureNerdFontCssLoaded();
+  verifyNerdFontEventually();
   const stack = currentFontStack();
   if (ui.fallback) ui.fallback.style.fontFamily = stack;
   lastMeasuredCellPx = null;
