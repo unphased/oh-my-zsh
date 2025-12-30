@@ -2050,6 +2050,26 @@ function tryParseOsc11(u8, i) {
   return null;
 }
 
+function tryParseOsc10(u8, i) {
+  // OSC 10;... BEL|ST
+  const len = u8.length;
+  if (i + 5 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5d) return null; // ESC ]
+  if (u8[i + 2] !== 0x31 || u8[i + 3] !== 0x30 || u8[i + 4] !== 0x3b) return null; // "10;"
+  const payloadStart = i + 5;
+  for (let j = payloadStart; j < len; j++) {
+    if (u8[j] === 0x07) {
+      const payload = bytesToAscii(u8.subarray(payloadStart, j));
+      return { kind: "osc_10", len: j + 1 - i, payload };
+    }
+    if (u8[j] === 0x1b && j + 1 < len && u8[j + 1] === 0x5c) {
+      const payload = bytesToAscii(u8.subarray(payloadStart, j));
+      return { kind: "osc_10", len: j + 2 - i, payload };
+    }
+  }
+  return null;
+}
+
 function tryParseDcsDecrqssResponse(u8, i) {
   // DCS 1 $ r <string> ST
   const len = u8.length;
@@ -2089,6 +2109,7 @@ const INPUT_ESCAPE_PARSERS = [
   tryParseSgrMouse,
   tryParseDecrpm,
   tryParseDa1,
+  tryParseOsc10,
   tryParseOsc11,
   tryParseDcsDecrqssResponse,
   tryParseDcsXtgettcapResponse,
@@ -2361,6 +2382,14 @@ function tokenToDisplayParts(token) {
       title: `OSC 11: background color report/set.\npayload: ${payload}`,
     };
   }
+  if (token.type === "osc_10") {
+    const payload = token.data.payload || "";
+    return {
+      type: "osc_10",
+      label: `OSC 10 ${safeAsciiPreview(payload, { max: 36 })}`,
+      title: `OSC 10: foreground (text) color report/set.\npayload: ${payload}`,
+    };
+  }
   if (token.type === "decrqss") {
     const payload = token.data.payload || "";
     return {
@@ -2556,6 +2585,7 @@ function tokenizeInputBytes(u8) {
     if (res.kind === "sgr_mouse") token.data = res.event;
     else if (res.kind === "decrpm") token.data = { mode: res.mode, state: res.state };
     else if (res.kind === "da1") token.data = { params: res.params };
+    else if (res.kind === "osc_10") token.data = { payload: res.payload };
     else if (res.kind === "osc_11") token.data = { payload: res.payload };
     else if (res.kind === "decrqss") token.data = { payload: res.payload };
     else if (res.kind === "xtgettcap") token.data = { raw: res.raw, decoded: res.decoded };
