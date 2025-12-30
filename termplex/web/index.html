@@ -36,6 +36,11 @@
           <summary>Info</summary>
           <div class="expando-body">
             <div class="status" id="status">No file loaded.</div>
+            <div class="panel-controls" style="margin-top: 10px">
+              <div class="buttons">
+                <button id="clearInfo" type="button" title="Clear perf/debug stats">Clear stats</button>
+              </div>
+            </div>
             <pre id="infoPanel" class="info-panel"></pre>
           </div>
         </details>
@@ -131,7 +136,6 @@
                 <span>Scrollback lines (xterm)</span>
                 <input id="scrollbackLines" type="number" min="0" step="100" value="10000" />
               </label>
-              <button id="clearInfo" type="button">Clear</button>
             </div>
             <div class="panel-controls" style="margin-top: 10px">
               <label class="panel-check">
