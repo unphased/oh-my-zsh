@@ -294,6 +294,7 @@ class ChunkPerfMonitor {
     this._phase = null;
     this._scaleMaxBytes = 1;
     this._last = null;
+    this._hover = null; // { x, idx } | null
     this._raf = null;
     this._dpr = 1;
     this._colors = {
@@ -304,6 +305,19 @@ class ChunkPerfMonitor {
       bulk: cssVar("--bad", "#ff6b6b"),
     };
     this._bg = "#0e1217";
+
+    if (this.canvas) {
+      this.canvas.addEventListener("pointermove", (e) => this._onPointerMove(e));
+      this.canvas.addEventListener("pointerleave", () => this._clearHover());
+      this.canvas.addEventListener("pointerdown", (e) => {
+        // Allow click+hold without selecting text / dragging the page.
+        try {
+          if (e && typeof e.preventDefault === "function") e.preventDefault();
+        } catch {
+          // ignore
+        }
+      });
+    }
 
     this.resize();
     this.clear();
@@ -340,6 +354,7 @@ class ChunkPerfMonitor {
       this._lastBinTsMs = null;
       this._scaleMaxBytes = 1;
       this._last = null;
+      this._hover = null;
     } else {
       this._binMs = this.windowMs / Math.max(1, this._bins);
     }
@@ -355,7 +370,35 @@ class ChunkPerfMonitor {
     this._lastBinTsMs = null;
     this._scaleMaxBytes = 1;
     this._last = null;
+    this._hover = null;
     if (this.summaryEl) this.summaryEl.textContent = "No chunks yet.";
+    if (this.canvas) this.canvas.title = "";
+    this._scheduleRender();
+  }
+
+  _pickHoverFromEvent(e) {
+    const c = this.canvas;
+    if (!c || !this._bins) return null;
+    const rect = c.getBoundingClientRect();
+    if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.width) || rect.width <= 0) return null;
+    const xCss = clampInt(Math.floor(e.clientX - rect.left), 0, this._bins - 1);
+    const idx = (this._head + 1 + xCss) % this._bins;
+    return { x: xCss, idx };
+  }
+
+  _onPointerMove(e) {
+    if (!this._bytes || !this._writes || !this._phase) return;
+    const picked = this._pickHoverFromEvent(e);
+    if (!picked) return;
+    if (this._hover && this._hover.x === picked.x && this._hover.idx === picked.idx) return;
+    this._hover = picked;
+    this._scheduleRender();
+  }
+
+  _clearHover() {
+    if (!this._hover) return;
+    this._hover = null;
+    if (this.canvas) this.canvas.title = "";
     this._scheduleRender();
   }
 
@@ -373,6 +416,14 @@ class ChunkPerfMonitor {
     if (id === 2) return this._colors.mode1;
     if (id === 1) return this._colors.playback;
     return this._colors.none;
+  }
+
+  _phaseLabel(id) {
+    if (id === 4) return "bulk_seek";
+    if (id === 3) return "seek";
+    if (id === 2) return "mode1";
+    if (id === 1) return "playback";
+    return "none";
   }
 
   _advanceTo(tsMs) {
@@ -454,6 +505,7 @@ class ChunkPerfMonitor {
     const denom = Math.max(1, this._scaleMaxBytes);
     const denomSqrt = Math.sqrt(denom);
 
+    const hoverX = this._hover ? this._hover.x : null;
     for (let x = 0; x < this._bins; x++) {
       const idx = (this._head + 1 + x) % this._bins; // left=oldest, right=newest
       const b = this._bytes[idx];
@@ -461,6 +513,15 @@ class ChunkPerfMonitor {
       const y = Math.max(1, Math.round((Math.sqrt(b) / denomSqrt) * h));
       ctx.fillStyle = this._phaseColor(this._phase[idx]);
       ctx.fillRect(x * barW, h - y, barW, y);
+      if (hoverX != null && x === hoverX) {
+        ctx.strokeStyle = "rgba(255,255,255,0.55)";
+        ctx.lineWidth = Math.max(1, Math.floor(this._dpr));
+        ctx.strokeRect(x * barW + 0.5, h - y + 0.5, Math.max(1, barW) - 1, Math.max(1, y) - 1);
+      }
+    }
+    if (hoverX != null) {
+      ctx.fillStyle = "rgba(255,255,255,0.25)";
+      ctx.fillRect(hoverX * barW, 0, Math.max(1, barW), h);
     }
 
     // Summary + runtime info.
@@ -480,11 +541,44 @@ class ChunkPerfMonitor {
       writesWindow += this._writes[i];
     }
 
+    const nowTs = this._last ? this._last.tsMs : performance.now();
+
     const last = this._last;
     const lastNote = last ? `last=${fmtBytes(last.bytes)} ${last.phase || ""}`.trim() : "last=?";
     const rateNote = `1s=${fmtRate(bytes1s)} (${writes1s}/s)`;
     const binNote = `bin=${this._binMs.toFixed(1)}ms win=${(this._binMs * this._bins).toFixed(0)}ms`;
-    if (this.summaryEl) this.summaryEl.textContent = `${lastNote} • ${rateNote} • window=${fmtBytes(bytesWindow)} (${writesWindow} writes) • ${binNote}`;
+
+    let hoverNote = "";
+    let hoverRuntime = null;
+    if (this._hover && this._lastBinTsMs != null) {
+      const x = this._hover.x;
+      const idx = this._hover.idx;
+      const b = this._bytes[idx] || 0;
+      const writes = this._writes[idx] || 0;
+      const phaseId = this._phase[idx] || 0;
+      const binStart = this._lastBinTsMs - (this._bins - 1 - x) * this._binMs;
+      const binEnd = binStart + this._binMs;
+      const ageStart = nowTs - binStart;
+      const ageEnd = nowTs - binEnd;
+      const phase = this._phaseLabel(phaseId);
+      hoverNote = `hover=t-${Math.max(0, ageStart).toFixed(0)}..${Math.max(0, ageEnd).toFixed(0)}ms bytes=${fmtBytes(b)} writes=${writes} phase=${phase}`;
+      hoverRuntime = {
+        x,
+        binStartMsAgo: Math.max(0, ageStart),
+        binEndMsAgo: Math.max(0, ageEnd),
+        bytes: b,
+        writes,
+        phase,
+      };
+      if (this.canvas) this.canvas.title = hoverNote;
+    } else if (this.canvas && this.canvas.title) {
+      this.canvas.title = "";
+    }
+
+    const summary = hoverNote
+      ? `${hoverNote} • ${rateNote} • window=${fmtBytes(bytesWindow)} (${writesWindow} writes) • ${binNote}`
+      : `${lastNote} • ${rateNote} • window=${fmtBytes(bytesWindow)} (${writesWindow} writes) • ${binNote}`;
+    if (this.summaryEl) this.summaryEl.textContent = summary;
 
     perfInfo.runtime.chunks = {
       windowMs: Math.round(this._binMs * this._bins),
@@ -501,6 +595,7 @@ class ChunkPerfMonitor {
             absEnd: typeof last.absEnd === "bigint" ? String(last.absEnd) : null,
           }
         : null,
+      hover: hoverRuntime,
       last1s: {
         bytes: bytes1s,
         writes: writes1s,
