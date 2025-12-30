@@ -2229,14 +2229,15 @@ function updateInputChipHoverStatus() {
   inputChipHoverRaf = requestAnimationFrame(() => updateInputChipHoverStatus());
 }
 
-function setInputChipHover({ inputAbs, label } = {}) {
-  if (inputAbs == null) {
+function setInputChipHover(opts) {
+  if (!opts || opts.inputAbs == null) {
     inputChipHover = null;
     if (inputChipHoverRaf != null) cancelAnimationFrame(inputChipHoverRaf);
     inputChipHoverRaf = null;
     setInputHoverStatus("");
     return;
   }
+  const { inputAbs, label } = opts;
   const abs = typeof inputAbs === "bigint" ? inputAbs : BigInt(String(inputAbs));
   const timeNs = currentInput && currentInput.tidx ? timeAtOffsetNs(currentInput.tidx, abs) : null;
   inputChipHover = { inputAbs: abs, timeNs: typeof timeNs === "bigint" ? timeNs : null, label: label || null };
