@@ -225,11 +225,14 @@ button:disabled {
 }
 
 details.expando {
-  margin-top: 10px;
   border: 1px solid var(--border);
   background: var(--panel);
   border-radius: 12px;
   overflow: hidden;
+}
+
+details.expando + details.expando {
+  margin-top: 10px;
 }
 
 details.expando > summary {
