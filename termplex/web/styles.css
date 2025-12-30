@@ -369,6 +369,17 @@ details.expando[open] > summary {
   background: rgba(61, 220, 151, 0.1);
 }
 
+.input-chip--sgr_wheel_stack {
+  border-color: rgba(61, 220, 151, 0.35);
+  background: rgba(61, 220, 151, 0.08);
+}
+
+.input-chip--sgr_wheel_stack::before {
+  content: "↕";
+  color: rgba(214, 221, 230, 0.8);
+  font-size: 12px;
+}
+
 .input-chip--sgr_mouse_drag::before {
   content: "↔";
   color: rgba(214, 221, 230, 0.85);

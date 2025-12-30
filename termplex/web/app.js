@@ -1640,7 +1640,7 @@ function condenseSgrMouseTokens(inTokens) {
       outTokens.push(t);
       continue;
     }
-    const key = (() => {
+    const baseKey = (() => {
       const cb = t.data.cb | 0;
       const btn = cb & 3;
       const mods = cb & (4 | 8 | 16);
@@ -1648,7 +1648,7 @@ function condenseSgrMouseTokens(inTokens) {
       return `${btn}|${mods}|${wheel}`;
     })();
 
-    const events = [t.data];
+    const group = [t];
     let j = i + 1;
     while (j < inTokens.length && inTokens[j].kind === "macro" && inTokens[j].type === "sgr_mouse") {
       const ev = inTokens[j].data;
@@ -1657,17 +1657,70 @@ function condenseSgrMouseTokens(inTokens) {
       const mods = cb & (4 | 8 | 16);
       const wheel = cb & (64 | 128);
       const k = `${btn}|${mods}|${wheel}`;
-      if (k !== key) break;
-      events.push(ev);
+      if (k !== baseKey) break;
+      group.push(inTokens[j]);
       j++;
     }
 
+    const events = group.map((tok) => tok.data);
     const hasMotion = events.some((ev) => (ev.cb & 32) !== 0);
+    const isWheel = (events[0].cb & 64) !== 0;
+
     if (hasMotion && events.length > 1) {
-      outTokens.push({ kind: "macro", type: "sgr_mouse_drag", events });
-    } else {
-      for (const ev of events) outTokens.push({ kind: "macro", type: "sgr_mouse", data: ev });
+      outTokens.push({
+        kind: "macro",
+        type: "sgr_mouse_drag",
+        events,
+        start: group[0].start,
+        end: group[group.length - 1].end,
+      });
+      i = j - 1;
+      continue;
     }
+
+    if (isWheel && group.length > 1) {
+      // Stack consecutive wheel events of the same direction at the same coordinate.
+      let run = [group[0]];
+      const flushRun = () => {
+        if (!run.length) return;
+        if (run.length === 1) {
+          outTokens.push(run[0]);
+          run = [];
+          return;
+        }
+        const first = run[0].data;
+        outTokens.push({
+          kind: "macro",
+          type: "sgr_wheel_stack",
+          data: { ...first, count: run.length },
+          start: run[0].start,
+          end: run[run.length - 1].end,
+        });
+        run = [];
+      };
+
+      for (let k = 1; k < group.length; k++) {
+        const prev = run[run.length - 1].data;
+        const cur = group[k].data;
+        const same =
+          (prev.cb | 0) === (cur.cb | 0) &&
+          (prev.x | 0) === (cur.x | 0) &&
+          (prev.y | 0) === (cur.y | 0) &&
+          !!prev.up === !!cur.up;
+        if (!same) {
+          flushRun();
+          run = [group[k]];
+          continue;
+        }
+        run.push(group[k]);
+      }
+      flushRun();
+      i = j - 1;
+      continue;
+    }
+
+    // No special condensation; preserve original tokens so click-to-hop stays correct.
+    for (const tok of group) outTokens.push(tok);
     i = j - 1;
   }
   return outTokens;
@@ -1699,7 +1752,13 @@ function condenseDecrpmTokens(inTokens) {
       j++;
     }
     if (modes.length > 1) {
-      outTokens.push({ kind: "macro", type: "decrpm_run", data: { state, modes } });
+      outTokens.push({
+        kind: "macro",
+        type: "decrpm_run",
+        data: { state, modes },
+        start: t.start,
+        end: inTokens[j - 1] && inTokens[j - 1].end != null ? inTokens[j - 1].end : t.end,
+      });
     } else {
       outTokens.push(t);
     }
@@ -1732,6 +1791,18 @@ function tokenToDisplayParts(token) {
       type: "sgr_mouse_drag",
       label: `mouse drag ${btn}${mods ? `+${mods}` : ""} (${first.x},${first.y})…(${lastEv.x},${lastEv.y}) n=${token.events.length}${upNote}`,
       title: `xterm SGR mouse drag (1006): ${btn}${mods ? `+${mods}` : ""} from (${first.x},${first.y}) to (${lastEv.x},${lastEv.y}) in ${token.events.length} events.${upNote}\nraw: CSI < … M/m (condensed)`,
+    };
+  }
+  if (token.type === "sgr_wheel_stack") {
+    const ev = token.data;
+    const btn = sgrMouseButtonLabel(ev.cb);
+    const mods = sgrMouseModsLabel(ev.cb);
+    const count = clampInt(Number(ev.count), 2, 1_000_000);
+    const dir = btn.startsWith("Wheel") ? btn.slice("Wheel".length) : btn;
+    return {
+      type: "sgr_wheel_stack",
+      label: `wheel ${dir}${mods ? `+${mods}` : ""} ×${count} (${ev.x},${ev.y})`,
+      title: `xterm SGR mouse wheel (1006): ${btn}${mods ? `+${mods}` : ""} repeated ${count}× at (${ev.x},${ev.y}).\nraw: CSI < ${ev.cb} ; ${ev.x} ; ${ev.y} M (stacked)`,
     };
   }
   if (token.type === "decrpm") {
