@@ -1947,10 +1947,11 @@ function tokenToDisplayParts(token) {
     const ch = Number.isFinite(cp) && cp >= 32 && cp <= 0x10ffff ? String.fromCodePoint(cp) : null;
     const chLabel = ch && ch !== " " ? ch : ch === " " ? "SPACE" : `U+${cp.toString(16).toUpperCase()}`;
     const typeLabel = et === 1 ? "press" : et === 2 ? "repeat" : et === 3 ? "release" : `type=${et}`;
+    const md = decodeCsiUMods(mods);
     return {
       type: "kitty_key",
-      label: `key ${chLabel} ${typeLabel} mods=${mods}`,
-      title: `Kitty keyboard protocol key event: ${chLabel} (${typeLabel}), mods=${mods}.\nraw: CSI ${cp};${mods}:${et}u`,
+      label: `key ${chLabel} ${typeLabel} ${md.label}`,
+      title: `Kitty keyboard protocol key event: ${chLabel} (${typeLabel}), ${md.label}.\nraw: CSI ${cp};${mods}:${et}u (mods=${md.m} => ${md.names})`,
     };
   }
   if (token.type === "csi_u_key") {
@@ -1958,11 +1959,11 @@ function tokenToDisplayParts(token) {
     const mods = token.data.mods;
     const ch = Number.isFinite(cp) && cp >= 32 && cp <= 0x10ffff ? String.fromCodePoint(cp) : null;
     const chLabel = ch && ch !== " " ? ch : ch === " " ? "SPACE" : `U+${cp.toString(16).toUpperCase()}`;
-    const modsLabel = decodeCsiUMods(mods);
+    const md = decodeCsiUMods(mods);
     return {
       type: "csi_u_key",
-      label: `key ${chLabel} ${modsLabel}`,
-      title: `CSI u key event: Unicode codepoint ${cp} with modifiers ${modsLabel}.\nraw: CSI ${cp};${mods}u`,
+      label: `key ${chLabel} ${md.label}`,
+      title: `CSI u key event: Unicode codepoint ${cp} with modifiers ${md.label}.\nraw: CSI ${cp};${mods}u (mods=${md.m} => ${md.names})`,
     };
   }
   if (token.type === "csi_t") {
@@ -1993,14 +1994,14 @@ function tokenToDisplayParts(token) {
 function decodeCsiUMods(mods) {
   // Common xterm-style encoding: 1 + bitmask (Shift=1, Alt=2, Ctrl=4, Meta=8).
   const m = clampInt(Number(mods), 0, 1_000_000);
-  if (m <= 1) return "mods=1 (none)";
-  const mask = m - 1;
+  const mask = Math.max(0, m - 1);
   const parts = [];
   if (mask & 1) parts.push("Shift");
   if (mask & 2) parts.push("Alt");
   if (mask & 4) parts.push("Ctrl");
   if (mask & 8) parts.push("Meta");
-  return parts.length ? `mods=${m} (${parts.join("+")})` : `mods=${m}`;
+  const names = parts.length ? parts.join("+") : "none";
+  return { m, mask, names, label: `mods=${names}` };
 }
 
 function tokenizeInputBytes(u8) {
@@ -2296,15 +2297,14 @@ function updateInputChipHoverStatus() {
   const nowNs = currentPlaybackTimeNs();
   const tNs = inputChipHover.timeNs;
   if (typeof nowNs !== "bigint" || typeof tNs !== "bigint") {
-    setInputHoverStatus("hover: (needs input+output .tidx)");
+    setInputHoverStatus("t=? Δ=? (needs input+output .tidx)");
   } else {
     const deltaNs = nowNs - tNs;
     const sign = deltaNs < 0n ? "-" : "";
     const abs = deltaNs < 0n ? -deltaNs : deltaNs;
     const ms = Number(abs / 1_000_000n);
     const sec = ms / 1000;
-    const label = inputChipHover.label ? ` ${inputChipHover.label}` : "";
-    setInputHoverStatus(`hover:${label} t=${fmtNs(tNs)} (Δ=${sign}${sec.toFixed(3)}s)`);
+    setInputHoverStatus(`t=${fmtNs(tNs)} Δ=${sign}${sec.toFixed(3)}s`);
   }
   inputChipHoverRaf = requestAnimationFrame(() => updateInputChipHoverStatus());
 }
