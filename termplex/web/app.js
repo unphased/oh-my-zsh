@@ -63,6 +63,7 @@ const ui = {
   inputStatus: document.getElementById("inputStatus"),
   inputLog: document.getElementById("inputLog"),
   inputFollow: document.getElementById("inputFollow"),
+  inputInterpretEscapes: document.getElementById("inputInterpretEscapes"),
   inputWindowKiB: document.getElementById("inputWindowKiB"),
   leftPanel: document.getElementById("leftPanel"),
   panelResizer: document.getElementById("panelResizer"),
@@ -1204,6 +1205,7 @@ function updateRuntimeInputInfo() {
     lastAbsOffset: typeof currentInput.lastAbsOffset === "bigint" ? String(currentInput.lastAbsOffset) : null,
     lastTimeNs: typeof currentInput.lastTimeNs === "bigint" ? fmtNs(currentInput.lastTimeNs) : null,
     follow: inputFollow,
+    interpretEscapes: inputInterpretEscapes,
     windowKiB: inputWindowKiB,
   };
 }
@@ -1222,6 +1224,211 @@ function updateRuntimeSessionInfo() {
     urls: { output: currentSession.outputUrl, input: currentSession.inputUrl, meta: currentSession.metaUrl },
     meta: currentSessionMeta,
   };
+}
+
+// -----------------------------------------------------------------------------
+// Input log translation (optional)
+//
+// When enabled, this pass can condense verbose input escape sequences into compact tokens.
+// Start with: xterm SGR mouse reporting (1006): ESC [ < Cb ; Cx ; Cy (M|m)
+// -----------------------------------------------------------------------------
+function parseAsciiIntFromBytes(u8, i, { max = 1_000_000 } = {}) {
+  const len = u8.length;
+  let n = 0;
+  let j = i;
+  while (j < len) {
+    const b = u8[j];
+    if (b < 48 || b > 57) break;
+    n = n * 10 + (b - 48);
+    if (n > max) return null;
+    j++;
+  }
+  if (j === i) return null;
+  return { n, next: j };
+}
+
+function tryParseSgrMouse(u8, i) {
+  const len = u8.length;
+  if (i + 6 >= len) return null;
+  if (u8[i] !== 0x1b) return null; // ESC
+  if (u8[i + 1] !== 0x5b) return null; // [
+  if (u8[i + 2] !== 0x3c) return null; // <
+  let j = i + 3;
+
+  const cbRes = parseAsciiIntFromBytes(u8, j, { max: 4096 });
+  if (!cbRes) return null;
+  j = cbRes.next;
+  if (j >= len || u8[j] !== 0x3b) return null; // ;
+  j++;
+
+  const xRes = parseAsciiIntFromBytes(u8, j, { max: 100_000 });
+  if (!xRes) return null;
+  j = xRes.next;
+  if (j >= len || u8[j] !== 0x3b) return null; // ;
+  j++;
+
+  const yRes = parseAsciiIntFromBytes(u8, j, { max: 100_000 });
+  if (!yRes) return null;
+  j = yRes.next;
+  if (j >= len) return null;
+
+  const tail = u8[j];
+  if (tail !== 0x4d && tail !== 0x6d) return null; // M | m
+  j++;
+
+  return {
+    kind: "sgr_mouse",
+    len: j - i,
+    event: { cb: cbRes.n, x: xRes.n, y: yRes.n, up: tail === 0x6d },
+  };
+}
+
+const INPUT_ESCAPE_PARSERS = [tryParseSgrMouse];
+const INPUT_TOKEN_CONDENSERS = [condenseSgrMouseTokens];
+
+function sgrMouseButtonLabel(cb) {
+  // Best-effort decoding for xterm SGR mouse "Cb".
+  const wheel = (cb & 64) !== 0;
+  const base = cb & 3;
+  if (wheel) {
+    if (base === 0) return "WheelUp";
+    if (base === 1) return "WheelDown";
+    if (base === 2) return "WheelLeft";
+    if (base === 3) return "WheelRight";
+    return "Wheel";
+  }
+  if (base === 0) return "L";
+  if (base === 1) return "M";
+  if (base === 2) return "R";
+  return "?";
+}
+
+function sgrMouseModsLabel(cb) {
+  const mods = [];
+  if (cb & 4) mods.push("S");
+  if (cb & 8) mods.push("A");
+  if (cb & 16) mods.push("C");
+  return mods.length ? mods.join("") : "";
+}
+
+function condenseSgrMouseTokens(inTokens) {
+  const outTokens = [];
+  for (let i = 0; i < inTokens.length; i++) {
+    const t = inTokens[i];
+    if (t.kind !== "sgr_mouse") {
+      outTokens.push(t);
+      continue;
+    }
+    const key = (() => {
+      const cb = t.event.cb | 0;
+      const btn = cb & 3;
+      const mods = cb & (4 | 8 | 16);
+      const wheel = cb & (64 | 128);
+      return `${btn}|${mods}|${wheel}`;
+    })();
+
+    const events = [t.event];
+    let j = i + 1;
+    while (j < inTokens.length && inTokens[j].kind === "sgr_mouse") {
+      const ev = inTokens[j].event;
+      const cb = ev.cb | 0;
+      const btn = cb & 3;
+      const mods = cb & (4 | 8 | 16);
+      const wheel = cb & (64 | 128);
+      const k = `${btn}|${mods}|${wheel}`;
+      if (k !== key) break;
+      events.push(ev);
+      j++;
+    }
+
+    const hasMotion = events.some((ev) => (ev.cb & 32) !== 0);
+    if (hasMotion && events.length > 1) {
+      outTokens.push({ kind: "macro", type: "sgr_mouse_drag", events });
+    } else {
+      for (const ev of events) outTokens.push({ kind: "macro", type: "sgr_mouse", event: ev });
+    }
+    i = j - 1;
+  }
+  return outTokens;
+}
+
+function formatInputBytesForLog(u8, { initialLastWasNonprint = false, interpretEscapes = false } = {}) {
+  if (!(u8 instanceof Uint8Array) || !u8.length) return "";
+  if (!interpretEscapes) return hexflowFormatBytes(u8, { initialLastWasNonprint });
+
+  const tokens = [];
+  let scan = 0;
+  let last = 0;
+  while (scan < u8.length) {
+    let res = null;
+    for (const parser of INPUT_ESCAPE_PARSERS) {
+      res = parser(u8, scan);
+      if (res) break;
+    }
+    if (!res) {
+      scan++;
+      continue;
+    }
+    if (last < scan) tokens.push({ kind: "bytes", start: last, end: scan });
+    tokens.push({ kind: res.kind, event: res.event });
+    scan += res.len;
+    last = scan;
+  }
+  if (last < u8.length) tokens.push({ kind: "bytes", start: last, end: u8.length });
+
+  let condensed = tokens;
+  for (const condense of INPUT_TOKEN_CONDENSERS) condensed = condense(condensed);
+
+  const out = [];
+  let lastWasNonprint = !!initialLastWasNonprint;
+  for (let i = 0; i < condensed.length; i++) {
+    const t = condensed[i];
+    const next = condensed[i + 1] || null;
+    if (t.kind === "bytes") {
+      const slice = u8.subarray(t.start, t.end);
+      out.push(hexflowFormatBytes(slice, { initialLastWasNonprint: lastWasNonprint }));
+      if (slice.length) lastWasNonprint = !isHexflowPrintableByte(slice[slice.length - 1]);
+      continue;
+    }
+
+    if (t.kind === "macro" && t.type === "sgr_mouse") {
+      const ev = t.event;
+      const btn = sgrMouseButtonLabel(ev.cb);
+      const mods = sgrMouseModsLabel(ev.cb);
+      const motion = (ev.cb & 32) !== 0;
+      const kind = ev.up ? "up" : motion ? "move" : "down";
+      let s = ` [mouse ${btn}${mods ? `+${mods}` : ""} (${ev.x},${ev.y}) ${kind}]`;
+      if (next && next.kind === "bytes") {
+        const b0 = u8[next.start];
+        if (b0 != null && isHexflowPrintableByte(b0)) s += " ";
+      } else if (next && next.kind === "macro") {
+        s += " ";
+      }
+      out.push(s);
+      lastWasNonprint = false;
+      continue;
+    }
+
+    if (t.kind === "macro" && t.type === "sgr_mouse_drag") {
+      const first = t.events[0];
+      const lastEv = t.events[t.events.length - 1];
+      const btn = sgrMouseButtonLabel(first.cb);
+      const mods = sgrMouseModsLabel(first.cb);
+      const upNote = lastEv.up ? " up" : "";
+      let s = ` [mouse-drag ${btn}${mods ? `+${mods}` : ""} (${first.x},${first.y})...(${lastEv.x},${lastEv.y}) n=${t.events.length}${upNote}]`;
+      if (next && next.kind === "bytes") {
+        const b0 = u8[next.start];
+        if (b0 != null && isHexflowPrintableByte(b0)) s += " ";
+      } else if (next && next.kind === "macro") {
+        s += " ";
+      }
+      out.push(s);
+      lastWasNonprint = false;
+      continue;
+    }
+  }
+
+  return out.join("");
 }
 
 function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs = null } = {}) {
@@ -1251,7 +1458,7 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
   const start = Math.max(0, local - windowBytes);
   const slice = u8.subarray(start, local);
   const initialLastWasNonprint = start > 0 ? !isHexflowPrintableByte(u8[start - 1]) : false;
-  ui.inputLog.textContent = hexflowFormatBytes(slice, { initialLastWasNonprint });
+  ui.inputLog.textContent = formatInputBytesForLog(slice, { initialLastWasNonprint, interpretEscapes: inputInterpretEscapes });
   if (inputFollow) ui.inputLog.scrollTop = ui.inputLog.scrollHeight;
 
   currentInput.lastAbsOffset = absOffset != null ? BigInt(absOffset) : BigInt(currentInput.baseOffset) + BigInt(local);
@@ -1261,7 +1468,8 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
   const timeNote = typeof timeNs === "bigint" ? ` t=${fmtNs(timeNs)}` : "";
   const windowNote = start > 0 ? ` (window ${fmtBytes(slice.length)}; showing tail)` : "";
   const clampNote = clampedToLoaded ? " (outside loaded range; increase Tail or set Tail=0)" : "";
-  setInputStatus(`Input ${absNote}${timeNote}${windowNote}${clampNote}`);
+  const modeNote = inputInterpretEscapes ? " mode=interpret" : "";
+  setInputStatus(`Input ${absNote}${timeNote}${windowNote}${clampNote}${modeNote}`);
 
   updateRuntimeInputInfo();
   renderInfoThrottled();
@@ -1551,6 +1759,7 @@ let playbackClock = "bytes"; // "bytes" | "tidx"
 let playbackSpeedX = 1.0;
 let tidxEmitHzCap = 0;
 let inputFollow = true;
+let inputInterpretEscapes = false;
 let inputWindowKiB = 64;
 let scrollbackLines = 10000;
 let bulkNoYield = true;
@@ -1728,6 +1937,10 @@ function loadPrefs() {
       inputFollow = prefs.inputFollow;
       if (ui.inputFollow) ui.inputFollow.checked = inputFollow;
     }
+    if (typeof prefs.inputInterpretEscapes === "boolean") {
+      inputInterpretEscapes = prefs.inputInterpretEscapes;
+      if (ui.inputInterpretEscapes) ui.inputInterpretEscapes.checked = inputInterpretEscapes;
+    }
     if (typeof prefs.inputWindowKiB === "number") {
       inputWindowKiB = clampInt(Number(prefs.inputWindowKiB), 1, 16 * 1024);
       if (ui.inputWindowKiB) ui.inputWindowKiB.value = String(inputWindowKiB);
@@ -1766,6 +1979,7 @@ function savePrefs() {
       playbackSpeedX,
       tidxEmitHzCap,
       inputFollow,
+      inputInterpretEscapes,
       inputWindowKiB,
       scrollbackLines,
       bulkNoYield,
@@ -3086,6 +3300,21 @@ ui.scrollbackLines?.addEventListener("change", () => {
 ui.inputFollow?.addEventListener("change", () => {
   inputFollow = !!ui.inputFollow.checked;
   savePrefs();
+  updateRuntimeInputInfo();
+  renderInfo();
+});
+
+ui.inputInterpretEscapes?.addEventListener("change", () => {
+  inputInterpretEscapes = !!ui.inputInterpretEscapes.checked;
+  savePrefs();
+  if (currentInput && currentInput.u8) {
+    const base = BigInt(currentInput.baseOffset || 0);
+    const last = typeof currentInput.lastAbsOffset === "bigint" ? currentInput.lastAbsOffset : base;
+    const localBig = last - base;
+    const local = Number(localBig > 0n ? localBig : 0n);
+    if (Number.isFinite(local)) renderInputLogFromLocalOffset(local, { absOffset: last, timeNs: currentInput.lastTimeNs });
+    else renderInputLogTail();
+  }
   updateRuntimeInputInfo();
   renderInfo();
 });
