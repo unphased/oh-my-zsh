@@ -104,6 +104,18 @@
                   <option value="240"></option>
                 </datalist>
               </label>
+              <label class="panel-field">
+                <span title="TCAP time mode + time-scrub: lag governor (ms). Larger = smoother (smaller chunks near realtime) but allows more lag; smaller = more aggressive catch-up.">Lag governor (ms, tidx)</span>
+                <input id="tidxLagTauMs" type="number" min="1" step="10" value="120" list="tidxLagPresets" />
+                <datalist id="tidxLagPresets">
+                  <option value="30"></option>
+                  <option value="60"></option>
+                  <option value="120"></option>
+                  <option value="250"></option>
+                  <option value="500"></option>
+                  <option value="1000"></option>
+                </datalist>
+              </label>
             </div>
             <div class="panel-controls" style="margin-top: 10px">
               <label class="panel-field">
@@ -112,7 +124,7 @@
               </label>
               <label class="panel-field">
                 <span title="Max bytes per write chunk (replay batch). Larger values are faster but can increase UI stalls.">Frame Cap</span>
-                <input id="chunkBytes" type="number" min="1024" step="1024" value="4096" />
+                <input id="chunkBytes" type="number" min="1" step="1" value="4096" />
               </label>
               <label class="panel-field">
                 <span title="Bytes per second when playing in byte-clock mode. Use Playback clock → TCAP time to follow recorded timing instead.">Rate (B/s)</span>

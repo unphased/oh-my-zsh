@@ -74,6 +74,7 @@ const ui = {
   playbackClock: document.getElementById("playbackClock"),
   playbackSpeedX: document.getElementById("playbackSpeedX"),
   tidxHzCap: document.getElementById("tidxHzCap"),
+  tidxLagTauMs: document.getElementById("tidxLagTauMs"),
   preferNerdFont: document.getElementById("preferNerdFont"),
   scrollbackLines: document.getElementById("scrollbackLines"),
   bulkNoYield: document.getElementById("bulkNoYield"),
@@ -327,11 +328,13 @@ function fmtRate(bps) {
 }
 
 function currentPlaybackConfigNote() {
-  const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
+  const chunkBytesRaw = Number(ui.chunkBytes.value);
+  const chunkBytes = Number.isFinite(chunkBytesRaw) ? Math.max(1, Math.floor(chunkBytesRaw)) : 32_768;
   if (typeof playbackClock === "string" && playbackClock === "tidx") {
     const cap = clampInt(Number(ui.tidxHzCap?.value ?? 0), 0, 10_000);
     const capNote = cap > 0 ? `render<=${cap}Hz` : "render<=auto";
-    return `clock=tidx x=${playbackSpeedX} ${capNote} cap=${fmtBytes(chunkBytes)}/frame`;
+    const tau = clampInt(Number(ui.tidxLagTauMs?.value ?? tidxLagTauMs), 1, 60_000);
+    return `clock=tidx x=${playbackSpeedX} ${capNote} gov=${tau}ms cap=${fmtBytes(chunkBytes)}/frame`;
   }
   const bps = rateToBytesPerSec();
   return `clock=bytes rate=${fmtRate(bps)} cap=${fmtBytes(chunkBytes)}/frame`;
@@ -1023,6 +1026,8 @@ class OutputPlayer {
     this._tidxEmitHzCap = 0;
     this._tidxSinceEmitMs = 0;
     this._chunkPhase = null;
+    this._tidxLagTauMs = 120;
+    this._tidxChunkEma = null;
   }
 
   hasLoaded() {
@@ -1058,13 +1063,14 @@ class OutputPlayer {
     this._emitProgress(0);
   }
 
-  configure({ speedBps, chunkBytes, clockMode, clockSpeedX, clockTidx, tidxEmitHzCap } = {}) {
+  configure({ speedBps, chunkBytes, clockMode, clockSpeedX, clockTidx, tidxEmitHzCap, tidxLagTauMs } = {}) {
     this._speedBps = speedBps;
     this._chunkBytes = chunkBytes;
     if (clockMode === "bytes" || clockMode === "tidx") this._clockMode = clockMode;
     if (Number.isFinite(clockSpeedX)) this._clockSpeedX = Math.max(0, Number(clockSpeedX));
     this._clockTidx = clockTidx || null;
     if (Number.isFinite(tidxEmitHzCap)) this._tidxEmitHzCap = clampInt(Number(tidxEmitHzCap), 0, 10_000);
+    if (Number.isFinite(tidxLagTauMs)) this._tidxLagTauMs = clampInt(Number(tidxLagTauMs), 1, 60_000);
   }
 
   stop() {
@@ -1086,11 +1092,30 @@ class OutputPlayer {
     } else {
       this._clockTimeNs = null;
     }
+    this._tidxChunkEma = null;
     this._raf = requestAnimationFrame((ts) => this._tick(ts));
   }
 
   pause() {
     this.stop();
+  }
+
+  _tidxDynamicChunkBytes({ lagMs, dtMs, maxChunkBytes }) {
+    const maxCap = clampInt(Number(maxChunkBytes), 1, Number.MAX_SAFE_INTEGER);
+    const tau = clampInt(Number(this._tidxLagTauMs), 1, 60_000);
+    const lag = Number.isFinite(lagMs) && lagMs > 0 ? lagMs : 0;
+
+    // Exponential response: small chunks near realtime, ramping smoothly towards cap as lag grows.
+    const target = Math.max(1, Math.floor(maxCap * (1 - Math.exp(-lag / tau))));
+
+    // Smooth chunk size changes with an EMA so the output "breathes" instead of snapping.
+    const smoothMs = Math.max(16, Math.min(1000, tau * 0.5));
+    const alpha = Number.isFinite(dtMs) && dtMs > 0 ? 1 - Math.exp(-dtMs / smoothMs) : 0.25;
+    const prev = this._tidxChunkEma == null ? target : this._tidxChunkEma;
+    const next = prev + (target - prev) * alpha;
+    this._tidxChunkEma = next;
+
+    return clampInt(Math.floor(next), 1, maxCap);
   }
 
   reset() {
@@ -1341,6 +1366,7 @@ class OutputPlayer {
             sinceEmitMs: this._tidxSinceEmitMs,
             emitHzCap: this._tidxEmitHzCap,
             idle,
+            lagBytes: targetAbs > currentAbs ? targetAbs - currentAbs : 0n,
           },
         });
         this._raf = requestAnimationFrame((nextTs) => this._tick(nextTs));
@@ -1348,7 +1374,10 @@ class OutputPlayer {
       }
 
       this._tidxSinceEmitMs = 0;
-      end = Math.min(desired, this._offset + this._chunkBytes);
+      const lagTimeNs = targetTimeNs > timeAtOffsetNs(this._clockTidx, currentAbs) ? targetTimeNs - timeAtOffsetNs(this._clockTidx, currentAbs) : 0n;
+      const lagMs = Number(lagTimeNs <= BigInt(Number.MAX_SAFE_INTEGER) ? lagTimeNs : BigInt(Number.MAX_SAFE_INTEGER)) / 1_000_000;
+      const dynChunk = this._tidxDynamicChunkBytes({ lagMs, dtMs, maxChunkBytes: this._chunkBytes });
+      end = Math.min(desired, this._offset + dynChunk);
     } else {
       let budget = this._chunkBytes;
       if (Number.isFinite(this._speedBps)) {
@@ -1415,6 +1444,8 @@ class OutputPlayer {
           sinceEmitMs: this._tidxSinceEmitMs,
           emitHzCap: this._tidxEmitHzCap,
           idle,
+          lagBytes: desiredAbs > currentAbs ? desiredAbs - currentAbs : 0n,
+          dynChunkBytes: this._tidxChunkEma != null ? Math.floor(this._tidxChunkEma) : null,
         },
       });
     } else {
@@ -3171,6 +3202,7 @@ let seekMode = 0; // 0 | 1
 let playbackClock = "bytes"; // "bytes" | "tidx"
 let playbackSpeedX = 1.0;
 let tidxEmitHzCap = 0;
+let tidxLagTauMs = 120;
 let inputFollow = true;
 let inputInterpretEscapes = false;
 let inputWindowKiB = 16;
@@ -3305,7 +3337,7 @@ function renderInfo() {
   perfInfo.seekMode = seekMode;
   perfInfo.settings.scrollbackLines = scrollbackLines;
   perfInfo.settings.bulk = { noYield: bulkNoYield, renderOff: bulkRenderOff, zeroScrollback: bulkZeroScrollback };
-  perfInfo.settings.playback = { clock: playbackClock, speedX: playbackSpeedX, tidxEmitHzCap };
+  perfInfo.settings.playback = { clock: playbackClock, speedX: playbackSpeedX, tidxEmitHzCap, tidxLagTauMs };
   ui.infoPanel.value = safeYaml(perfInfo);
 }
 
@@ -3352,6 +3384,10 @@ function loadPrefs() {
       tidxEmitHzCap = clampInt(Number(prefs.tidxEmitHzCap), 0, 10_000);
       if (ui.tidxHzCap) ui.tidxHzCap.value = String(tidxEmitHzCap);
     }
+    if (typeof prefs.tidxLagTauMs === "number") {
+      tidxLagTauMs = clampInt(Number(prefs.tidxLagTauMs), 1, 60_000);
+      if (ui.tidxLagTauMs) ui.tidxLagTauMs.value = String(tidxLagTauMs);
+    }
     if (typeof prefs.inputFollow === "boolean") {
       inputFollow = prefs.inputFollow;
       if (ui.inputFollow) ui.inputFollow.checked = inputFollow;
@@ -3395,10 +3431,12 @@ function loadPrefs() {
 
 function savePrefs() {
   try {
+    const chunkBytesRaw = Number(ui.chunkBytes.value);
+    const chunkBytes = Number.isFinite(chunkBytesRaw) ? Math.max(1, Math.floor(chunkBytesRaw)) : 32_768;
     const prefs = {
       baseUrl: ui.baseUrl ? String(ui.baseUrl.value || "").trim() : "../",
       tailBytes: clampInt(Number(ui.tailBytes.value), 0, Number.MAX_SAFE_INTEGER),
-      chunkBytes: clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024),
+      chunkBytes,
       rateBps: clampInt(Number(ui.rateBps.value), 0, 1_000_000_000),
       panelWidthPx: ui.leftPanel ? clampInt(ui.leftPanel.getBoundingClientRect().width, 200, 2400) : undefined,
       seekMode,
@@ -3406,6 +3444,7 @@ function savePrefs() {
       playbackSpeedX,
       outputFollow,
       tidxEmitHzCap,
+      tidxLagTauMs,
       inputFollow,
       inputInterpretEscapes,
       inputWindowKiB,
@@ -3855,7 +3894,9 @@ function setupPlaybackPipeline() {
     },
   });
 
-  const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
+  const chunkBytesRaw = Number(ui.chunkBytes.value);
+  const chunkBytes = Number.isFinite(chunkBytesRaw) ? Math.max(1, Math.floor(chunkBytesRaw)) : 32_768;
+  if (ui.chunkBytes) ui.chunkBytes.value = String(chunkBytes);
   const speedBps = rateToBytesPerSec();
   player.configure({
     speedBps,
@@ -3864,6 +3905,7 @@ function setupPlaybackPipeline() {
     clockSpeedX: playbackSpeedX,
     clockTidx: currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null,
     tidxEmitHzCap,
+    tidxLagTauMs,
   });
 
   // Density strips depend on output tidx.
@@ -4148,7 +4190,9 @@ ui.hopNext?.addEventListener("click", () => {
 });
 
 ui.rateBps.addEventListener("change", () => {
-  const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
+  const chunkBytesRaw = Number(ui.chunkBytes.value);
+  const chunkBytes = Number.isFinite(chunkBytesRaw) ? Math.max(1, Math.floor(chunkBytesRaw)) : 32_768;
+  if (ui.chunkBytes) ui.chunkBytes.value = String(chunkBytes);
   player.configure({
     speedBps: rateToBytesPerSec(),
     chunkBytes,
@@ -4161,7 +4205,9 @@ ui.rateBps.addEventListener("change", () => {
 });
 
 ui.chunkBytes.addEventListener("change", () => {
-  const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
+  const chunkBytesRaw = Number(ui.chunkBytes.value);
+  const chunkBytes = Number.isFinite(chunkBytesRaw) ? Math.max(1, Math.floor(chunkBytesRaw)) : 32_768;
+  if (ui.chunkBytes) ui.chunkBytes.value = String(chunkBytes);
   player.configure({
     speedBps: rateToBytesPerSec(),
     chunkBytes,
@@ -4826,7 +4872,9 @@ ui.playbackClock?.addEventListener("change", () => {
   savePrefs();
   renderInfo();
   // Apply immediately if possible; for non-output streams or missing tidx, player falls back to bytes mode.
-  const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
+  const chunkBytesRaw = Number(ui.chunkBytes.value);
+  const chunkBytes = Number.isFinite(chunkBytesRaw) ? Math.max(1, Math.floor(chunkBytesRaw)) : 32_768;
+  if (ui.chunkBytes) ui.chunkBytes.value = String(chunkBytes);
   player.configure({
     speedBps: rateToBytesPerSec(),
     chunkBytes,
@@ -4834,6 +4882,7 @@ ui.playbackClock?.addEventListener("change", () => {
     clockSpeedX: playbackSpeedX,
     clockTidx: currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null,
     tidxEmitHzCap,
+    tidxLagTauMs,
   });
 });
 
@@ -4843,7 +4892,9 @@ ui.playbackSpeedX?.addEventListener("change", () => {
   if (ui.playbackSpeedX) ui.playbackSpeedX.value = String(playbackSpeedX);
   savePrefs();
   renderInfo();
-  const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
+  const chunkBytesRaw = Number(ui.chunkBytes.value);
+  const chunkBytes = Number.isFinite(chunkBytesRaw) ? Math.max(1, Math.floor(chunkBytesRaw)) : 32_768;
+  if (ui.chunkBytes) ui.chunkBytes.value = String(chunkBytes);
   player.configure({
     speedBps: rateToBytesPerSec(),
     chunkBytes,
@@ -4851,6 +4902,7 @@ ui.playbackSpeedX?.addEventListener("change", () => {
     clockSpeedX: playbackSpeedX,
     clockTidx: currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null,
     tidxEmitHzCap,
+    tidxLagTauMs,
   });
 });
 
@@ -4859,7 +4911,9 @@ ui.tidxHzCap?.addEventListener("change", () => {
   if (ui.tidxHzCap) ui.tidxHzCap.value = String(tidxEmitHzCap);
   savePrefs();
   renderInfo();
-  const chunkBytes = clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024);
+  const chunkBytesRaw = Number(ui.chunkBytes.value);
+  const chunkBytes = Number.isFinite(chunkBytesRaw) ? Math.max(1, Math.floor(chunkBytesRaw)) : 32_768;
+  if (ui.chunkBytes) ui.chunkBytes.value = String(chunkBytes);
   player.configure({
     speedBps: rateToBytesPerSec(),
     chunkBytes,
@@ -4867,6 +4921,26 @@ ui.tidxHzCap?.addEventListener("change", () => {
     clockSpeedX: playbackSpeedX,
     clockTidx: currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null,
     tidxEmitHzCap,
+    tidxLagTauMs,
+  });
+});
+
+ui.tidxLagTauMs?.addEventListener("change", () => {
+  tidxLagTauMs = clampInt(Number(ui.tidxLagTauMs.value), 1, 60_000);
+  if (ui.tidxLagTauMs) ui.tidxLagTauMs.value = String(tidxLagTauMs);
+  savePrefs();
+  renderInfo();
+  const chunkBytesRaw = Number(ui.chunkBytes.value);
+  const chunkBytes = Number.isFinite(chunkBytesRaw) ? Math.max(1, Math.floor(chunkBytesRaw)) : 32_768;
+  if (ui.chunkBytes) ui.chunkBytes.value = String(chunkBytes);
+  player.configure({
+    speedBps: rateToBytesPerSec(),
+    chunkBytes,
+    clockMode: playbackClock,
+    clockSpeedX: playbackSpeedX,
+    clockTidx: currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null,
+    tidxEmitHzCap,
+    tidxLagTauMs,
   });
 });
 
@@ -5121,14 +5195,17 @@ renderInfo();
 applyScrollbackSetting(scrollbackLines);
 installPanelResizer();
 installCustomScrubberTracks();
-player.configure({
-  speedBps: rateToBytesPerSec(),
-  chunkBytes: clampInt(Number(ui.chunkBytes.value), 1024, 8 * 1024 * 1024),
-  clockMode: playbackClock,
-  clockSpeedX: playbackSpeedX,
-  clockTidx: null,
-  tidxEmitHzCap,
-});
+  player.configure({
+    speedBps: rateToBytesPerSec(),
+    chunkBytes: (() => {
+      const n = Number(ui.chunkBytes.value);
+      return Number.isFinite(n) ? Math.max(1, Math.floor(n)) : 32_768;
+    })(),
+    clockMode: playbackClock,
+    clockSpeedX: playbackSpeedX,
+    clockTidx: null,
+    tidxEmitHzCap,
+  });
 updateButtons();
 configureScrubbers();
 
