@@ -94,7 +94,7 @@
                 <input id="playbackSpeedX" type="number" min="0" step="0.1" value="1" />
               </label>
               <label class="panel-field">
-                <span>Time render cap (Hz, tidx)</span>
+                <span title="In TCAP time mode (tidx), cap how often playback emits/render updates by grouping events into frame buckets. 0 = uncapped.">Time render cap (Hz, tidx)</span>
                 <input id="tidxHzCap" type="number" min="0" step="1" value="0" list="tidxHzPresets" />
                 <datalist id="tidxHzPresets">
                   <option value="0"></option>
@@ -107,15 +107,15 @@
             </div>
             <div class="panel-controls" style="margin-top: 10px">
               <label class="panel-field">
-                <span>Tail</span>
+                <span title="Load only the last N bytes of the capture. 0 = load full file (required for from-0 seeking).">Tail</span>
                 <input id="tailBytes" type="number" min="0" step="4096" value="0" />
               </label>
               <label class="panel-field">
-                <span>Frame Cap</span>
+                <span title="Max bytes per write chunk (replay batch). Larger values are faster but can increase UI stalls.">Frame Cap</span>
                 <input id="chunkBytes" type="number" min="1024" step="1024" value="4096" />
               </label>
               <label class="panel-field">
-                <span>Rate (B/s)</span>
+                <span title="Bytes per second when playing in byte-clock mode. Use Playback clock → TCAP time to follow recorded timing instead.">Rate (B/s)</span>
                 <input id="rateBps" type="number" min="0" step="100" value="50000" list="ratePresets" />
               </label>
               <datalist id="ratePresets">
