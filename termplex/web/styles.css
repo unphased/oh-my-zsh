@@ -525,6 +525,17 @@ textarea.info-panel.info-panel--stats {
   background: rgba(17, 21, 26, 0.65);
 }
 
+.terminal-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: rgba(17, 21, 26, 0.65);
+  min-height: 32px;
+  box-sizing: border-box;
+}
+
 .scrubber {
   display: flex;
   align-items: center;
@@ -546,6 +557,11 @@ textarea.info-panel.info-panel--stats {
   white-space: nowrap;
 }
 
+.scrub-meta--time,
+.scrub-meta--off {
+  flex: 0 0 auto;
+}
+
 .terminal-title {
   font-weight: 650;
 }
@@ -554,6 +570,11 @@ textarea.info-panel.info-panel--stats {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--muted);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .terminal-stage {

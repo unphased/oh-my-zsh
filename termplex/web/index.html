@@ -196,21 +196,18 @@
       <section class="terminal-wrap">
         <div class="terminal-header">
           <div class="terminal-title" id="terminalTitle">Output</div>
-          <div class="terminal-meta" id="meta"></div>
         </div>
         <div class="scrubber">
           <div class="range">
             <input id="timeScrub" type="range" min="0" max="0" value="0" step="1" disabled />
             <div id="timeMaxMark" class="range-mark" hidden></div>
           </div>
-          <div class="scrub-meta" id="timeScrubText">t=?</div>
         </div>
         <div class="scrubber">
           <div class="range">
             <input id="offsetScrub" type="range" min="0" max="0" value="0" step="1" disabled />
             <div id="offsetMaxMark" class="range-mark" hidden></div>
           </div>
-          <div class="scrub-meta" id="offsetScrubText">off=?</div>
         </div>
         <div id="terminalStage" class="terminal-stage">
           <div id="terminalCanvas" class="terminal-canvas">
@@ -220,6 +217,11 @@
               <div id="boundsLabel" class="bounds-label"></div>
             </div>
           </div>
+        </div>
+        <div class="terminal-statusbar" role="status" aria-live="polite">
+          <div class="scrub-meta scrub-meta--time" id="timeScrubText">t=?</div>
+          <div class="terminal-meta" id="meta"></div>
+          <div class="scrub-meta scrub-meta--off" id="offsetScrubText">off=?</div>
         </div>
       </section>
     </main>
