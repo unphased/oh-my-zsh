@@ -394,6 +394,8 @@ class ChunkPerfMonitor {
     this._bytes = null;
     this._writes = null;
     this._phase = null;
+    this._ts = null;
+    this._count = 0;
     this._scaleMaxBytes = 1;
     this._last = null;
     this._hover = null; // { x, idx } | null
@@ -452,8 +454,10 @@ class ChunkPerfMonitor {
       this._bytes = new Float64Array(this._bins);
       this._writes = new Uint32Array(this._bins);
       this._phase = new Uint8Array(this._bins);
+      this._ts = new Float64Array(this._bins);
       this._head = 0;
       this._lastBinTsMs = null;
+      this._count = 0;
       this._scaleMaxBytes = 1;
       this._last = null;
       this._hover = null;
@@ -468,8 +472,10 @@ class ChunkPerfMonitor {
     if (this._bytes) this._bytes.fill(0);
     if (this._writes) this._writes.fill(0);
     if (this._phase) this._phase.fill(0);
+    if (this._ts) this._ts.fill(0);
     this._head = 0;
     this._lastBinTsMs = null;
+    this._count = 0;
     this._scaleMaxBytes = 1;
     this._last = null;
     this._hover = null;
@@ -536,25 +542,20 @@ class ChunkPerfMonitor {
     }
     const deltaMs = tsMs - this._lastBinTsMs;
     if (deltaMs <= 0) return;
-    const steps = Math.floor(deltaMs / this._binMs);
-    if (steps <= 0) return;
-
-    if (steps >= this._bins) {
-      this._bytes.fill(0);
-      this._writes.fill(0);
-      this._phase.fill(0);
-      this._head = 0;
+    // Sparse bucketing: skip empty time bins to preserve horizontal resolution for actual work.
+    // Any gap larger than binMs advances by exactly one bucket (instead of inserting many empty buckets).
+    if (deltaMs < this._binMs) return;
+    if (this._count <= 0) {
       this._lastBinTsMs = tsMs;
       return;
     }
-
-    for (let i = 0; i < steps; i++) {
-      this._head = (this._head + 1) % this._bins;
-      this._bytes[this._head] = 0;
-      this._writes[this._head] = 0;
-      this._phase[this._head] = 0;
-    }
-    this._lastBinTsMs += steps * this._binMs;
+    this._head = (this._head + 1) % this._bins;
+    this._bytes[this._head] = 0;
+    this._writes[this._head] = 0;
+    this._phase[this._head] = 0;
+    if (this._ts) this._ts[this._head] = 0;
+    this._count = Math.min(this._bins, this._count + 1);
+    this._lastBinTsMs = tsMs;
   }
 
   record({ tsMs, phase, bytes, chars, absStart, absEnd } = {}) {
@@ -563,7 +564,19 @@ class ChunkPerfMonitor {
     if (b <= 0) return;
     const now = Number.isFinite(tsMs) ? tsMs : performance.now();
     this._advanceTo(now);
+
+    if (this._count <= 0) {
+      this._head = 0;
+      this._bytes[this._head] = 0;
+      this._writes[this._head] = 0;
+      this._phase[this._head] = 0;
+      if (this._ts) this._ts[this._head] = 0;
+      this._count = 1;
+      this._lastBinTsMs = now;
+    }
+
     const id = this._phaseId(phase);
+    if (this._writes[this._head] === 0 && this._ts) this._ts[this._head] = now;
     this._bytes[this._head] += b;
     this._writes[this._head] += 1;
     if (id > this._phase[this._head]) this._phase[this._head] = id;
@@ -627,11 +640,14 @@ class ChunkPerfMonitor {
     }
 
     // Summary + runtime info.
-    const last1sBins = Math.max(1, Math.floor(1000 / this._binMs));
+    const nowTs = this._last ? this._last.tsMs : performance.now();
     let bytes1s = 0;
     let writes1s = 0;
-    for (let i = 0; i < Math.min(this._bins, last1sBins); i++) {
+    for (let i = 0; i < this._bins; i++) {
       const idx = (this._head - i + this._bins) % this._bins;
+      const ts = this._ts ? this._ts[idx] : 0;
+      if (!ts) break;
+      if (nowTs - ts > 1000) break;
       bytes1s += this._bytes[idx];
       writes1s += this._writes[idx];
     }
@@ -643,12 +659,10 @@ class ChunkPerfMonitor {
       writesWindow += this._writes[i];
     }
 
-    const nowTs = this._last ? this._last.tsMs : performance.now();
-
     const last = this._last;
     const lastNote = last ? `last=${fmtBytes(last.bytes)} ${last.phase || ""}`.trim() : "last=?";
     const rateNote = `1s=${fmtRate(bytes1s)} (${writes1s}/s)`;
-    const binNote = `bin=${this._binMs.toFixed(1)}ms win=${(this._binMs * this._bins).toFixed(0)}ms`;
+    const binNote = `targetBin=${this._binMs.toFixed(1)}ms bars=${this._count}/${this._bins}`;
 
     let hoverNote = "";
     let hoverRuntime = null;
@@ -658,16 +672,20 @@ class ChunkPerfMonitor {
       const b = this._bytes[idx] || 0;
       const writes = this._writes[idx] || 0;
       const phaseId = this._phase[idx] || 0;
-      const binStart = this._lastBinTsMs - (this._bins - 1 - x) * this._binMs;
-      const binEnd = binStart + this._binMs;
-      const ageStart = nowTs - binStart;
-      const ageEnd = nowTs - binEnd;
       const phase = this._phaseLabel(phaseId);
-      hoverNote = `hover=t-${Math.max(0, ageStart).toFixed(0)}..${Math.max(0, ageEnd).toFixed(0)}ms bytes=${fmtBytes(b)} writes=${writes} phase=${phase}`;
+      const ts = this._ts ? this._ts[idx] : 0;
+      const ageMs = ts ? Math.max(0, nowTs - ts) : null;
+      let gapPrevMs = null;
+      if (this._ts && x > 0) {
+        const prevIdx = (this._head + x) % this._bins;
+        const prevTs = this._ts[prevIdx] || 0;
+        if (prevTs && ts && ts >= prevTs) gapPrevMs = ts - prevTs;
+      }
+      hoverNote = `hover=t-${ageMs != null ? ageMs.toFixed(0) : "?"}ms bytes=${fmtBytes(b)} writes=${writes} phase=${phase}${gapPrevMs != null ? ` gap=${gapPrevMs.toFixed(0)}ms` : ""}`;
       hoverRuntime = {
         x,
-        binStartMsAgo: Math.max(0, ageStart),
-        binEndMsAgo: Math.max(0, ageEnd),
+        ageMsAgo: ageMs != null ? Math.max(0, ageMs) : null,
+        gapPrevMs: gapPrevMs != null ? Math.max(0, gapPrevMs) : null,
         bytes: b,
         writes,
         phase,
