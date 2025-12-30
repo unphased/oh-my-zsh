@@ -106,6 +106,7 @@ const DEFAULT_FONT_STACK = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consola
 const NERD_FONT_STACK = `"IosevkaTerm Nerd Font Web","IosevkaTerm Nerd Font","IosevkaTerm NF","IosevkaTerm Nerd Font Mono","IosevkaTerm NF Mono",${DEFAULT_FONT_STACK}`;
 
 let preferNerdFont = true;
+let scrollbackLines = 10000;
 
 function currentFontStack() {
   return preferNerdFont ? NERD_FONT_STACK : DEFAULT_FONT_STACK;
@@ -1162,7 +1163,7 @@ function createSink() {
       fontFamily: currentFontStack(),
       fontSize: 12,
       lineHeight: 1.0,
-      scrollback: 10000,
+      scrollback: clampInt(Number(scrollbackLines), 0, 1_000_000),
     });
 
     ui.fallback.hidden = true;
@@ -1174,6 +1175,7 @@ function createSink() {
     applyTermFontStack();
     // Defer measurement until xterm has had a chance to render.
     requestAnimationFrame(() => updateTerminalBounds());
+    requestAnimationFrame(() => scrollXtermToBottom(term));
 
     // For debugging in devtools.
     window.__TERM_CAPTURE_XTERM_TERM = term;
@@ -2453,6 +2455,7 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
   }
 
   updateHopNextUi();
+  maybeAutofollowOutput();
   renderInfoThrottled();
 }
 
@@ -2718,7 +2721,6 @@ let inputInterpretEscapes = false;
 let inputWindowKiB = 16;
 let inputTokenCap = DEFAULT_INPUT_LOG_MAX_RENDER_TOKENS;
 let inputLastTokenCount = null;
-let scrollbackLines = 10000;
 let bulkNoYield = true;
 let bulkRenderOff = true;
 let bulkZeroScrollback = true;
@@ -3010,11 +3012,49 @@ function xtermSourceNote() {
   return ` xterm=${src}`;
 }
 
+function isXtermViewportAtBottom(term) {
+  try {
+    if (!term || !term.buffer || !term.buffer.active) return true;
+    const buf = term.buffer.active;
+    const baseY = Number(buf.baseY ?? 0);
+    const viewportY = Number(buf.viewportY ?? baseY);
+    return baseY - viewportY <= 1;
+  } catch {
+    return true;
+  }
+}
+
+function scrollXtermToBottom(term) {
+  try {
+    if (term && typeof term.scrollToBottom === "function") term.scrollToBottom();
+  } catch {
+    // ignore
+  }
+}
+
+let lastOutputAutoscrollAt = 0;
+function maybeAutofollowOutput({ force = false } = {}) {
+  const term = currentXterm;
+  if (!term) return;
+  const playing = !!(player && typeof player.isPlaying === "function" && player.isPlaying());
+  if (!force && !playing) return;
+
+  // Avoid doing this on every progress callback; it can be surprisingly expensive when xterm is busy.
+  const now = performance.now();
+  if (!force && now - lastOutputAutoscrollAt < 120) return;
+  lastOutputAutoscrollAt = now;
+
+  if (!force && isXtermViewportAtBottom(term)) return;
+  scrollXtermToBottom(term);
+}
+
 // xterm-specific knobs used for perf experiments.
 // Note: scrollback affects memory/perf; setting it to 0 during bulk seeks is safe for "time-travel" workflows.
 function applyScrollbackSetting(lines) {
   if (!currentXterm || typeof currentXterm.setOption !== "function") return;
+  const wasAtBottom = isXtermViewportAtBottom(currentXterm);
   currentXterm.setOption("scrollback", clampInt(Number(lines), 0, 1_000_000));
+  if (wasAtBottom) requestAnimationFrame(() => scrollXtermToBottom(currentXterm));
 }
 
 // Bulk seek render suppression: we hide the terminal stage while ingesting/recomputing to avoid visible flicker.
@@ -4079,6 +4119,7 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
   syncScrubbersFromProgress({ localOffset, localTotal: player.bytesTotal() });
   syncInputLogToCurrentOutputOffset();
   updateHopNextUi();
+  maybeAutofollowOutput({ force: true });
 
   updateAggStats(perfInfo.fullSeek, totalMs, {
     kind,
