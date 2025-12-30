@@ -1617,30 +1617,36 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
   const prevVisibility = ui.terminalStage ? ui.terminalStage.style.visibility : "";
 
   const seekStart = performance.now();
+  let seekMs = 0;
   boundsDirty = false;
+  // Bulk seeks are performance-sensitive; avoid per-chunk DOM churn regardless of render mode.
+  suppressUiProgress = true;
   if (doRenderOff) {
-    suppressUiProgress = true;
     suppressBoundsUpdates = true;
     setTerminalRenderHidden(true);
   }
-  if (doZeroScrollback) {
-    applyScrollbackSetting(0);
-  }
+  if (doZeroScrollback) applyScrollbackSetting(0);
 
   try {
     await player.seekToLocalOffset(localOffset, { yieldEveryMs: doNoYield ? null : 12 });
-    if (doRenderOff) {
-      const flushStart = performance.now();
-      await sink.flush();
-      flushMs = performance.now() - flushStart;
-    }
+    seekMs = performance.now() - seekStart;
+
+    // xterm.write() is async; always flush so timings reflect *processed* terminal state, not just queued writes.
+    const flushStart = performance.now();
+    await sink.flush();
+    flushMs = performance.now() - flushStart;
   } finally {
     if (doZeroScrollback) applyScrollbackSetting(scrollbackLines);
+    suppressUiProgress = false;
     if (doRenderOff) {
-      suppressUiProgress = false;
       suppressBoundsUpdates = false;
       if (ui.terminalStage) ui.terminalStage.style.visibility = prevVisibility;
-      if (currentXterm && typeof currentXterm.refresh === "function" && Number.isFinite(currentXterm.rows) && currentXterm.rows > 0) {
+      if (
+        currentXterm &&
+        typeof currentXterm.refresh === "function" &&
+        Number.isFinite(currentXterm.rows) &&
+        currentXterm.rows > 0
+      ) {
         currentXterm.refresh(0, currentXterm.rows - 1);
       }
       if (boundsDirty) {
@@ -1649,7 +1655,6 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
       }
     }
   }
-  const seekMs = performance.now() - seekStart;
   const totalMs = performance.now() - startedAt;
 
   const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
