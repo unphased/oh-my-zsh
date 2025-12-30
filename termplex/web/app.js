@@ -66,6 +66,7 @@ const ui = {
   inputFollow: document.getElementById("inputFollow"),
   inputInterpretEscapes: document.getElementById("inputInterpretEscapes"),
   inputWindowKiB: document.getElementById("inputWindowKiB"),
+  inputTokenCap: document.getElementById("inputTokenCap"),
   leftPanel: document.getElementById("leftPanel"),
   panelResizer: document.getElementById("panelResizer"),
   seekMode: document.getElementById("seekMode"),
@@ -1305,6 +1306,8 @@ function updateRuntimeInputInfo() {
     follow: inputFollow,
     interpretEscapes: inputInterpretEscapes,
     windowKiB: inputWindowKiB,
+    tokenCap: inputTokenCap,
+    lastTokenCount: inputLastTokenCount,
   };
 }
 
@@ -1330,7 +1333,7 @@ function updateRuntimeSessionInfo() {
 // When enabled, this pass can condense verbose input escape sequences into compact tokens.
 // Start with: xterm SGR mouse reporting (1006): ESC [ < Cb ; Cx ; Cy (M|m)
 // -----------------------------------------------------------------------------
-const INPUT_LOG_MAX_RENDER_TOKENS = 1500;
+const DEFAULT_INPUT_LOG_MAX_RENDER_TOKENS = 1500;
 
 function parseAsciiIntFromBytes(u8, i, { max = 1_000_000 } = {}) {
   const len = u8.length;
@@ -2049,14 +2052,21 @@ function tokenizeInputBytes(u8) {
   return condensed;
 }
 
-function truncateInputTokensForRender(tokens, { maxTokens = INPUT_LOG_MAX_RENDER_TOKENS } = {}) {
-  const max = clampInt(Number(maxTokens), 50, 50_000);
-  if (!Array.isArray(tokens) || tokens.length <= max) return { tokens: Array.isArray(tokens) ? tokens : [], truncated: false, dropped: 0 };
+function truncateInputTokensForRender(tokens, { maxTokens = null } = {}) {
+  const max = clampInt(Number(maxTokens != null ? maxTokens : inputTokenCap), 50, 50_000);
+  if (!Array.isArray(tokens) || tokens.length <= max) {
+    return { tokens: Array.isArray(tokens) ? tokens : [], truncated: false, dropped: 0, max };
+  }
   const dropped = tokens.length - max;
-  return { tokens: tokens.slice(-max), truncated: true, dropped };
+  return { tokens: tokens.slice(-max), truncated: true, dropped, max };
 }
 
-function renderInputLogTokensToDom(container, u8, tokens, { initialLastWasNonprint = false, truncated = false, dropped = 0 } = {}) {
+function renderInputLogTokensToDom(
+  container,
+  u8,
+  tokens,
+  { initialLastWasNonprint = false, truncated = false, dropped = 0, maxTokens = DEFAULT_INPUT_LOG_MAX_RENDER_TOKENS } = {},
+) {
   if (!container) return;
   container.textContent = "";
   const frag = document.createDocumentFragment();
@@ -2093,7 +2103,7 @@ function renderInputLogTokensToDom(container, u8, tokens, { initialLastWasNonpri
       {
         type: "truncated",
         label: `… (${dropped} tokens hidden) …`,
-        title: `Interpret render was capped at ${INPUT_LOG_MAX_RENDER_TOKENS} tokens to avoid excessive DOM churn.`,
+        title: `Interpret render was capped at ${maxTokens} tokens to avoid excessive DOM churn.`,
       },
       null,
     );
@@ -2150,14 +2160,21 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
   const start = Math.max(0, local - windowBytes);
   const slice = u8.subarray(start, local);
   const initialLastWasNonprint = start > 0 ? !isHexflowPrintableByte(u8[start - 1]) : false;
+  inputLastTokenCount = null;
   if (!inputInterpretEscapes) {
     ui.inputLog.textContent = hexflowFormatBytes(slice, { initialLastWasNonprint });
     ui.inputLog.dataset.windowAbsStart = "";
   } else {
     const rawTokens = tokenizeInputBytes(slice);
-    const { tokens, truncated, dropped } = truncateInputTokensForRender(rawTokens);
+    inputLastTokenCount = rawTokens.length;
+    const { tokens, truncated, dropped, max } = truncateInputTokensForRender(rawTokens);
     ui.inputLog.dataset.windowAbsStart = String(BigInt(currentInput.baseOffset || 0) + BigInt(start));
-    renderInputLogTokensToDom(ui.inputLog, slice, tokens, { initialLastWasNonprint, truncated, dropped });
+    renderInputLogTokensToDom(ui.inputLog, slice, tokens, {
+      initialLastWasNonprint,
+      truncated,
+      dropped,
+      maxTokens: max,
+    });
   }
   if (inputFollow) ui.inputLog.scrollTop = ui.inputLog.scrollHeight;
 
@@ -2169,7 +2186,12 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
   const windowNote = start > 0 ? ` (window ${fmtBytes(slice.length)}; showing tail)` : "";
   const clampNote = clampedToLoaded ? " (outside loaded range; increase Tail or set Tail=0)" : "";
   const modeNote = inputInterpretEscapes ? " mode=interpret" : "";
-  const capNote = inputInterpretEscapes ? ` (cap ${INPUT_LOG_MAX_RENDER_TOKENS} tokens)` : "";
+  const capNote =
+    inputInterpretEscapes && inputLastTokenCount != null
+      ? ` (tokens ${inputLastTokenCount}/${inputTokenCap})`
+      : inputInterpretEscapes
+        ? ` (tokens ?/${inputTokenCap})`
+        : "";
   setInputStatus(`Input ${absNote}${timeNote}${windowNote}${clampNote}${modeNote}${capNote}`);
 
   updateRuntimeInputInfo();
@@ -2513,6 +2535,8 @@ let tidxEmitHzCap = 0;
 let inputFollow = true;
 let inputInterpretEscapes = false;
 let inputWindowKiB = 16;
+let inputTokenCap = DEFAULT_INPUT_LOG_MAX_RENDER_TOKENS;
+let inputLastTokenCount = null;
 let scrollbackLines = 10000;
 let bulkNoYield = true;
 let bulkRenderOff = true;
@@ -2697,6 +2721,10 @@ function loadPrefs() {
       inputWindowKiB = clampInt(Number(prefs.inputWindowKiB), 1, 16 * 1024);
       if (ui.inputWindowKiB) ui.inputWindowKiB.value = String(inputWindowKiB);
     }
+    if (typeof prefs.inputTokenCap === "number") {
+      inputTokenCap = clampInt(Number(prefs.inputTokenCap), 50, 50_000);
+      if (ui.inputTokenCap) ui.inputTokenCap.value = String(inputTokenCap);
+    }
     if (typeof prefs.scrollbackLines === "number") {
       scrollbackLines = clampInt(prefs.scrollbackLines, 0, 1_000_000);
       if (ui.scrollbackLines) ui.scrollbackLines.value = String(scrollbackLines);
@@ -2733,6 +2761,7 @@ function savePrefs() {
       inputFollow,
       inputInterpretEscapes,
       inputWindowKiB,
+      inputTokenCap,
       scrollbackLines,
       bulkNoYield,
       bulkRenderOff,
@@ -4124,6 +4153,22 @@ ui.inputWindowKiB?.addEventListener("change", () => {
     if (Number.isFinite(local)) renderInputLogFromLocalOffset(local, { absOffset: last });
     else renderInputLogTail();
   }
+  renderInfo();
+});
+
+ui.inputTokenCap?.addEventListener("change", () => {
+  inputTokenCap = clampInt(Number(ui.inputTokenCap.value), 50, 50_000);
+  if (ui.inputTokenCap) ui.inputTokenCap.value = String(inputTokenCap);
+  savePrefs();
+  if (currentInput && currentInput.u8) {
+    const base = BigInt(currentInput.baseOffset || 0);
+    const last = typeof currentInput.lastAbsOffset === "bigint" ? currentInput.lastAbsOffset : base;
+    const localBig = last - base;
+    const local = Number(localBig > 0n ? localBig : 0n);
+    if (Number.isFinite(local)) renderInputLogFromLocalOffset(local, { absOffset: last, timeNs: currentInput.lastTimeNs });
+    else renderInputLogTail();
+  }
+  updateRuntimeInputInfo();
   renderInfo();
 });
 
