@@ -167,12 +167,20 @@ button:disabled {
 .panel {
   width: 380px;
   border-right: 1px solid var(--border);
-  padding: 14px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  padding: 0;
+  overflow: visible;
   min-width: 260px;
   max-width: 70vw;
   position: relative;
+}
+
+.panel-scroll {
+  height: 100%;
+  min-height: 0;
+  padding: 14px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .panel-resizer {
@@ -183,6 +191,7 @@ button:disabled {
   height: 100%;
   cursor: col-resize;
   background: transparent;
+  z-index: 10;
 }
 
 .panel-resizer:hover {
