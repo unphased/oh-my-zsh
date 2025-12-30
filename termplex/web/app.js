@@ -2823,7 +2823,7 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx }) {
     const renderedTimeNs = timeAtOffsetNs(currentTcap.outputTidx, tidx.currentAbs);
     const lagTimeNs = clock.timeNs > renderedTimeNs ? clock.timeNs - renderedTimeNs : 0n;
     // Always show while in tidx mode; it’s the key diagnostic for “falling behind”.
-    lagNote = ` lag=${fmtBytesBig(lagBytes)} lagT=${fmtNs(lagTimeNs)}`;
+    lagNote = ` lag=${fmtBytesBigint(lagBytes)} lagT=${fmtNs(lagTimeNs)}`;
   }
 
   let idleNote = "";
