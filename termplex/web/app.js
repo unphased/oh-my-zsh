@@ -1542,6 +1542,38 @@ function tryParseCsiFocus(u8, i) {
   return null;
 }
 
+function tryParseSs3Key(u8, i) {
+  // SS3: ESC O <final>
+  const len = u8.length;
+  if (i + 2 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x4f) return null; // ESC O
+  const final = u8[i + 2];
+  // Arrow keys (application cursor mode): A/B/C/D => up/down/right/left
+  if (final === 0x41) return { kind: "ss3_key", len: 3, key: "Up", final: "A" };
+  if (final === 0x42) return { kind: "ss3_key", len: 3, key: "Down", final: "B" };
+  if (final === 0x43) return { kind: "ss3_key", len: 3, key: "Right", final: "C" };
+  if (final === 0x44) return { kind: "ss3_key", len: 3, key: "Left", final: "D" };
+  // Function keys (common): P/Q/R/S => F1/F2/F3/F4
+  if (final === 0x50) return { kind: "ss3_key", len: 3, key: "F1", final: "P" };
+  if (final === 0x51) return { kind: "ss3_key", len: 3, key: "F2", final: "Q" };
+  if (final === 0x52) return { kind: "ss3_key", len: 3, key: "F3", final: "R" };
+  if (final === 0x53) return { kind: "ss3_key", len: 3, key: "F4", final: "S" };
+  return null;
+}
+
+function tryParseCsiArrowKey(u8, i) {
+  // CSI: ESC [ <final> for arrows
+  const len = u8.length;
+  if (i + 2 >= len) return null;
+  if (u8[i] !== 0x1b || u8[i + 1] !== 0x5b) return null; // ESC [
+  const final = u8[i + 2];
+  if (final === 0x41) return { kind: "csi_arrow", len: 3, key: "Up", final: "A" };
+  if (final === 0x42) return { kind: "csi_arrow", len: 3, key: "Down", final: "B" };
+  if (final === 0x43) return { kind: "csi_arrow", len: 3, key: "Right", final: "C" };
+  if (final === 0x44) return { kind: "csi_arrow", len: 3, key: "Left", final: "D" };
+  return null;
+}
+
 function tryParseOsc11(u8, i) {
   // OSC 11;... BEL|ST
   const len = u8.length;
@@ -1604,6 +1636,8 @@ const INPUT_ESCAPE_PARSERS = [
   tryParseOsc11,
   tryParseDcsDecrqssResponse,
   tryParseDcsXtgettcapResponse,
+  tryParseSs3Key,
+  tryParseCsiArrowKey,
   tryParseCsiFocus,
   tryParseCsiPrivateU,
   tryParseKittyKey,
@@ -1880,6 +1914,24 @@ function tokenToDisplayParts(token) {
       title: token.type === "focus_in" ? "Focus In event (focus tracking enabled).\nraw: CSI I" : "Focus Out event (focus tracking enabled).\nraw: CSI O",
     };
   }
+  if (token.type === "ss3_key") {
+    const key = token.data.key || "?";
+    const final = token.data.final || "?";
+    return {
+      type: "ss3_key",
+      label: `key ${key}`,
+      title: `SS3 key sequence (often application-cursor mode / function keys).\nraw: ESC O ${final}`,
+    };
+  }
+  if (token.type === "csi_arrow") {
+    const key = token.data.key || "?";
+    const final = token.data.final || "?";
+    return {
+      type: "csi_arrow",
+      label: `key ${key}`,
+      title: `CSI arrow key sequence (normal cursor mode).\nraw: ESC [ ${final}`,
+    };
+  }
   if (token.type === "csi_private_u") {
     const ps = token.data.ps;
     return {
@@ -1977,6 +2029,8 @@ function tokenizeInputBytes(u8) {
     else if (res.kind === "osc_11") token.data = { payload: res.payload };
     else if (res.kind === "decrqss") token.data = { payload: res.payload };
     else if (res.kind === "xtgettcap") token.data = { raw: res.raw, decoded: res.decoded };
+    else if (res.kind === "ss3_key") token.data = { key: res.key, final: res.final };
+    else if (res.kind === "csi_arrow") token.data = { key: res.key, final: res.final };
     else if (res.kind === "focus_in" || res.kind === "focus_out") token.data = {};
     else if (res.kind === "csi_private_u") token.data = { ps: res.ps };
     else if (res.kind === "kitty_key") token.data = { codepoint: res.codepoint, mods: res.mods, eventType: res.eventType };

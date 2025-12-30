@@ -419,9 +419,11 @@ details.expando[open] > summary {
 .input-chip--decrqss,
 .input-chip--xtgettcap,
 .input-chip--csi_t,
+.input-chip--csi_arrow,
 .input-chip--csi_private_u,
 .input-chip--csi_u_key,
 .input-chip--kitty_key,
+.input-chip--ss3_key,
 .input-chip--focus_in,
 .input-chip--focus_out {
   border-color: rgba(154, 167, 180, 0.3);
