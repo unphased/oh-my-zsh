@@ -1644,7 +1644,7 @@ function condenseSgrMouseTokens(inTokens) {
     if (hasMotion && events.length > 1) {
       outTokens.push({ kind: "macro", type: "sgr_mouse_drag", events });
     } else {
-      for (const ev of events) outTokens.push({ kind: "macro", type: "sgr_mouse", event: ev });
+      for (const ev of events) outTokens.push({ kind: "macro", type: "sgr_mouse", data: ev });
     }
     i = j - 1;
   }
@@ -1689,7 +1689,7 @@ function condenseDecrpmTokens(inTokens) {
 function tokenToDisplayParts(token) {
   if (!token || token.kind !== "macro") return null;
   if (token.type === "sgr_mouse") {
-    const ev = token.event;
+    const ev = token.data;
     const btn = sgrMouseButtonLabel(ev.cb);
     const mods = sgrMouseModsLabel(ev.cb);
     const motion = (ev.cb & 32) !== 0;
@@ -1697,7 +1697,7 @@ function tokenToDisplayParts(token) {
     return {
       type: "sgr_mouse",
       label: `mouse ${btn}${mods ? `+${mods}` : ""} (${ev.x},${ev.y}) ${kind}`,
-      title: `SGR mouse: cb=${ev.cb} x=${ev.x} y=${ev.y} ${kind}`,
+      title: `xterm SGR mouse (1006): ${btn}${mods ? `+${mods}` : ""} ${kind} at (${ev.x},${ev.y}).\nraw: CSI < ${ev.cb} ; ${ev.x} ; ${ev.y} ${ev.up ? "m" : "M"}`,
     };
   }
   if (token.type === "sgr_mouse_drag") {
@@ -1709,7 +1709,7 @@ function tokenToDisplayParts(token) {
     return {
       type: "sgr_mouse_drag",
       label: `mouse drag ${btn}${mods ? `+${mods}` : ""} (${first.x},${first.y})…(${lastEv.x},${lastEv.y}) n=${token.events.length}${upNote}`,
-      title: `SGR mouse drag: cb=${first.cb} from (${first.x},${first.y}) to (${lastEv.x},${lastEv.y}) n=${token.events.length}${upNote}`,
+      title: `xterm SGR mouse drag (1006): ${btn}${mods ? `+${mods}` : ""} from (${first.x},${first.y}) to (${lastEv.x},${lastEv.y}) in ${token.events.length} events.${upNote}\nraw: CSI < … M/m (condensed)`,
     };
   }
   if (token.type === "decrpm") {
@@ -1719,7 +1719,7 @@ function tokenToDisplayParts(token) {
     return {
       type: "decrpm",
       label: `mode ?${mode} ${stateLabel}`,
-      title: `DECRPM: CSI ? ${mode} ; ${state} $ y (${stateLabel})`,
+      title: `DECRPM (Report Mode): private mode ?${mode} is ${stateLabel}.\nraw: CSI ? ${mode} ; ${state} $ y`,
     };
   }
   if (token.type === "decrpm_run") {
@@ -1730,7 +1730,7 @@ function tokenToDisplayParts(token) {
     return {
       type: "decrpm_run",
       label: `modes ${preview}${more} ${stateLabel}`,
-      title: `DECRPM run: state=${stateLabel} modes=${Array.isArray(modes) ? modes.join(",") : "?"}`,
+      title: `DECRPM run: ${Array.isArray(modes) ? modes.length : "?"} private modes are ${stateLabel}.\nraw: CSI ? … $ y (condensed)`,
     };
   }
   if (token.type === "da1") {
@@ -1738,7 +1738,7 @@ function tokenToDisplayParts(token) {
     return {
       type: "da1",
       label: `DA1 ?${params}c`,
-      title: `Device Attributes (DA1): CSI ? ${params} c`,
+      title: `Primary Device Attributes (DA1): terminal feature ID list.\nraw: CSI ? ${params} c`,
     };
   }
   if (token.type === "osc_11") {
@@ -1746,7 +1746,7 @@ function tokenToDisplayParts(token) {
     return {
       type: "osc_11",
       label: `OSC 11 ${safeAsciiPreview(payload, { max: 36 })}`,
-      title: `OSC 11 payload: ${payload}`,
+      title: `OSC 11: background color report/set.\npayload: ${payload}`,
     };
   }
   if (token.type === "decrqss") {
@@ -1754,7 +1754,7 @@ function tokenToDisplayParts(token) {
     return {
       type: "decrqss",
       label: `DECRQSS ${safeAsciiPreview(payload, { max: 36 })}`,
-      title: `DECRQSS response: DCS 1 $ r ${payload} ST`,
+      title: `DECRQSS response: requested status string (often SGR).\nraw: DCS 1 $ r ${payload} ST`,
     };
   }
   if (token.type === "xtgettcap") {
@@ -1771,15 +1771,15 @@ function tokenToDisplayParts(token) {
       label: `XTGETTCAP ${labelName}${countNote}${valuePreview ? ` ${valuePreview}` : ""}`,
       title:
         count === 1
-          ? `XTGETTCAP ${labelName}: ${value || ""}`
-          : `XTGETTCAP ${count} caps: ${decoded.map((d) => d.name || d.nameHex).join(", ")}`,
+          ? `XTGETTCAP response: terminal capability ${labelName}.\nvalue: ${value || ""}`
+          : `XTGETTCAP response: ${count} terminal capabilities.\nkeys: ${decoded.map((d) => d.name || d.nameHex).join(", ")}`,
     };
   }
   if (token.type === "focus_in" || token.type === "focus_out") {
     return {
       type: token.type,
       label: token.type === "focus_in" ? "focus in" : "focus out",
-      title: token.type === "focus_in" ? "CSI I (Focus In)" : "CSI O (Focus Out)",
+      title: token.type === "focus_in" ? "Focus In event (focus tracking enabled).\nraw: CSI I" : "Focus Out event (focus tracking enabled).\nraw: CSI O",
     };
   }
   if (token.type === "csi_private_u") {
@@ -1787,7 +1787,7 @@ function tokenToDisplayParts(token) {
     return {
       type: "csi_private_u",
       label: `CSI ?${ps}u`,
-      title: `CSI private u: CSI ? ${ps} u`,
+      title: `Private CSI ?…u report (keyboard protocol / terminal capability reply).\nraw: CSI ? ${ps} u`,
     };
   }
   if (token.type === "kitty_key") {
@@ -1796,10 +1796,11 @@ function tokenToDisplayParts(token) {
     const et = token.data.eventType;
     const ch = Number.isFinite(cp) && cp >= 32 && cp <= 0x10ffff ? String.fromCodePoint(cp) : null;
     const chLabel = ch && ch !== " " ? ch : ch === " " ? "SPACE" : `U+${cp.toString(16).toUpperCase()}`;
+    const typeLabel = et === 1 ? "press" : et === 2 ? "repeat" : et === 3 ? "release" : `type=${et}`;
     return {
       type: "kitty_key",
-      label: `key ${chLabel} mods=${mods} type=${et}`,
-      title: `kitty key: codepoint=${cp} mods=${mods} eventType=${et}`,
+      label: `key ${chLabel} ${typeLabel} mods=${mods}`,
+      title: `Kitty keyboard protocol key event: ${chLabel} (${typeLabel}), mods=${mods}.\nraw: CSI ${cp};${mods}:${et}u`,
     };
   }
   if (token.type === "csi_t") {
@@ -1807,7 +1808,7 @@ function tokenToDisplayParts(token) {
     return {
       type: "csi_t",
       label: `CSI t ${params}`,
-      title: `Window ops/report: CSI ${params} t`,
+      title: `xterm window ops/report (CSI … t).\nraw: CSI ${params} t`,
     };
   }
   return { type: token.type || "macro", label: token.type || "macro", title: token.type || "macro" };
@@ -1832,7 +1833,7 @@ function tokenizeInputBytes(u8) {
       continue;
     }
     if (last < scan) tokens.push({ kind: "bytes", start: last, end: scan });
-    const token = { kind: "macro", type: res.kind, data: null, event: null, events: null };
+    const token = { kind: "macro", type: res.kind, data: null, start: scan, end: scan + res.len, event: null, events: null };
     if (res.kind === "sgr_mouse") token.data = res.event;
     else if (res.kind === "decrpm") token.data = { mode: res.mode, state: res.state };
     else if (res.kind === "da1") token.data = { params: res.params };
@@ -1869,13 +1870,17 @@ function renderInputLogTokensToDom(container, u8, tokens, { initialLastWasNonpri
     endedWithSpace = /\s$/.test(text);
   };
 
-  const appendChip = (parts) => {
+  const appendChip = (parts, token) => {
     if (!parts) return;
     if (!endedWithSpace) appendText(" ");
     const span = document.createElement("span");
     span.className = `input-chip input-chip--${parts.type}`;
     span.textContent = parts.label;
     if (parts.title) span.title = parts.title;
+    if (token && token.start != null && typeof currentInput?.baseOffset === "number") {
+      const absStart = BigInt(currentInput.baseOffset) + BigInt(token.start);
+      span.dataset.inputAbs = String(absStart);
+    }
     frag.appendChild(span);
     appendText(" ");
     endedWithSpace = true;
@@ -1890,7 +1895,7 @@ function renderInputLogTokensToDom(container, u8, tokens, { initialLastWasNonpri
       continue;
     }
     if (t.kind === "macro") {
-      appendChip(tokenToDisplayParts(t));
+      appendChip(tokenToDisplayParts(t), t);
       lastWasNonprint = false;
       continue;
     }
@@ -1930,6 +1935,7 @@ function renderInputLogFromLocalOffset(localOffset, { absOffset = null, timeNs =
     ui.inputLog.textContent = hexflowFormatBytes(slice, { initialLastWasNonprint });
   } else {
     const tokens = tokenizeInputBytes(slice);
+    ui.inputLog.dataset.windowAbsStart = String(BigInt(currentInput.baseOffset || 0) + BigInt(start));
     renderInputLogTokensToDom(ui.inputLog, slice, tokens, { initialLastWasNonprint });
   }
   if (inputFollow) ui.inputLog.scrollTop = ui.inputLog.scrollHeight;
@@ -3790,6 +3796,28 @@ ui.inputInterpretEscapes?.addEventListener("change", () => {
   }
   updateRuntimeInputInfo();
   renderInfo();
+});
+
+ui.inputLog?.addEventListener("click", (e) => {
+  const target = e.target instanceof Element ? e.target : null;
+  const chip = target ? target.closest(".input-chip") : null;
+  if (!chip) return;
+  const absStr = chip instanceof HTMLElement ? chip.dataset.inputAbs : null;
+  if (!absStr) return;
+  const inputAbs = BigInt(absStr);
+  const inputTidx = currentInput && currentInput.tidx ? currentInput.tidx : null;
+  const outputTidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (!inputTidx || !outputTidx) {
+    setStatus("Click-hop requires both input and output .tidx sidecars.", { error: true });
+    return;
+  }
+  const timeNs = timeAtOffsetNs(inputTidx, inputAbs);
+  const outAbs = offsetAtTimeNs(outputTidx, timeNs);
+  const wasPlaying = typeof player.isPlaying === "function" ? player.isPlaying() : false;
+  void (async () => {
+    await fullSeekToAbsOffset(outAbs, { source: "input-click" });
+    if (wasPlaying) player.play();
+  })();
 });
 
 ui.inputWindowKiB?.addEventListener("change", () => {

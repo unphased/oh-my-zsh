@@ -351,6 +351,12 @@ details.expando[open] > summary {
   line-height: 1.5;
   white-space: nowrap;
   vertical-align: baseline;
+  cursor: pointer;
+}
+
+.input-chip:hover {
+  border-color: rgba(74, 163, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(74, 163, 255, 0.08);
 }
 
 .input-chip--sgr_mouse_drag {
