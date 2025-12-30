@@ -90,9 +90,11 @@ const ui = {
   timeScrub: document.getElementById("timeScrub"),
   timeScrubText: document.getElementById("timeScrubText"),
   timeMaxMark: document.getElementById("timeMaxMark"),
+  timeDensityCanvas: document.getElementById("timeDensityCanvas"),
   offsetScrub: document.getElementById("offsetScrub"),
   offsetScrubText: document.getElementById("offsetScrubText"),
   offsetMaxMark: document.getElementById("offsetMaxMark"),
+  offsetDensityCanvas: document.getElementById("offsetDensityCanvas"),
   boundsOverlay: document.getElementById("boundsOverlay"),
   boundsLabel: document.getElementById("boundsLabel"),
 };
@@ -379,6 +381,223 @@ function cssVar(name, fallback) {
     return v || fallback;
   } catch {
     return fallback;
+  }
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function lerpRgb(a, b, t) {
+  const tt = Math.max(0, Math.min(1, t));
+  const r = Math.round(lerp(a[0], b[0], tt));
+  const g = Math.round(lerp(a[1], b[1], tt));
+  const bb = Math.round(lerp(a[2], b[2], tt));
+  return `rgb(${r} ${g} ${bb})`;
+}
+
+class DensityStrip {
+  constructor({ canvas, mode } = {}) {
+    this.canvas = canvas || null;
+    this.mode = mode === "offset" ? "offset" : "time"; // time | offset
+    this._dpr = 1;
+    this._bins = 0;
+    this._values = null; // Float32Array (per pixel)
+    this._meta = null; // { max, total } where total is ms or bytes
+    this._tidx = null;
+    this._seq = 0;
+    this._colors = {
+      bg: "#0e1217",
+      hi: this.mode === "time" ? cssVar("--good", "#3ddc97") : cssVar("--bad", "#ff6b6b"),
+      lo: cssVar("--border", "#1e2630"),
+    };
+
+    if (this.canvas) {
+      this.canvas.addEventListener("pointermove", (e) => this._onPointerMove(e));
+      this.canvas.addEventListener("pointerleave", () => this._clearHover());
+    }
+  }
+
+  clear() {
+    const c = this.canvas;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = this._colors.bg;
+    ctx.fillRect(0, 0, c.width, c.height);
+    if (this.canvas) this.canvas.title = "";
+    this._values = null;
+    this._meta = null;
+  }
+
+  resize() {
+    const c = this.canvas;
+    if (!c) return;
+    const dpr = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+    const cssW = Math.max(1, Math.floor(c.clientWidth || c.getBoundingClientRect().width || c.width || 1));
+    const cssH = Math.max(1, Math.floor(c.clientHeight || c.getBoundingClientRect().height || c.height || 10));
+    const w = Math.max(1, Math.floor(cssW * dpr));
+    const h = Math.max(1, Math.floor(cssH * dpr));
+    if (c.width !== w) c.width = w;
+    if (c.height !== h) c.height = h;
+    this._dpr = dpr;
+    this._bins = clampInt(cssW, 16, 5000);
+  }
+
+  setTidx(tidx) {
+    this._tidx = tidx || null;
+    void this.renderFromTidx();
+  }
+
+  async renderFromTidx() {
+    const c = this.canvas;
+    const tidx = this._tidx;
+    if (!c) return;
+    this.resize();
+    if (!tidx || !tidx.tNs || !tidx.endOffsets || !tidx.tNs.length) {
+      this.clear();
+      return;
+    }
+
+    const seq = ++this._seq;
+    const bins = this._bins;
+    const values = new Float32Array(bins);
+    let max = 0;
+
+    const tArr = tidx.tNs;
+    const offArr = tidx.endOffsets;
+    const n = Math.min(tArr.length, offArr.length);
+    if (n <= 0) {
+      this.clear();
+      return;
+    }
+
+    const totalTimeNs = Number(BigInt(tArr[n - 1] ?? 0n));
+    const totalBytes = Number(BigInt(offArr[n - 1] ?? 0n));
+    const total = this.mode === "time" ? totalTimeNs : totalBytes;
+    if (!Number.isFinite(total) || total <= 0) {
+      this.clear();
+      return;
+    }
+
+    let i = 0;
+    let tPrev = 0;
+    let offPrev = 0;
+    let tEnd = Number(BigInt(tArr[0] ?? 0n));
+    let offEnd = Number(BigInt(offArr[0] ?? 0n));
+
+    const startTs = performance.now();
+    let lastYield = startTs;
+
+    for (let x = 0; x < bins; x++) {
+      if (seq !== this._seq) return;
+
+      const frac = bins <= 1 ? 0 : x / (bins - 1);
+      const target = total * frac;
+      if (this.mode === "time") {
+        while (i < n - 1 && tEnd < target) {
+          i++;
+          tPrev = tEnd;
+          offPrev = offEnd;
+          tEnd = Number(BigInt(tArr[i] ?? 0n));
+          offEnd = Number(BigInt(offArr[i] ?? 0n));
+        }
+      } else {
+        while (i < n - 1 && offEnd < target) {
+          i++;
+          tPrev = tEnd;
+          offPrev = offEnd;
+          tEnd = Number(BigInt(tArr[i] ?? 0n));
+          offEnd = Number(BigInt(offArr[i] ?? 0n));
+        }
+      }
+
+      const dtNs = tEnd - tPrev;
+      const dBytes = offEnd - offPrev;
+      let v = 0;
+      if (dtNs > 0 && dBytes > 0) {
+        if (this.mode === "time") {
+          v = (dBytes * 1_000_000_000) / dtNs; // B/s
+        } else {
+          // ms per KiB (higher => "slower"/more idle per byte).
+          v = (dtNs * 1024) / (dBytes * 1_000_000); // ms/KiB
+        }
+      } else if (this.mode === "time" && dtNs > 0 && dBytes === 0) {
+        v = 0;
+      }
+
+      values[x] = v;
+      if (v > max) max = v;
+
+      const now = performance.now();
+      if (now - lastYield >= 10) {
+        lastYield = now;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => requestAnimationFrame(() => r()));
+      }
+    }
+
+    if (seq !== this._seq) return;
+    this._values = values;
+    this._meta = { max, total };
+    this._renderCanvas();
+  }
+
+  _renderCanvas() {
+    const c = this.canvas;
+    if (!c || !this._values || !this._meta) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    const w = c.width;
+    const h = c.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = this._colors.bg;
+    ctx.fillRect(0, 0, w, h);
+
+    const bins = this._bins;
+    const max = Math.max(1e-9, Number(this._meta.max || 0));
+    const denom = Math.log1p(max);
+
+    const hi = this.mode === "time" ? [61, 220, 151] : [255, 107, 107];
+    const lo = [30, 38, 48];
+
+    const barW = Math.max(1, Math.floor(this._dpr));
+    for (let x = 0; x < bins; x++) {
+      const v = this._values[x] || 0;
+      if (v <= 0) continue;
+      const t = denom > 0 ? Math.log1p(v) / denom : 0;
+      ctx.fillStyle = lerpRgb(lo, hi, t);
+      ctx.fillRect(x * barW, 0, barW, h);
+    }
+  }
+
+  _pickX(e) {
+    const c = this.canvas;
+    if (!c || !this._bins) return null;
+    const rect = c.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return null;
+    return clampInt(Math.floor(e.clientX - rect.left), 0, this._bins - 1);
+  }
+
+  _onPointerMove(e) {
+    if (!this._values || !this._meta || !this.canvas) return;
+    const x = this._pickX(e);
+    if (x == null) return;
+    const v = this._values[x] || 0;
+    const frac = this._bins <= 1 ? 0 : x / (this._bins - 1);
+    if (this.mode === "time") {
+      const totalNs = this._meta.total;
+      const tNs = Math.max(0, Math.floor(totalNs * frac));
+      this.canvas.title = `t≈${fmtNs(BigInt(tNs))} rate≈${fmtRate(v)}`;
+    } else {
+      const totalBytes = this._meta.total;
+      const off = Math.max(0, Math.floor(totalBytes * frac));
+      this.canvas.title = `off≈${fmtBytes(off)} dt≈${v.toFixed(1)} ms/KiB`;
+    }
+  }
+
+  _clearHover() {
+    if (this.canvas) this.canvas.title = "";
   }
 }
 
@@ -1383,6 +1602,8 @@ let currentInputSource = null; // { type:"url", url } | { type:"file", file } | 
 let loadSeq = 0;
 let suppressUiProgress = false;
 let chunkMonitor = null; // ChunkPerfMonitor | null
+let timeDensityStrip = null; // DensityStrip | null
+let offsetDensityStrip = null; // DensityStrip | null
 
 let sessionLoadSeq = 0;
 let inputLoadSeq = 0;
@@ -1424,6 +1645,27 @@ function installChunkMonitor() {
 
   monitor.resize();
   return monitor;
+}
+
+function installDensityStrips() {
+  if (ui.timeDensityCanvas) timeDensityStrip = new DensityStrip({ canvas: ui.timeDensityCanvas, mode: "time" });
+  if (ui.offsetDensityCanvas) offsetDensityStrip = new DensityStrip({ canvas: ui.offsetDensityCanvas, mode: "offset" });
+
+  const redraw = () => {
+    const outTidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+    if (timeDensityStrip) timeDensityStrip.setTidx(outTidx);
+    if (offsetDensityStrip) offsetDensityStrip.setTidx(outTidx);
+  };
+
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(() => redraw());
+    if (ui.timeDensityCanvas) ro.observe(ui.timeDensityCanvas);
+    if (ui.offsetDensityCanvas) ro.observe(ui.offsetDensityCanvas);
+  } else {
+    window.addEventListener("resize", () => redraw());
+  }
+
+  redraw();
 }
 
 function updateRuntimeInputInfo() {
@@ -3450,6 +3692,13 @@ function setupPlaybackPipeline() {
     clockTidx: currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null,
     tidxEmitHzCap,
   });
+
+  // Density strips depend on output tidx.
+  if (!timeDensityStrip && ui.timeDensityCanvas) timeDensityStrip = new DensityStrip({ canvas: ui.timeDensityCanvas, mode: "time" });
+  if (!offsetDensityStrip && ui.offsetDensityCanvas) offsetDensityStrip = new DensityStrip({ canvas: ui.offsetDensityCanvas, mode: "offset" });
+  const outTidx = currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (timeDensityStrip) timeDensityStrip.setTidx(outTidx);
+  if (offsetDensityStrip) offsetDensityStrip.setTidx(outTidx);
 }
 
 function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
@@ -4692,6 +4941,7 @@ ui.offsetScrub?.addEventListener("pointercancel", () => {
 // -----------------------------------------------------------------------------
 loadPrefs();
 chunkMonitor = installChunkMonitor();
+installDensityStrips();
 applyTermFontStack();
 updateRuntimeInputInfo();
 renderInfo();
