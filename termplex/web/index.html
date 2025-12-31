@@ -69,6 +69,13 @@
                 <button id="play" disabled>Play</button>
                 <button id="pause" disabled>Pause</button>
                 <button id="reset" disabled>Reset</button>
+                <button
+                  id="stepOutputTidx"
+                  disabled
+                  title="Feed one output tidx-delimited chunk (advance output to the next output .tidx boundary)."
+                >
+                  Step output tidx chunk
+                </button>
                 <button id="hopNext" disabled title="Fast-forward to the next output event (next tidx offset)">Hop next</button>
               </div>
             </div>
@@ -159,16 +166,6 @@
                 <span>Token cap</span>
                 <input id="inputTokenCap" type="number" min="50" step="50" value="1500" />
               </label>
-            </div>
-            <div class="panel-controls" style="margin-top: 10px">
-              <button
-                id="stepInputTidx"
-                type="button"
-                disabled
-                title="Feed one input tidx-delimited chunk (advance the input log to the next input .tidx boundary)."
-              >
-                Step input tidx chunk
-              </button>
             </div>
             <pre id="inputLog" class="info-panel input-log"></pre>
             <div class="status input-hover-status" id="inputHoverStatus"></div>
