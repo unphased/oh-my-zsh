@@ -642,6 +642,8 @@ class DensityStrip {
   }
 }
 
+const CHUNK_PHASE_COUNT = 5; // 0=none, 1=playback, 2=mode1, 3=seek, 4=bulk_seek
+
 class ChunkPerfMonitor {
   constructor({ canvas, summaryEl, windowMs = 6000 } = {}) {
     this.canvas = canvas || null;
@@ -654,12 +656,16 @@ class ChunkPerfMonitor {
     this._bytes = null;
     this._writes = null;
     this._phase = null;
+    this._bytesByPhase = null; // Float64Array(bins * CHUNK_PHASE_COUNT)
+    this._writesByPhase = null; // Uint32Array(bins * CHUNK_PHASE_COUNT)
+    this._domBytes = null; // Float64Array(bins), dominant bytes per bin
     this._event = null;
     this._ts = null;
     this._absMin = null;
     this._absMax = null;
     this._count = 0;
     this._scaleMaxBytes = 1;
+    this._frameDtEmaMs = null;
     this._last = null;
     this._hover = null; // { x, idx } | null
     this._raf = null;
@@ -695,7 +701,7 @@ class ChunkPerfMonitor {
   }
 
   get binMs() {
-    return this._binMs;
+    return this._frameDtEmaMs != null ? this._frameDtEmaMs : this._binMs;
   }
 
   get bins() {
@@ -717,10 +723,13 @@ class ChunkPerfMonitor {
     const nextBins = clampInt(cssW, 16, 2400);
     if (nextBins !== this._bins) {
       this._bins = nextBins;
-      this._binMs = this.windowMs / Math.max(1, this._bins);
+      this._binMs = 0;
       this._bytes = new Float64Array(this._bins);
       this._writes = new Uint32Array(this._bins);
       this._phase = new Uint8Array(this._bins);
+      this._bytesByPhase = new Float64Array(this._bins * CHUNK_PHASE_COUNT);
+      this._writesByPhase = new Uint32Array(this._bins * CHUNK_PHASE_COUNT);
+      this._domBytes = new Float64Array(this._bins);
       this._event = new Uint8Array(this._bins);
       this._ts = new Float64Array(this._bins);
       this._absMin = new Float64Array(this._bins);
@@ -729,12 +738,13 @@ class ChunkPerfMonitor {
       this._lastBinTsMs = null;
       this._count = 0;
       this._scaleMaxBytes = 1;
+      this._frameDtEmaMs = null;
       this._last = null;
       this._hover = null;
       this._absMin.fill(Number.NaN);
       this._absMax.fill(Number.NaN);
     } else {
-      this._binMs = this.windowMs / Math.max(1, this._bins);
+      this._binMs = 0;
     }
 
     this._scheduleRender();
@@ -744,6 +754,9 @@ class ChunkPerfMonitor {
     if (this._bytes) this._bytes.fill(0);
     if (this._writes) this._writes.fill(0);
     if (this._phase) this._phase.fill(0);
+    if (this._bytesByPhase) this._bytesByPhase.fill(0);
+    if (this._writesByPhase) this._writesByPhase.fill(0);
+    if (this._domBytes) this._domBytes.fill(0);
     if (this._event) this._event.fill(0);
     if (this._ts) this._ts.fill(0);
     if (this._absMin) this._absMin.fill(Number.NaN);
@@ -752,6 +765,7 @@ class ChunkPerfMonitor {
     this._lastBinTsMs = null;
     this._count = 0;
     this._scaleMaxBytes = 1;
+    this._frameDtEmaMs = null;
     this._last = null;
     this._hover = null;
     if (this.summaryEl) this.summaryEl.textContent = "No chunks yet.";
@@ -809,31 +823,62 @@ class ChunkPerfMonitor {
     return "none";
   }
 
-  _advanceTo(tsMs) {
+  _ensureFrame(tsMs) {
     if (!Number.isFinite(tsMs)) return;
-    if (this._lastBinTsMs == null) {
-      this._lastBinTsMs = tsMs;
-      return;
-    }
-    const deltaMs = tsMs - this._lastBinTsMs;
-    if (deltaMs <= 0) return;
-    // Sparse bucketing: skip empty time bins to preserve horizontal resolution for actual work.
-    // Any gap larger than binMs advances by exactly one bucket (instead of inserting many empty buckets).
-    if (deltaMs < this._binMs) return;
-    if (this._count <= 0) {
-      this._lastBinTsMs = tsMs;
-      return;
-    }
-    this._head = (this._head + 1) % this._bins;
+    if (this._count > 0) return;
+
+    this._head = 0;
     this._bytes[this._head] = 0;
     this._writes[this._head] = 0;
     this._phase[this._head] = 0;
+    if (this._domBytes) this._domBytes[this._head] = 0;
     if (this._event) this._event[this._head] = 0;
-    if (this._ts) this._ts[this._head] = 0;
+    if (this._ts) this._ts[this._head] = tsMs;
+    if (this._bytesByPhase) this._bytesByPhase.fill(0);
+    if (this._writesByPhase) this._writesByPhase.fill(0);
     if (this._absMin) this._absMin[this._head] = Number.NaN;
     if (this._absMax) this._absMax[this._head] = Number.NaN;
-    this._count = Math.min(this._bins, this._count + 1);
+
     this._lastBinTsMs = tsMs;
+    this._count = 1;
+  }
+
+  // Frame-driven: one bar per requestAnimationFrame tick (driven by the player).
+  _advanceFrame(tsMs) {
+    if (!Number.isFinite(tsMs)) return;
+    if (this._count <= 0) {
+      this._ensureFrame(tsMs);
+      return;
+    }
+
+    const prev = this._lastBinTsMs;
+    if (Number.isFinite(prev)) {
+      const dt = tsMs - prev;
+      if (Number.isFinite(dt) && dt > 0 && dt < 1000) {
+        this._frameDtEmaMs = this._frameDtEmaMs == null ? dt : this._frameDtEmaMs * 0.9 + dt * 0.1;
+      }
+    }
+
+    this._head = (this._head + 1) % this._bins;
+    this._lastBinTsMs = tsMs;
+    if (this._ts) this._ts[this._head] = tsMs;
+
+    this._bytes[this._head] = 0;
+    this._writes[this._head] = 0;
+    this._phase[this._head] = 0;
+    if (this._domBytes) this._domBytes[this._head] = 0;
+    if (this._event) this._event[this._head] = 0;
+    if (this._absMin) this._absMin[this._head] = Number.NaN;
+    if (this._absMax) this._absMax[this._head] = Number.NaN;
+    if (this._bytesByPhase && this._writesByPhase) {
+      const base = this._head * CHUNK_PHASE_COUNT;
+      for (let i = 0; i < CHUNK_PHASE_COUNT; i++) {
+        this._bytesByPhase[base + i] = 0;
+        this._writesByPhase[base + i] = 0;
+      }
+    }
+
+    this._count = Math.min(this._bins, this._count + 1);
   }
 
   _eventId(event) {
@@ -860,36 +905,47 @@ class ChunkPerfMonitor {
     return null;
   }
 
-  record({ tsMs, phase, bytes, chars, absStart, absEnd } = {}) {
+  record({ tsMs, phase, bytes, chars, absStart, absEnd, event } = {}) {
     if (!this._bytes || !this._writes || !this._phase) return;
+    if (phase === "frame") {
+      const now = Number.isFinite(tsMs) ? tsMs : performance.now();
+      this._advanceFrame(now);
+      this._scheduleRender();
+      return;
+    }
+
     const b = clampInt(Number(bytes), 0, 1_000_000_000);
-    const evId = this._eventId(typeof phase === "string" && phase.startsWith("resize") ? "resize" : null);
+    const evName =
+      typeof event === "string" ? event : typeof phase === "string" && phase.startsWith("resize") ? "resize" : null;
+    const evId = this._eventId(evName);
     const hasEvent = evId > 0 || (typeof phase === "string" && phase === "resize");
     if (b <= 0 && !hasEvent) return;
     const now = Number.isFinite(tsMs) ? tsMs : performance.now();
-    this._advanceTo(now);
+    this._ensureFrame(now);
 
-    if (this._count <= 0) {
-      this._head = 0;
-      this._bytes[this._head] = 0;
-      this._writes[this._head] = 0;
-      this._phase[this._head] = 0;
-      if (this._event) this._event[this._head] = 0;
-      if (this._ts) this._ts[this._head] = 0;
-      if (this._absMin) this._absMin[this._head] = Number.NaN;
-      if (this._absMax) this._absMax[this._head] = Number.NaN;
-      this._count = 1;
-      this._lastBinTsMs = now;
-    }
-
-    if (hasEvent && this._event) this._event[this._head] = Math.max(this._event[this._head], 1);
-    if (this._ts && (!this._ts[this._head] || this._ts[this._head] <= 0)) this._ts[this._head] = now;
+    if (hasEvent && this._event) this._event[this._head] = Math.max(this._event[this._head], evId);
 
     if (b > 0) {
       const id = this._phaseId(phase);
       this._bytes[this._head] += b;
       this._writes[this._head] += 1;
-      if (id > this._phase[this._head]) this._phase[this._head] = id;
+      if (this._bytesByPhase && this._writesByPhase) {
+        const base = this._head * CHUNK_PHASE_COUNT;
+        this._bytesByPhase[base + id] += b;
+        this._writesByPhase[base + id] += 1;
+
+        if (this._domBytes) {
+          const cur = this._bytesByPhase[base + id];
+          if (cur > this._domBytes[this._head]) {
+            this._domBytes[this._head] = cur;
+            this._phase[this._head] = id;
+          }
+        } else if (id > this._phase[this._head]) {
+          this._phase[this._head] = id;
+        }
+      } else if (id > this._phase[this._head]) {
+        this._phase[this._head] = id;
+      }
     }
 
     if (this._absMin && this._absMax) {
@@ -944,20 +1000,51 @@ class ChunkPerfMonitor {
     const denom = Math.max(1, this._scaleMaxBytes);
     const denomSqrt = Math.sqrt(denom);
 
-    const hoverX = this._hover ? this._hover.x : null;
-    for (let x = 0; x < this._bins; x++) {
-      const idx = (this._head + 1 + x) % this._bins; // left=oldest, right=newest
-      const b = this._bytes[idx];
-      if (b <= 0) continue;
-      const y = Math.max(1, Math.round((Math.sqrt(b) / denomSqrt) * h));
-      ctx.fillStyle = this._phaseColor(this._phase[idx]);
-      ctx.fillRect(x * barW, h - y, barW, y);
-      if (hoverX != null && x === hoverX) {
-        ctx.strokeStyle = "rgba(255,255,255,0.55)";
-        ctx.lineWidth = Math.max(1, Math.floor(this._dpr));
-        ctx.strokeRect(x * barW + 0.5, h - y + 0.5, Math.max(1, barW) - 1, Math.max(1, y) - 1);
-      }
-    }
+	    const hoverX = this._hover ? this._hover.x : null;
+	    for (let x = 0; x < this._bins; x++) {
+	      const idx = (this._head + 1 + x) % this._bins; // left=oldest, right=newest
+	      const b = this._bytes[idx];
+	      if (b <= 0) continue;
+	      const yTotal = Math.max(1, Math.round((Math.sqrt(b) / denomSqrt) * h));
+	      const x0 = x * barW;
+
+	      if (this._bytesByPhase && this._writesByPhase) {
+	        const base = idx * CHUNK_PHASE_COUNT;
+	        const phases = [];
+	        for (let pid = 4; pid >= 1; pid--) {
+	          const pb = this._bytesByPhase[base + pid] || 0;
+	          if (pb > 0) phases.push({ pid, pb });
+	        }
+
+	        if (phases.length) {
+	          let remaining = yTotal;
+	          let yCursor = h;
+	          for (let i = 0; i < phases.length; i++) {
+	            const { pid, pb } = phases[i];
+	            const left = phases.length - i - 1;
+	            let segH =
+	              i === phases.length - 1 ? remaining : Math.max(1, Math.floor((yTotal * pb) / Math.max(1, b)));
+	            segH = Math.min(segH, Math.max(1, remaining - left));
+	            ctx.fillStyle = this._phaseColor(pid);
+	            ctx.fillRect(x0, yCursor - segH, barW, segH);
+	            yCursor -= segH;
+	            remaining -= segH;
+	            if (remaining <= 0) break;
+	          }
+	        } else {
+	          ctx.fillStyle = this._phaseColor(this._phase[idx]);
+	          ctx.fillRect(x0, h - yTotal, barW, yTotal);
+	        }
+	      } else {
+	        ctx.fillStyle = this._phaseColor(this._phase[idx]);
+	        ctx.fillRect(x0, h - yTotal, barW, yTotal);
+	      }
+	      if (hoverX != null && x === hoverX) {
+	        ctx.strokeStyle = "rgba(255,255,255,0.55)";
+	        ctx.lineWidth = Math.max(1, Math.floor(this._dpr));
+	        ctx.strokeRect(x0 + 0.5, h - yTotal + 0.5, Math.max(1, barW) - 1, Math.max(1, yTotal) - 1);
+	      }
+	    }
     if (this._event) {
       for (let x = 0; x < this._bins; x++) {
         const idx = (this._head + 1 + x) % this._bins;
@@ -999,70 +1086,93 @@ class ChunkPerfMonitor {
     const last = this._last;
     const lastNote = last ? `last=${fmtBytes(last.bytes)} ${last.phase || ""}`.trim() : "last=?";
     const rateNote = `1s=${fmtRate(bytes1s)} (${writes1s}/s)`;
-    const binNote = `targetBin=${this._binMs.toFixed(1)}ms bars=${this._count}/${this._bins}`;
+	    const frameMs = this._frameDtEmaMs;
+	    const hz = frameMs && frameMs > 0 ? 1000 / frameMs : null;
+	    const binNote = `frame≈${frameMs != null ? frameMs.toFixed(1) : "?"}ms${hz ? ` (${hz.toFixed(1)}Hz)` : ""} bars=${this._count}/${this._bins}`;
 
     let hoverNote = "";
     let hoverRuntime = null;
-    if (this._hover && this._lastBinTsMs != null) {
-      const x = this._hover.x;
-      const idx = this._hover.idx;
-      const b = this._bytes[idx] || 0;
-      const writes = this._writes[idx] || 0;
-      const phaseId = this._phase[idx] || 0;
-      const phase = this._phaseLabel(phaseId);
-      const ev = this._event ? this._event[idx] || 0 : 0;
-      const evLabel = ev ? this._eventLabel(ev) : null;
-      const ts = this._ts ? this._ts[idx] : 0;
-      const ageMs = ts ? Math.max(0, nowTs - ts) : null;
-      let gapPrevMs = null;
-      if (this._ts && x > 0) {
-        const prevIdx = (this._head + x) % this._bins;
-        const prevTs = this._ts[prevIdx] || 0;
-        if (prevTs && ts && ts >= prevTs) gapPrevMs = ts - prevTs;
-      }
-      const absMin = this._absMin ? this._absMin[idx] : Number.NaN;
-      const absMax = this._absMax ? this._absMax[idx] : Number.NaN;
-      const absNote =
-        Number.isFinite(absMin) && Number.isFinite(absMax) ? ` abs=[${fmtBytes(absMin)}..${fmtBytes(absMax)}]` : "";
-      const evNote = evLabel ? ` ev=${evLabel}` : "";
-      hoverNote = `hover=t-${ageMs != null ? ageMs.toFixed(0) : "?"}ms bytes=${fmtBytes(b)} writes=${writes} phase=${phase}${evNote}${absNote}${gapPrevMs != null ? ` gap=${gapPrevMs.toFixed(0)}ms` : ""}`;
-      hoverRuntime = {
-        x,
-        ageMsAgo: ageMs != null ? Math.max(0, ageMs) : null,
-        gapPrevMs: gapPrevMs != null ? Math.max(0, gapPrevMs) : null,
-        bytes: b,
-        writes,
-        phase,
-        event: evLabel,
-        absMin: Number.isFinite(absMin) ? absMin : null,
-        absMax: Number.isFinite(absMax) ? absMax : null,
-      };
-      if (this.canvas) this.canvas.title = hoverNote;
-    } else if (this.canvas && this.canvas.title) {
-      this.canvas.title = "";
-    }
+	    if (this._hover && this._lastBinTsMs != null) {
+	      const x = this._hover.x;
+	      const idx = this._hover.idx;
+	      const b = this._bytes[idx] || 0;
+	      const writes = this._writes[idx] || 0;
+	      const phaseId = this._phase[idx] || 0;
+	      const phase = this._phaseLabel(phaseId);
+	      const ev = this._event ? this._event[idx] || 0 : 0;
+	      const evLabel = ev ? this._eventLabel(ev) : null;
+	      const ts = this._ts ? this._ts[idx] : 0;
+	      const ageMs = ts ? Math.max(0, nowTs - ts) : null;
+	      let gapPrevMs = null;
+	      if (this._ts && x > 0) {
+	        const prevIdx = (this._head + x) % this._bins; // idx=(head+1+x), so prev is (head+x)
+	        const prevTs = this._ts[prevIdx] || 0;
+	        if (prevTs && ts && ts >= prevTs) gapPrevMs = ts - prevTs;
+	      }
+	      let phases = null;
+	      if (this._bytesByPhase && this._writesByPhase) {
+	        const base = idx * CHUNK_PHASE_COUNT;
+	        phases = [];
+	        for (let pid = 1; pid <= 4; pid++) {
+	          const pb = this._bytesByPhase[base + pid] || 0;
+	          const pw = this._writesByPhase[base + pid] || 0;
+	          if (pb > 0 || pw > 0) phases.push({ phase: this._phaseLabel(pid), bytes: pb, writes: pw });
+	        }
+	        if (!phases.length) phases = null;
+	      }
+	      const absMin = this._absMin ? this._absMin[idx] : Number.NaN;
+	      const absMax = this._absMax ? this._absMax[idx] : Number.NaN;
+	      const absNote =
+	        Number.isFinite(absMin) && Number.isFinite(absMax) ? ` abs=[${fmtBytes(absMin)}..${fmtBytes(absMax)}]` : "";
+	      const evNote = evLabel ? ` ev=${evLabel}` : "";
+	      const mixNote =
+	        phases && phases.length > 1
+	          ? ` mix=${phases
+	              .map((p) => `${p.phase}:${fmtBytes(p.bytes)}(${p.writes})`)
+	              .join(" ")}`
+	          : "";
+	      hoverNote = `hover=t-${ageMs != null ? ageMs.toFixed(0) : "?"}ms bytes=${fmtBytes(b)} writes=${writes} phase=${phase}${evNote}${absNote}${gapPrevMs != null ? ` dt=${gapPrevMs.toFixed(1)}ms` : ""}${mixNote}`;
+	      hoverRuntime = {
+	        x,
+	        ageMsAgo: ageMs != null ? Math.max(0, ageMs) : null,
+	        gapPrevMs: gapPrevMs != null ? Math.max(0, gapPrevMs) : null,
+	        bytes: b,
+	        writes,
+	        phase,
+	        phases,
+	        event: evLabel,
+	        absMin: Number.isFinite(absMin) ? absMin : null,
+	        absMax: Number.isFinite(absMax) ? absMax : null,
+	      };
+	      if (this.canvas) this.canvas.title = hoverNote;
+	    } else if (this.canvas && this.canvas.title) {
+	      this.canvas.title = "";
+	    }
 
     const summary = hoverNote
       ? `${hoverNote} • ${rateNote} • window=${fmtBytes(bytesWindow)} (${writesWindow} writes) • ${binNote}`
       : `${lastNote} • ${rateNote} • window=${fmtBytes(bytesWindow)} (${writesWindow} writes) • ${binNote}`;
     if (this.summaryEl) this.summaryEl.textContent = summary;
 
-    perfInfo.runtime.chunks = {
-      windowMs: Math.round(this._binMs * this._bins),
-      binMs: this._binMs,
-      bins: this._bins,
-      scaleMaxBytes: this._scaleMaxBytes,
-      last: last
-        ? {
-            tsMs: last.tsMs,
-            phase: last.phase,
-            bytes: last.bytes,
-            chars: last.chars,
-            absStart: typeof last.absStart === "bigint" ? String(last.absStart) : null,
-            absEnd: typeof last.absEnd === "bigint" ? String(last.absEnd) : null,
-          }
-        : null,
-      hover: hoverRuntime,
+	    perfInfo.runtime.chunks = {
+	      mode: "raf",
+	      windowFrames: this._bins,
+	      frameDtEmaMs: this._frameDtEmaMs,
+	      frameHzEma: hz,
+	      binMs: this._frameDtEmaMs,
+	      bins: this._bins,
+	      scaleMaxBytes: this._scaleMaxBytes,
+	      last: last
+	        ? {
+	            tsMs: last.tsMs,
+	            phase: last.phase,
+	            bytes: last.bytes,
+	            chars: last.chars,
+	            absStart: typeof last.absStart === "bigint" ? String(last.absStart) : null,
+	            absEnd: typeof last.absEnd === "bigint" ? String(last.absEnd) : null,
+	          }
+	        : null,
+	      hover: hoverRuntime,
       last1s: {
         bytes: bytes1s,
         writes: writes1s,
@@ -1268,6 +1378,7 @@ class OutputPlayer {
     const prevPhase = this._chunkPhase;
     this._chunkPhase = phase || (shouldYield ? "seek" : "bulk_seek");
     try {
+      this._emitFrame(performance.now());
       while (this._offset < target) {
         const start = this._offset;
         const end = Math.min(target, start + this._chunkBytes);
@@ -1280,7 +1391,8 @@ class OutputPlayer {
           if (now - lastYield >= yieldEveryMs) {
             lastYield = now;
             // eslint-disable-next-line no-await-in-loop
-            await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+            const nextTs = await new Promise((resolve) => requestAnimationFrame((ts) => resolve(ts)));
+            this._emitFrame(nextTs);
           }
         }
       }
@@ -1310,6 +1422,7 @@ class OutputPlayer {
     const prevPhase = this._chunkPhase;
     this._chunkPhase = phase || "mode1";
     try {
+      this._emitFrame(performance.now());
       while (this._offset < target) {
         const now = performance.now();
         const dtMsRaw = Math.max(0, now - lastDynTs);
@@ -1349,7 +1462,8 @@ class OutputPlayer {
           if (now - lastYield >= yieldEveryMs) {
             lastYield = now;
             // eslint-disable-next-line no-await-in-loop
-            await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+            const nextTs = await new Promise((resolve) => requestAnimationFrame((ts) => resolve(ts)));
+            this._emitFrame(nextTs);
           }
         }
       }
@@ -1467,6 +1581,12 @@ class OutputPlayer {
     });
   }
 
+  _emitFrame(tsMs) {
+    if (!this._onChunk) return;
+    const now = Number.isFinite(tsMs) ? tsMs : performance.now();
+    this._onChunk({ tsMs: now, phase: "frame", bytes: 0, chars: 0 });
+  }
+
   _estimateRaf(dtMs) {
     if (!Number.isFinite(dtMs) || dtMs <= 0 || dtMs > 1000) return;
     // EMA to smooth out jitter; good enough for diagnostics / coarse quantization.
@@ -1499,6 +1619,7 @@ class OutputPlayer {
     if (!this._playing || !this._buf) return;
 
     this._chunkPhase = "playback";
+    this._emitFrame(ts);
     const dtMs = Math.max(0, ts - this._lastTs);
     this._lastTs = ts;
     this._estimateRaf(dtMs);
