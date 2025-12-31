@@ -287,7 +287,7 @@ export class PerfBarGraph {
   }
 
   // Accumulate into the current bar.
-  add({ phase, value = 0, count = 0, absStart = null, absEnd = null, tNs = null } = {}) {
+  add({ phase, value = 0, count = 0, absStart = null, absEnd = null, tNs = null, tNsMin = null, tNsMax = null } = {}) {
     if (!this._count) {
       this.advance({ key: Number.NaN, tsMs: performance.now() });
     }
@@ -325,12 +325,17 @@ export class PerfBarGraph {
     }
 
     if (this._tNsMin && this._tNsMax) {
-      const tn = typeof tNs === "bigint" ? Number(tNs) : Number(tNs);
-      if (Number.isFinite(tn) && tn >= 0) {
+      const tnLoRaw = tNsMin != null ? tNsMin : tNs;
+      const tnHiRaw = tNsMax != null ? tNsMax : tNs;
+      const tnLo = typeof tnLoRaw === "bigint" ? Number(tnLoRaw) : Number(tnLoRaw);
+      const tnHi = typeof tnHiRaw === "bigint" ? Number(tnHiRaw) : Number(tnHiRaw);
+      if (Number.isFinite(tnLo) && Number.isFinite(tnHi) && tnLo >= 0 && tnHi >= 0) {
+        const lo = Math.min(tnLo, tnHi);
+        const hi = Math.max(tnLo, tnHi);
         const prevLo = this._tNsMin[this._head];
         const prevHi = this._tNsMax[this._head];
-        this._tNsMin[this._head] = Number.isNaN(prevLo) ? tn : Math.min(prevLo, tn);
-        this._tNsMax[this._head] = Number.isNaN(prevHi) ? tn : Math.max(prevHi, tn);
+        this._tNsMin[this._head] = Number.isNaN(prevLo) ? lo : Math.min(prevLo, lo);
+        this._tNsMax[this._head] = Number.isNaN(prevHi) ? hi : Math.max(prevHi, hi);
       }
     }
 

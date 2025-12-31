@@ -2254,10 +2254,11 @@ function installChunkMonitor() {
     canvas: ui.chunkCanvas,
     summaryEl: ui.chunkSummary,
     hub: perfVizHub,
-    phaseKeys: ["playback", "mode1", "seek", "bulk_seek"],
+    phaseKeys: ["playback", "mode1", "tidx_step", "seek", "bulk_seek"],
+    phaseColors: { tidx_step: "rgba(255,235,59,0.78)" },
     markerKeys: ["resize"],
     markerColors: { resize: "rgba(255,235,59,0.70)" },
-    fmt: { bytes: fmtBytes, rate: fmtRate },
+    fmt: { bytes: fmtBytes, rate: fmtRate, timeNs: fmtNs },
     valueLabel: "bytes",
     countLabel: "writes",
     rateIncludesCounts: true,
@@ -2312,6 +2313,21 @@ function installChunkMonitor() {
     }
     consumeSegNextIdx = lo;
     consumeSegPrevEnd = lo > 0 ? BigInt(arr[lo - 1] ?? 0n) : 0n;
+  }
+
+  function tidxIndexForOffset(tidx, off) {
+    const arr = tidx && Array.isArray(tidx.endOffsets) ? tidx.endOffsets : null;
+    if (!arr || !arr.length) return null;
+    const target = typeof off === "bigint" ? off : BigInt(off ?? 0n);
+    if (target <= 0n) return 0;
+    let lo = 0;
+    let hi = arr.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (BigInt(arr[mid] ?? 0n) >= target) hi = mid;
+      else lo = mid + 1;
+    }
+    return lo;
   }
 
   const adapter = {
@@ -2377,7 +2393,39 @@ function installChunkMonitor() {
           }
           chunkGraphHasBarThisFrame = true;
         }
-        chunkGraph.add({ phase, value: b, count: 1, absStart: info.absStart, absEnd: info.absEnd });
+        const outTidx = currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+        let tNsMin = null;
+        let tNsMax = null;
+        if (outTidx && info.absStart != null && info.absEnd != null) {
+          const absStart = typeof info.absStart === "bigint" ? info.absStart : BigInt(info.absStart);
+          const absEnd = typeof info.absEnd === "bigint" ? info.absEnd : BigInt(info.absEnd);
+          const arr = outTidx && Array.isArray(outTidx.endOffsets) ? outTidx.endOffsets : null;
+          if (arr && arr.length && absEnd > absStart) {
+            const endBound = BigInt(arr[arr.length - 1] ?? 0n);
+            const startOff = absStart + 1n;
+            const endOff = absEnd;
+            const clampedStart = startOff < 1n ? 1n : startOff > endBound ? endBound : startOff;
+            const clampedEnd = endOff < 1n ? 1n : endOff > endBound ? endBound : endOff;
+            const i0 = tidxIndexForOffset(outTidx, clampedStart);
+            const i1 = tidxIndexForOffset(outTidx, clampedEnd);
+            if (i0 != null && i1 != null && Array.isArray(outTidx.tNs)) {
+              const t0 = BigInt(outTidx.tNs[i0] ?? 0n);
+              const t1 = BigInt(outTidx.tNs[i1] ?? 0n);
+              tNsMin = t0 < t1 ? t0 : t1;
+              tNsMax = t0 < t1 ? t1 : t0;
+            }
+          }
+        }
+
+        chunkGraph.add({
+          phase,
+          value: b,
+          count: 1,
+          absStart: info.absStart,
+          absEnd: info.absEnd,
+          tNsMin,
+          tNsMax,
+        });
 
         if (consumeGraph) {
           const k = Number.isFinite(Number(info.key)) ? Number(info.key) : lastFrameKey;
