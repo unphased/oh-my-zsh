@@ -2157,7 +2157,11 @@ function installChunkMonitor() {
   const graphs = [graph];
 
   let frameGraph = null;
+  let lastFrameKey = null;
   let lastFrameTsMs = null;
+  let lastActiveFrameTsMs = null;
+  let frameGraphHasBarThisFrame = false;
+  let frameGraphPendingResize = false;
   if (ui.frameCanvas) {
     const fmtMs = (n) => `${Number(n).toFixed(1)}ms`;
     frameGraph = new PerfBarGraph({
@@ -2175,7 +2179,7 @@ function installChunkMonitor() {
         rate: (_sum, { counts1s, frameHzEma, frameDtEmaMs } = {}) => {
           const hz = Number.isFinite(frameHzEma) ? frameHzEma : null;
           const dt = Number.isFinite(frameDtEmaMs) ? frameDtEmaMs : null;
-          return `fps≈${hz != null ? hz.toFixed(1) : "?"} frame≈${dt != null ? dt.toFixed(1) : "?"}ms samples=${counts1s ?? "?"}/s`;
+          return `active≈${hz != null ? hz.toFixed(1) : "?"}Hz gap≈${dt != null ? dt.toFixed(1) : "?"}ms samples=${counts1s ?? "?"}/s`;
         },
       },
       valueLabel: "dt",
@@ -2195,7 +2199,11 @@ function installChunkMonitor() {
     },
     clear: () => {
       for (const g of graphs) g.clear();
+      lastFrameKey = null;
       lastFrameTsMs = null;
+      lastActiveFrameTsMs = null;
+      frameGraphHasBarThisFrame = false;
+      frameGraphPendingResize = false;
       renderInfoThrottled();
     },
     record: (info) => {
@@ -2206,18 +2214,20 @@ function installChunkMonitor() {
         const key = Number(info.key);
         graph.advance({ key, tsMs });
         if (frameGraph) {
-          frameGraph.advance({ key, tsMs });
-          if (Number.isFinite(tsMs) && lastFrameTsMs != null) {
-            const dt = tsMs - lastFrameTsMs;
-            if (Number.isFinite(dt) && dt > 0) frameGraph.add({ phase: "dt_ms", value: dt, count: 1 });
-          }
+          lastFrameKey = Number.isFinite(key) ? key : lastFrameKey;
           lastFrameTsMs = Number.isFinite(tsMs) ? tsMs : lastFrameTsMs;
+          frameGraphHasBarThisFrame = false;
+          frameGraphPendingResize = false;
         }
         return;
       }
       if (info.event === "resize" || phase === "resize") {
         graph.mark("resize");
-        if (frameGraph) frameGraph.mark("resize");
+        if (frameGraph) {
+          // Only emit markers for frames that actually produced a dt sample; otherwise we'd create "empty" bars.
+          if (frameGraphHasBarThisFrame) frameGraph.mark("resize");
+          else frameGraphPendingResize = true;
+        }
       }
       const b = clampInt(Number(info.bytes), 0, 1_000_000_000);
       if (b > 0) {
@@ -2228,6 +2238,25 @@ function installChunkMonitor() {
           absStart: info.absStart,
           absEnd: info.absEnd,
         });
+        if (frameGraph && !frameGraphHasBarThisFrame && lastFrameKey != null && lastFrameTsMs != null) {
+          if (lastActiveFrameTsMs != null) {
+            const dt = lastFrameTsMs - lastActiveFrameTsMs;
+            if (Number.isFinite(dt) && dt > 0) {
+              frameGraph.advance({ key: lastFrameKey, tsMs: lastFrameTsMs });
+              if (frameGraphPendingResize) {
+                frameGraph.mark("resize");
+                frameGraphPendingResize = false;
+              }
+              frameGraph.add({ phase: "dt_ms", value: dt, count: 1 });
+              frameGraphHasBarThisFrame = true;
+              lastActiveFrameTsMs = lastFrameTsMs;
+            }
+          } else {
+            // Prime the first active frame; emit the first dt sample on the *next* active frame.
+            lastActiveFrameTsMs = lastFrameTsMs;
+            frameGraphPendingResize = false;
+          }
+        }
       }
     },
   };
