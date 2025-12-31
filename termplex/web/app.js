@@ -87,6 +87,8 @@ const ui = {
   status: document.getElementById("status"),
   chunkCanvas: document.getElementById("chunkCanvas"),
   chunkSummary: document.getElementById("chunkSummary"),
+  frameCanvas: document.getElementById("frameCanvas"),
+  frameSummary: document.getElementById("frameSummary"),
   clearChunkGraph: document.getElementById("clearChunkGraph"),
   outputFollow: document.getElementById("outputFollow"),
   inputStatus: document.getElementById("inputStatus"),
@@ -2143,27 +2145,79 @@ function installChunkMonitor() {
     markerKeys: ["resize"],
     markerColors: { resize: "rgba(255,235,59,0.70)" },
     fmt: { bytes: fmtBytes, rate: fmtRate },
+    valueLabel: "bytes",
+    countLabel: "writes",
+    rateIncludesCounts: true,
     onRuntime: (runtime) => {
       perfInfo.runtime.chunks = runtime;
       renderInfoThrottled();
     },
   });
 
+  const graphs = [graph];
+
+  let frameGraph = null;
+  let lastFrameTsMs = null;
+  if (ui.frameCanvas) {
+    const fmtMs = (n) => `${Number(n).toFixed(1)}ms`;
+    frameGraph = new PerfBarGraph({
+      id: "raf-frames",
+      canvas: ui.frameCanvas,
+      summaryEl: ui.frameSummary,
+      hub: perfVizHub,
+      phaseKeys: ["dt_ms"],
+      phaseColors: { dt_ms: "rgba(140,160,255,0.75)" },
+      markerKeys: ["resize"],
+      markerColors: { resize: "rgba(255,235,59,0.50)" },
+      scale: "linear",
+      fmt: {
+        bytes: fmtMs,
+        rate: (_sum, { counts1s, frameHzEma, frameDtEmaMs } = {}) => {
+          const hz = Number.isFinite(frameHzEma) ? frameHzEma : null;
+          const dt = Number.isFinite(frameDtEmaMs) ? frameDtEmaMs : null;
+          return `fps≈${hz != null ? hz.toFixed(1) : "?"} frame≈${dt != null ? dt.toFixed(1) : "?"}ms samples=${counts1s ?? "?"}/s`;
+        },
+      },
+      valueLabel: "dt",
+      countLabel: "samples",
+      rateIncludesCounts: false,
+      onRuntime: (runtime) => {
+        perfInfo.runtime.frames = runtime;
+        renderInfoThrottled();
+      },
+    });
+    graphs.push(frameGraph);
+  }
+
   const adapter = {
-    resize: () => graph.resize(),
+    resize: () => {
+      for (const g of graphs) g.resize();
+    },
     clear: () => {
-      graph.clear();
+      for (const g of graphs) g.clear();
+      lastFrameTsMs = null;
       renderInfoThrottled();
     },
     record: (info) => {
       if (!info || typeof info !== "object") return;
       const phase = typeof info.phase === "string" ? info.phase : null;
       if (phase === "frame") {
-        graph.advance({ key: info.key, tsMs: info.tsMs });
+        const tsMs = Number(info.tsMs);
+        const key = Number(info.key);
+        graph.advance({ key, tsMs });
+        if (frameGraph) {
+          frameGraph.advance({ key, tsMs });
+          if (Number.isFinite(tsMs) && lastFrameTsMs != null) {
+            const dt = tsMs - lastFrameTsMs;
+            if (Number.isFinite(dt) && dt > 0) frameGraph.add({ phase: "dt_ms", value: dt, count: 1 });
+          }
+          lastFrameTsMs = Number.isFinite(tsMs) ? tsMs : lastFrameTsMs;
+        }
         return;
       }
       if (info.event === "resize" || phase === "resize") {
         graph.mark("resize");
+        if (frameGraph) frameGraph.mark("resize");
       }
       const b = clampInt(Number(info.bytes), 0, 1_000_000_000);
       if (b > 0) {
@@ -2183,6 +2237,7 @@ function installChunkMonitor() {
   if (typeof ResizeObserver === "function") {
     const ro = new ResizeObserver(() => adapter.resize());
     ro.observe(ui.chunkCanvas);
+    if (ui.frameCanvas) ro.observe(ui.frameCanvas);
   } else {
     window.addEventListener("resize", () => adapter.resize());
   }

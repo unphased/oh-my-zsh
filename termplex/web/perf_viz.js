@@ -77,6 +77,9 @@ export class PerfBarGraph {
     markerColors,
     scale = DEFAULT_SCALE,
     fmt = null, // { bytes(n), rate(n), key(n) }
+    valueLabel = "bytes",
+    countLabel = "writes",
+    rateIncludesCounts = true,
     onRuntime = null,
   } = {}) {
     this.id = String(id || `graph_${Math.random().toString(16).slice(2)}`);
@@ -91,6 +94,9 @@ export class PerfBarGraph {
 
     this.scale = scale === "linear" ? "linear" : DEFAULT_SCALE;
     this.fmt = fmt && typeof fmt === "object" ? fmt : null;
+    this.valueLabel = String(valueLabel || "bytes");
+    this.countLabel = String(countLabel || "writes");
+    this.rateIncludesCounts = !!rateIncludesCounts;
     this.onRuntime = typeof onRuntime === "function" ? onRuntime : null;
 
     this._bins = 0;
@@ -461,24 +467,25 @@ export class PerfBarGraph {
         if (remaining <= 0) break;
       }
 
-      // Marker lines.
+      // Marker ticks (top edge).
       if (markers) {
+        const tickH = Math.max(1, Math.floor(6 * this._dpr));
         for (let mi = 0; mi < this.markerKeys.length && mi < 31; mi++) {
           if (!(markers & (1 << mi))) continue;
-          ctx.strokeStyle = this._markerColorById(mi + 1);
-          ctx.lineWidth = Math.max(1, Math.floor(this._dpr));
-          ctx.beginPath();
-          ctx.moveTo(x0 + barW * 0.5, 0);
-          ctx.lineTo(x0 + barW * 0.5, h);
-          ctx.stroke();
+          ctx.fillStyle = this._markerColorById(mi + 1);
+          ctx.fillRect(x0, 0, barW, tickH);
         }
       }
+    }
 
-      if (hoverX != null && x === hoverX) {
-        ctx.strokeStyle = "rgba(255,255,255,0.55)";
-        ctx.lineWidth = Math.max(1, Math.floor(this._dpr));
-        ctx.strokeRect(x0 + 0.5, h - yTotal + 0.5, Math.max(1, barW) - 1, Math.max(1, yTotal) - 1);
-      }
+    // Hover highlight (even on “empty” bars).
+    if (hoverX != null) {
+      const x0 = hoverX * barW;
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
+      ctx.fillRect(x0, 0, Math.max(1, barW), h);
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.lineWidth = Math.max(1, Math.floor(this._dpr));
+      ctx.strokeRect(x0 + 0.5, 0.5, Math.max(1, barW) - 1, h - 1);
     }
 
     // External hover highlight.
@@ -495,8 +502,11 @@ export class PerfBarGraph {
       }
       if (xFound != null) {
         const x0 = xFound * barW;
-        ctx.fillStyle = "rgba(255,255,255,0.18)";
+        ctx.fillStyle = "rgba(255,255,255,0.14)";
         ctx.fillRect(x0, 0, Math.max(1, barW), h);
+        ctx.strokeStyle = "rgba(255,255,255,0.30)";
+        ctx.lineWidth = Math.max(1, Math.floor(this._dpr));
+        ctx.strokeRect(x0 + 0.5, 0.5, Math.max(1, barW) - 1, h - 1);
       }
     }
 
@@ -571,15 +581,32 @@ export class PerfBarGraph {
         if (parts.length > 1) mixNote = ` mix=${parts.join(" ")}`;
       }
 
+      let markersNote = "";
+      let markerKeys = null;
+      if (this._markerBits && this.markerKeys && this.markerKeys.length) {
+        const bits = this._markerBits[idx] || 0;
+        if (bits) {
+          const keys = [];
+          for (let mi = 0; mi < this.markerKeys.length && mi < 31; mi++) {
+            if (bits & (1 << mi)) keys.push(this.markerKeys[mi]);
+          }
+          if (keys.length) {
+            markerKeys = keys;
+            markersNote = ` markers=${keys.join(",")}`;
+          }
+        }
+      }
+
       hoverNote =
         `hover key=${Number.isFinite(k) ? k : "?"}` +
         ` t-${ageMs != null ? ageMs.toFixed(0) : "?"}ms` +
-        ` bytes=${this.fmt && this.fmt.bytes ? this.fmt.bytes(b) : b.toFixed(0)}` +
-        ` writes=${writes}` +
+        ` ${this.valueLabel}=${this.fmt && this.fmt.bytes ? this.fmt.bytes(b) : b.toFixed(0)}` +
+        ` ${this.countLabel}=${writes}` +
         ` phase=${domKey}` +
         `${dtPrev != null ? ` dt=${dtPrev.toFixed(1)}ms` : ""}` +
         `${absNote ? ` ${absNote}` : ""}` +
-        `${mixNote}`;
+        `${mixNote}` +
+        `${markersNote}`;
       hoverRuntime = {
         key: Number.isFinite(k) ? k : null,
         ageMsAgo: ageMs != null ? Math.max(0, ageMs) : null,
@@ -587,6 +614,7 @@ export class PerfBarGraph {
         bytes: b,
         writes,
         phase: domKey,
+        markers: markerKeys,
       };
 
       if (this.canvas) this.canvas.title = hoverNote;
@@ -597,7 +625,15 @@ export class PerfBarGraph {
     const lastIdx = this._count ? this._head : null;
     const last = lastIdx != null ? { key: this._keys[lastIdx], tsMs: this._ts[lastIdx] } : null;
     const lastNote = last && Number.isFinite(last.key) ? `lastKey=${last.key}` : "lastKey=?";
-    const rateNote = this.fmt && this.fmt.rate ? `1s=${this.fmt.rate(bytes1s)} (${writes1s}/s)` : `1s=${bytes1s}`;
+    const rateBase =
+      this.fmt && this.fmt.rate
+        ? this.fmt.rate(bytes1s, {
+            counts1s: writes1s,
+            frameDtEmaMs: this._frameDtEmaMs,
+            frameHzEma: hz,
+          })
+        : `1s=${bytes1s}`;
+    const rateNote = this.rateIncludesCounts ? `${rateBase} (${writes1s}/s)` : rateBase;
     const binNote = `frame≈${frameMs != null ? frameMs.toFixed(1) : "?"}ms${hz ? ` (${hz.toFixed(1)}Hz)` : ""} bars=${this._count}/${this._bins}`;
 
     const summary = hoverNote
@@ -622,4 +658,3 @@ export class PerfBarGraph {
     if (this.onRuntime) this.onRuntime(runtime);
   }
 }
-
