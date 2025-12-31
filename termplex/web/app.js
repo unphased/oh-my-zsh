@@ -654,7 +654,10 @@ class ChunkPerfMonitor {
     this._bytes = null;
     this._writes = null;
     this._phase = null;
+    this._event = null;
     this._ts = null;
+    this._absMin = null;
+    this._absMax = null;
     this._count = 0;
     this._scaleMaxBytes = 1;
     this._last = null;
@@ -667,6 +670,10 @@ class ChunkPerfMonitor {
       mode1: cssVar("--accent", "#4aa3ff"),
       seek: "#a17cff",
       bulk: cssVar("--bad", "#ff6b6b"),
+    };
+    this._eventColors = {
+      none: "rgba(255,255,255,0.0)",
+      resize: "rgba(255,235,59,0.70)",
     };
     this._bg = "#0e1217";
 
@@ -714,13 +721,18 @@ class ChunkPerfMonitor {
       this._bytes = new Float64Array(this._bins);
       this._writes = new Uint32Array(this._bins);
       this._phase = new Uint8Array(this._bins);
+      this._event = new Uint8Array(this._bins);
       this._ts = new Float64Array(this._bins);
+      this._absMin = new Float64Array(this._bins);
+      this._absMax = new Float64Array(this._bins);
       this._head = 0;
       this._lastBinTsMs = null;
       this._count = 0;
       this._scaleMaxBytes = 1;
       this._last = null;
       this._hover = null;
+      this._absMin.fill(Number.NaN);
+      this._absMax.fill(Number.NaN);
     } else {
       this._binMs = this.windowMs / Math.max(1, this._bins);
     }
@@ -732,7 +744,10 @@ class ChunkPerfMonitor {
     if (this._bytes) this._bytes.fill(0);
     if (this._writes) this._writes.fill(0);
     if (this._phase) this._phase.fill(0);
+    if (this._event) this._event.fill(0);
     if (this._ts) this._ts.fill(0);
+    if (this._absMin) this._absMin.fill(Number.NaN);
+    if (this._absMax) this._absMax.fill(Number.NaN);
     this._head = 0;
     this._lastBinTsMs = null;
     this._count = 0;
@@ -813,15 +828,44 @@ class ChunkPerfMonitor {
     this._bytes[this._head] = 0;
     this._writes[this._head] = 0;
     this._phase[this._head] = 0;
+    if (this._event) this._event[this._head] = 0;
     if (this._ts) this._ts[this._head] = 0;
+    if (this._absMin) this._absMin[this._head] = Number.NaN;
+    if (this._absMax) this._absMax[this._head] = Number.NaN;
     this._count = Math.min(this._bins, this._count + 1);
     this._lastBinTsMs = tsMs;
+  }
+
+  _eventId(event) {
+    if (event === "resize") return 1;
+    return 0;
+  }
+
+  _eventLabel(id) {
+    if (id === 1) return "resize";
+    return "none";
+  }
+
+  _eventColor(id) {
+    if (id === 1) return this._eventColors.resize;
+    return this._eventColors.none;
+  }
+
+  _absNum(v) {
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) return v;
+    if (typeof v === "bigint") {
+      const n = Number(v);
+      if (Number.isFinite(n) && Number.isSafeInteger(n) && n >= 0) return n;
+    }
+    return null;
   }
 
   record({ tsMs, phase, bytes, chars, absStart, absEnd } = {}) {
     if (!this._bytes || !this._writes || !this._phase) return;
     const b = clampInt(Number(bytes), 0, 1_000_000_000);
-    if (b <= 0) return;
+    const evId = this._eventId(typeof phase === "string" && phase.startsWith("resize") ? "resize" : null);
+    const hasEvent = evId > 0 || (typeof phase === "string" && phase === "resize");
+    if (b <= 0 && !hasEvent) return;
     const now = Number.isFinite(tsMs) ? tsMs : performance.now();
     this._advanceTo(now);
 
@@ -830,16 +874,36 @@ class ChunkPerfMonitor {
       this._bytes[this._head] = 0;
       this._writes[this._head] = 0;
       this._phase[this._head] = 0;
+      if (this._event) this._event[this._head] = 0;
       if (this._ts) this._ts[this._head] = 0;
+      if (this._absMin) this._absMin[this._head] = Number.NaN;
+      if (this._absMax) this._absMax[this._head] = Number.NaN;
       this._count = 1;
       this._lastBinTsMs = now;
     }
 
-    const id = this._phaseId(phase);
-    if (this._writes[this._head] === 0 && this._ts) this._ts[this._head] = now;
-    this._bytes[this._head] += b;
-    this._writes[this._head] += 1;
-    if (id > this._phase[this._head]) this._phase[this._head] = id;
+    if (hasEvent && this._event) this._event[this._head] = Math.max(this._event[this._head], 1);
+    if (this._ts && (!this._ts[this._head] || this._ts[this._head] <= 0)) this._ts[this._head] = now;
+
+    if (b > 0) {
+      const id = this._phaseId(phase);
+      this._bytes[this._head] += b;
+      this._writes[this._head] += 1;
+      if (id > this._phase[this._head]) this._phase[this._head] = id;
+    }
+
+    if (this._absMin && this._absMax) {
+      const a = this._absNum(absStart);
+      const z = this._absNum(absEnd);
+      if (a != null && z != null) {
+        const lo = Math.min(a, z);
+        const hi = Math.max(a, z);
+        const prevLo = this._absMin[this._head];
+        const prevHi = this._absMax[this._head];
+        this._absMin[this._head] = Number.isNaN(prevLo) ? lo : Math.min(prevLo, lo);
+        this._absMax[this._head] = Number.isNaN(prevHi) ? hi : Math.max(prevHi, hi);
+      }
+    }
     this._last = {
       tsMs: now,
       phase: typeof phase === "string" ? phase : null,
@@ -894,6 +958,19 @@ class ChunkPerfMonitor {
         ctx.strokeRect(x * barW + 0.5, h - y + 0.5, Math.max(1, barW) - 1, Math.max(1, y) - 1);
       }
     }
+    if (this._event) {
+      for (let x = 0; x < this._bins; x++) {
+        const idx = (this._head + 1 + x) % this._bins;
+        const ev = this._event[idx] || 0;
+        if (!ev) continue;
+        ctx.strokeStyle = this._eventColor(ev);
+        ctx.lineWidth = Math.max(1, Math.floor(this._dpr));
+        ctx.beginPath();
+        ctx.moveTo(x * barW + barW * 0.5, 0);
+        ctx.lineTo(x * barW + barW * 0.5, h);
+        ctx.stroke();
+      }
+    }
     if (hoverX != null) {
       ctx.fillStyle = "rgba(255,255,255,0.25)";
       ctx.fillRect(hoverX * barW, 0, Math.max(1, barW), h);
@@ -933,6 +1010,8 @@ class ChunkPerfMonitor {
       const writes = this._writes[idx] || 0;
       const phaseId = this._phase[idx] || 0;
       const phase = this._phaseLabel(phaseId);
+      const ev = this._event ? this._event[idx] || 0 : 0;
+      const evLabel = ev ? this._eventLabel(ev) : null;
       const ts = this._ts ? this._ts[idx] : 0;
       const ageMs = ts ? Math.max(0, nowTs - ts) : null;
       let gapPrevMs = null;
@@ -941,7 +1020,12 @@ class ChunkPerfMonitor {
         const prevTs = this._ts[prevIdx] || 0;
         if (prevTs && ts && ts >= prevTs) gapPrevMs = ts - prevTs;
       }
-      hoverNote = `hover=t-${ageMs != null ? ageMs.toFixed(0) : "?"}ms bytes=${fmtBytes(b)} writes=${writes} phase=${phase}${gapPrevMs != null ? ` gap=${gapPrevMs.toFixed(0)}ms` : ""}`;
+      const absMin = this._absMin ? this._absMin[idx] : Number.NaN;
+      const absMax = this._absMax ? this._absMax[idx] : Number.NaN;
+      const absNote =
+        Number.isFinite(absMin) && Number.isFinite(absMax) ? ` abs=[${fmtBytes(absMin)}..${fmtBytes(absMax)}]` : "";
+      const evNote = evLabel ? ` ev=${evLabel}` : "";
+      hoverNote = `hover=t-${ageMs != null ? ageMs.toFixed(0) : "?"}ms bytes=${fmtBytes(b)} writes=${writes} phase=${phase}${evNote}${absNote}${gapPrevMs != null ? ` gap=${gapPrevMs.toFixed(0)}ms` : ""}`;
       hoverRuntime = {
         x,
         ageMsAgo: ageMs != null ? Math.max(0, ageMs) : null,
@@ -949,6 +1033,9 @@ class ChunkPerfMonitor {
         bytes: b,
         writes,
         phase,
+        event: evLabel,
+        absMin: Number.isFinite(absMin) ? absMin : null,
+        absMax: Number.isFinite(absMax) ? absMax : null,
       };
       if (this.canvas) this.canvas.title = hoverNote;
     } else if (this.canvas && this.canvas.title) {
@@ -1306,8 +1393,67 @@ class OutputPlayer {
       const off = BigInt(ev.streamOffset ?? 0n);
       if (off !== absOffset) break;
       this._onEvent(ev);
+      if (this._onChunk) {
+        const evAbs = BigInt(ev.streamOffset ?? absOffset);
+        this._onChunk({
+          tsMs: performance.now(),
+          phase: "resize",
+          bytes: 0,
+          chars: 0,
+          event: "resize",
+          cols: ev.cols,
+          rows: ev.rows,
+          tNs: ev.tNs,
+          absStart: evAbs,
+          absEnd: evAbs,
+        });
+      }
       this._eventIndex++;
     }
+  }
+
+  _applyTimeResizeEventsAtCurrentOffset(clockTimeNs) {
+    if (!this._events || !this._onEvent) return 0;
+    if (typeof clockTimeNs !== "bigint") return 0;
+    const currentAbs = this._baseOffset + BigInt(this._offset);
+    let applied = 0;
+
+    while (this._eventIndex < this._events.length) {
+      const ev = this._events[this._eventIndex];
+      if (!ev || ev.type !== "resize") {
+        this._eventIndex++;
+        continue;
+      }
+      const off = BigInt(ev.streamOffset ?? 0n);
+      if (off > currentAbs) break;
+      if (off < currentAbs) {
+        this._onEvent(ev);
+        this._eventIndex++;
+        applied++;
+        continue;
+      }
+      const tNs = typeof ev.tNs === "bigint" ? ev.tNs : BigInt(ev.tNs ?? 0n);
+      if (tNs > clockTimeNs) break;
+      this._onEvent(ev);
+      if (this._onChunk) {
+        this._onChunk({
+          tsMs: performance.now(),
+          phase: "resize",
+          bytes: 0,
+          chars: 0,
+          event: "resize",
+          cols: ev.cols,
+          rows: ev.rows,
+          tNs: ev.tNs,
+          absStart: off,
+          absEnd: off,
+        });
+      }
+      this._eventIndex++;
+      applied++;
+    }
+
+    return applied;
   }
 
   _emitProgress(extraBytesWritten, extra = {}) {
@@ -1396,6 +1542,10 @@ class OutputPlayer {
       const hasBytesAvailable = desired > this._offset;
       this._tidxSinceEmitMs += dtMs;
 
+      // Important: resize events can occur during idle periods (no output bytes), so apply them based on time too.
+      // This keeps terminal geometry aligned with capture time, rather than “sticking” until the next output write.
+      const resizeApplied = this._applyTimeResizeEventsAtCurrentOffset(targetTimeNs);
+
       const shouldWrite = hasBytesAvailable && this._tidxSinceEmitMs >= effectiveEmitMs;
       if (!shouldWrite) {
         this._emitProgress(0, {
@@ -1409,6 +1559,7 @@ class OutputPlayer {
             emitHzCap: this._tidxEmitHzCap,
             idle,
             lagBytes: targetAbs > currentAbs ? targetAbs - currentAbs : 0n,
+            resizeApplied,
           },
         });
         this._raf = requestAnimationFrame((nextTs) => this._tick(nextTs));
@@ -1573,17 +1724,31 @@ class OutputPlayer {
       return;
     }
 
-    let cursor = start;
-    while (cursor < end) {
-      const cursorAbs = this._baseOffset + BigInt(cursor);
-      while (this._eventIndex < this._events.length) {
-        const ev = this._events[this._eventIndex];
-        const off = BigInt(ev && ev.streamOffset != null ? ev.streamOffset : 0n);
-        if (off >= cursorAbs) break;
-        this._onEvent(ev);
-        this._eventIndex++;
-      }
-      this._applyEventsAtAbsOffset(cursorAbs);
+	    let cursor = start;
+	    while (cursor < end) {
+	      const cursorAbs = this._baseOffset + BigInt(cursor);
+	      while (this._eventIndex < this._events.length) {
+	        const ev = this._events[this._eventIndex];
+	        const off = BigInt(ev && ev.streamOffset != null ? ev.streamOffset : 0n);
+	        if (off >= cursorAbs) break;
+	        this._onEvent(ev);
+        if (this._onChunk && ev && ev.type === "resize") {
+          this._onChunk({
+            tsMs: performance.now(),
+            phase: "resize",
+            bytes: 0,
+            chars: 0,
+            event: "resize",
+            cols: ev.cols,
+            rows: ev.rows,
+            tNs: ev.tNs,
+            absStart: BigInt(ev.streamOffset ?? off),
+            absEnd: BigInt(ev.streamOffset ?? off),
+          });
+	        }
+	        this._eventIndex++;
+	      }
+	      this._applyEventsAtAbsOffset(cursorAbs);
 
       const nextEvAbs =
         this._eventIndex < this._events.length ? BigInt(this._events[this._eventIndex].streamOffset ?? 0n) : null;
@@ -1770,6 +1935,7 @@ let suppressUiProgress = false;
 let chunkMonitor = null; // ChunkPerfMonitor | null
 let timeDensityStrip = null; // DensityStrip | null
 let offsetDensityStrip = null; // DensityStrip | null
+let lastAppliedOutputResize = null; // { tNs, streamOffset, cols, rows, appliedAtTsMs } | null
 
 let sessionLoadSeq = 0;
 let inputLoadSeq = 0;
@@ -2952,6 +3118,79 @@ function syncInputLogToCurrentOutputOffset() {
   if (Number.isFinite(local)) renderInputLogFromLocalOffset(local, { absOffset: inputAbs, timeNs });
 }
 
+function tidxIndexAtOrAfterAbs(tidx, absOffset) {
+  if (!tidx || !Array.isArray(tidx.endOffsets) || !tidx.endOffsets.length) return null;
+  const off = typeof absOffset === "bigint" ? absOffset : BigInt(absOffset ?? 0);
+  const arr = tidx.endOffsets;
+  let lo = 0;
+  let hi = arr.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (BigInt(arr[mid]) >= off) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+function tidxIndexAtOrBeforeAbs(tidx, absOffset) {
+  if (!tidx || !Array.isArray(tidx.endOffsets) || !tidx.endOffsets.length) return null;
+  const off = typeof absOffset === "bigint" ? absOffset : BigInt(absOffset ?? 0);
+  const arr = tidx.endOffsets;
+  let lo = 0;
+  let hi = arr.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (BigInt(arr[mid]) <= off) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+function tidxSegmentSummary(tidx, idx) {
+  if (!tidx || !Array.isArray(tidx.endOffsets) || !Array.isArray(tidx.tNs)) return null;
+  if (!Number.isFinite(idx) || idx < 0 || idx >= tidx.endOffsets.length) return null;
+  const endAbs = BigInt(tidx.endOffsets[idx] ?? 0n);
+  const endNs = BigInt(tidx.tNs[idx] ?? 0n);
+  const prevEndAbs = idx > 0 ? BigInt(tidx.endOffsets[idx - 1] ?? 0n) : 0n;
+  const prevEndNs = idx > 0 ? BigInt(tidx.tNs[idx - 1] ?? 0n) : 0n;
+  return {
+    idx,
+    startAbs: prevEndAbs,
+    endAbs,
+    dtBytes: endAbs > prevEndAbs ? endAbs - prevEndAbs : 0n,
+    timeNs: endNs,
+    dtNs: endNs > prevEndNs ? endNs - prevEndNs : 0n,
+  };
+}
+
+function tidxWindowSummaries(tidx, centerIdx, radius = 6) {
+  if (!tidx) return null;
+  if (!Number.isFinite(centerIdx)) return null;
+  const r = clampInt(Number(radius), 0, 64);
+  const out = [];
+  const start = Math.max(0, centerIdx - r);
+  const end = Math.min(tidx.endOffsets.length - 1, centerIdx + r);
+  for (let i = start; i <= end; i++) {
+    const s = tidxSegmentSummary(tidx, i);
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+function lowerBoundResizeEventIndex(events, absOffset) {
+  if (!Array.isArray(events) || !events.length) return null;
+  const off = typeof absOffset === "bigint" ? absOffset : BigInt(absOffset ?? 0);
+  let lo = 0;
+  let hi = events.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const mo = BigInt(events[mid]?.streamOffset ?? 0n);
+    if (mo >= off) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
 function onPlaybackProgress({ offset, total, done, clock, raf, tidx, extraBytesWritten }) {
   if (suppressUiProgress) return;
 
@@ -2960,6 +3199,47 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx, extraBytesW
   if (tidx) {
     const wrote = clampInt(Number(extraBytesWritten), 0, 1_000_000_000);
     perfInfo.runtime.playback.tidx = { ...tidx, wroteBytes: wrote };
+  }
+
+  // Extra diagnostics to correlate ingest (tidx), applied resizes, and runtime chunking.
+  if (tidx && currentTcap && currentTcap.outputTidx && typeof tidx.currentAbs === "bigint") {
+    const outTidx = currentTcap.outputTidx;
+    const renderedIdx = tidxIndexAtOrBeforeAbs(outTidx, tidx.currentAbs);
+    const desiredIdx = typeof tidx.desiredAbs === "bigint" ? tidxIndexAtOrAfterAbs(outTidx, tidx.desiredAbs) : null;
+    const centerIdx = desiredIdx != null ? desiredIdx : renderedIdx;
+    const evs = currentTcap.outputEvents || null;
+    const clockTimeNs = clock && clock.mode === "tidx" && typeof clock.timeNs === "bigint" ? clock.timeNs : null;
+    const evIdx = evs ? lowerBoundResizeEventIndex(evs, tidx.currentAbs) : null;
+    const nextResizes =
+      evs && evIdx != null
+        ? evs
+            .slice(evIdx, evIdx + 5)
+            .map((e) => ({ tNs: e.tNs, streamOffset: e.streamOffset, cols: e.cols, rows: e.rows }))
+        : null;
+    const pendingAtCurrentAbs =
+      evs && evIdx != null && clockTimeNs
+        ? evs
+            .slice(evIdx, evIdx + 16)
+            .filter((e) => BigInt(e.streamOffset ?? 0n) === tidx.currentAbs && BigInt(e.tNs ?? 0n) > clockTimeNs)
+            .map((e) => ({ tNs: e.tNs, streamOffset: e.streamOffset, cols: e.cols, rows: e.rows }))
+        : null;
+    perfInfo.runtime.playback.ingest = {
+      rendered: renderedIdx != null ? tidxSegmentSummary(outTidx, renderedIdx) : null,
+      desired: desiredIdx != null ? tidxSegmentSummary(outTidx, desiredIdx) : null,
+      window: centerIdx != null ? tidxWindowSummaries(outTidx, centerIdx, 6) : null,
+      lastResize: lastAppliedOutputResize,
+      nextResizes,
+      pendingAtCurrentAbs,
+    };
+  } else {
+    perfInfo.runtime.playback.ingest = {
+      rendered: null,
+      desired: null,
+      window: null,
+      lastResize: lastAppliedOutputResize,
+      nextResizes: null,
+      pendingAtCurrentAbs: null,
+    };
   }
 
   const pct = total ? ((offset / total) * 100).toFixed(1) : "0.0";
@@ -4049,6 +4329,7 @@ function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
   currentLoadedKind = kind || null;
   currentLoadedBaseOffset = typeof startOffset === "number" ? startOffset : 0;
   currentLoadedAbsSize = Number.isFinite(size) ? size : null;
+  lastAppliedOutputResize = null;
   setupPlaybackPipeline();
   if (chunkMonitor) chunkMonitor.clear();
   resetGestureUi();
@@ -4062,7 +4343,16 @@ function loadBytes({ name, size, startOffset, u8, tcap, kind }) {
   if (currentTcap && currentTcap.outputEvents) {
     player.setEvents(currentTcap.outputEvents, {
       onEvent: (ev) => {
-        if (ev.type === "resize") sink.resize(ev.cols, ev.rows);
+        if (ev.type === "resize") {
+          lastAppliedOutputResize = {
+            tNs: ev.tNs,
+            streamOffset: ev.streamOffset,
+            cols: ev.cols,
+            rows: ev.rows,
+            appliedAtTsMs: performance.now(),
+          };
+          sink.resize(ev.cols, ev.rows);
+        }
       },
     });
   }
