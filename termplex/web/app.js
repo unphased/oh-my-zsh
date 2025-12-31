@@ -1244,8 +1244,8 @@ class LegacyChunkPerfMonitor {
 //
 // Refactor candidate: move to `web/viewer/player.js` and unit test it with a fake sink.
 // -----------------------------------------------------------------------------
-	class OutputPlayer {
-	  constructor({ write, reset, onProgress, onChunk } = {}) {
+class OutputPlayer {
+  constructor({ write, reset, onProgress, onChunk } = {}) {
     this._write = write;
     this._reset = reset;
     this._onProgress = onProgress;
@@ -1276,6 +1276,7 @@ class LegacyChunkPerfMonitor {
     this._tidxLagTauMs = 120;
     this._tidxChunkEma = null;
     this._tidxBurstNoYield = false;
+    this._tidxBytesPerMsEma = null;
   }
 
   hasLoaded() {
@@ -1347,6 +1348,7 @@ class LegacyChunkPerfMonitor {
       this._clockTimeNs = null;
     }
     this._tidxChunkEma = null;
+    this._tidxBytesPerMsEma = null;
     this._raf = requestAnimationFrame((ts) => this._tick(ts));
   }
 
@@ -1372,6 +1374,33 @@ class LegacyChunkPerfMonitor {
     return clampInt(Math.floor(next), 1, maxCap);
   }
 
+  _tidxAdaptiveFrameBudget({ lagMs, dtMs, baseFrameMs }) {
+    const tau = clampInt(Number(this._tidxLagTauMs), 1, 60_000);
+    const lag = Number.isFinite(lagMs) && lagMs > 0 ? lagMs : 0;
+    const frameMs = Number.isFinite(baseFrameMs) && baseFrameMs > 0 ? baseFrameMs : 16.667;
+
+    // Bias towards smoothness while close to realtime; ramp towards catch-up as lag grows.
+    const catchup01 = 1 - Math.exp(-lag / tau);
+    const minWorkMs = Math.max(1, frameMs * 0.55);
+    const maxWorkMs = this._tidxBurstNoYield ? 120 : 50;
+    const workBudgetMs = minWorkMs + (maxWorkMs - minWorkMs) * catchup01;
+
+    // Throughput estimate (bytes/ms) derived from prior frame timing.
+    if (this._tidxBytesPerMsEma == null) {
+      this._tidxBytesPerMsEma = Math.max(1 / 1000, this._chunkBytes / frameMs);
+    }
+
+    // Frame-time feedback: if frames are slower than expected, reduce the estimate quickly.
+    if (Number.isFinite(dtMs) && dtMs > 0 && frameMs > 0) {
+      const ratio = frameMs / dtMs; // <1 => we're slow/janky
+      const corr = Math.max(0.25, Math.min(1.25, Math.sqrt(ratio)));
+      this._tidxBytesPerMsEma = Math.max(1 / 1000, this._tidxBytesPerMsEma * corr);
+    }
+
+    const byteBudget = clampInt(Math.floor(this._tidxBytesPerMsEma * workBudgetMs), 1, Number.MAX_SAFE_INTEGER);
+    return { workBudgetMs, byteBudget, catchup01, bytesPerMs: this._tidxBytesPerMsEma };
+  }
+
   reset() {
     if (!this._buf) return;
     this.stop();
@@ -1381,6 +1410,7 @@ class LegacyChunkPerfMonitor {
     this._carryBytes = 0;
     this._clockTimeNs = null;
     this._eventIndex = 0;
+    this._tidxBytesPerMsEma = null;
     if (this._events && this._onEvent) {
       const initial = lastResizeBeforeOffset(this._events, this._baseOffset);
       if (initial) this._onEvent(initial);
@@ -1747,34 +1777,60 @@ class LegacyChunkPerfMonitor {
       let wroteBytes = 0;
       let lastLagTimeNs = 0n;
       let lastLagBytes = 0n;
-      let iter = 0;
+      let writes = 0;
 
-      while (this._offset < desired) {
+      // Adaptive per-frame budget: smooth near realtime, progressively more aggressive as lag grows.
+      // Note: `dtMs` is the rAF frame delta (including prior work). We combine it with a conservative
+      // wall-time cap to avoid pathological long frames.
+      const currentAbsForLag = this._baseOffset + BigInt(this._offset);
+      const renderedTimeNsForLag = renderedTimeAtOffsetNs(this._clockTidx, currentAbsForLag);
+      const lagTimeNsForLag = targetTimeNs > renderedTimeNsForLag ? targetTimeNs - renderedTimeNsForLag : 0n;
+      const lagMsForLag =
+        Number(lagTimeNsForLag <= BigInt(Number.MAX_SAFE_INTEGER) ? lagTimeNsForLag : BigInt(Number.MAX_SAFE_INTEGER)) / 1_000_000;
+
+      const budget = this._tidxAdaptiveFrameBudget({ lagMs: lagMsForLag, dtMs, baseFrameMs: baseEmitMs });
+      const maxWallMs = Math.max(4, Math.min(250, budget.workBudgetMs));
+      let remainingBytes = budget.byteBudget;
+
+      while (this._offset < desired && remainingBytes > 0) {
+        if (performance.now() - tickStart > maxWallMs) break;
+
         const currentAbsIter = this._baseOffset + BigInt(this._offset);
         const renderedTimeNs = renderedTimeAtOffsetNs(this._clockTidx, currentAbsIter);
         const lagTimeNs = targetTimeNs > renderedTimeNs ? targetTimeNs - renderedTimeNs : 0n;
         lastLagTimeNs = lagTimeNs;
 
-        const lagMs = Number(lagTimeNs <= BigInt(Number.MAX_SAFE_INTEGER) ? lagTimeNs : BigInt(Number.MAX_SAFE_INTEGER)) / 1_000_000;
+        const lagMs =
+          Number(lagTimeNs <= BigInt(Number.MAX_SAFE_INTEGER) ? lagTimeNs : BigInt(Number.MAX_SAFE_INTEGER)) / 1_000_000;
+        const maxThisWrite = clampInt(Math.min(this._chunkBytes, remainingBytes), 1, Number.MAX_SAFE_INTEGER);
         const dynChunk = this._tidxDynamicChunkBytes({
           lagMs,
-          dtMs: iter === 0 ? dtMs : 16.667,
-          maxChunkBytes: this._chunkBytes,
+          dtMs: writes === 0 ? dtMs : baseEmitMs,
+          maxChunkBytes: maxThisWrite,
         });
 
         const start = this._offset;
         end = Math.min(desired, start + dynChunk);
+        if (end <= start) break;
         this._offset = end;
         this._writeBytesWithResizeEvents(start, end);
-        wroteBytes += end - start;
+        const advanced = end - start;
+        wroteBytes += advanced;
+        remainingBytes -= advanced;
+        writes++;
 
         const currentAbsEnd = this._baseOffset + BigInt(this._offset);
         lastLagBytes = targetAbs > currentAbsEnd ? targetAbs - currentAbsEnd : 0n;
+      }
 
-        const allowBurst = this._tidxBurstNoYield && lagMs > this._tidxLagTauMs;
-        if (!allowBurst) break;
-        if (performance.now() - tickStart > 50) break;
-        iter++;
+      // Update throughput estimate based on observed wall-time in this tick.
+      const tickWorkMs = Math.max(0.001, performance.now() - tickStart);
+      const sampleBytesPerMs = wroteBytes > 0 ? wroteBytes / tickWorkMs : 0;
+      if (Number.isFinite(sampleBytesPerMs) && sampleBytesPerMs > 0) {
+        const alpha = 0.12;
+        const prev = this._tidxBytesPerMsEma == null ? sampleBytesPerMs : this._tidxBytesPerMsEma;
+        const next = prev + (sampleBytesPerMs - prev) * alpha;
+        this._tidxBytesPerMsEma = Math.max(1 / 1000, Math.min(next, 1e9));
       }
 
       if (this._offset >= this._buf.length) {
@@ -1799,6 +1855,13 @@ class LegacyChunkPerfMonitor {
           lagBytes: lastLagBytes,
           dynChunkBytes: this._tidxChunkEma != null ? Math.floor(this._tidxChunkEma) : null,
           lagTimeNs: lastLagTimeNs,
+          dynFrame: {
+            workBudgetMs: budget.workBudgetMs,
+            byteBudget: budget.byteBudget,
+            bytesPerMs: budget.bytesPerMs,
+            wroteBytes,
+            writes,
+          },
         },
       });
       this._raf = requestAnimationFrame((nextTs) => this._tick(nextTs));
