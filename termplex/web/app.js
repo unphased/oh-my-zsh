@@ -100,6 +100,7 @@ const ui = {
   inputInterpretEscapes: document.getElementById("inputInterpretEscapes"),
   inputWindowKiB: document.getElementById("inputWindowKiB"),
   inputTokenCap: document.getElementById("inputTokenCap"),
+  stepInputTidx: document.getElementById("stepInputTidx"),
   leftPanel: document.getElementById("leftPanel"),
   panelResizer: document.getElementById("panelResizer"),
   seekMode: document.getElementById("seekMode"),
@@ -3709,6 +3710,7 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx, extraBytesW
   }
 
   updateHopNextUi();
+  updateStepInputTidxUi();
   if (Number.isFinite(offset)) {
     const last = lastOutputOffsetForAutofollow;
     if (last == null) lastOutputOffsetForAutofollow = offset;
@@ -4399,6 +4401,7 @@ function updateButtons() {
   ui.pause.disabled = !hasLoaded;
   ui.reset.disabled = !hasLoaded;
   updateHopNextUi();
+  updateStepInputTidxUi();
 }
 
 function nextTidxAbsOffsetAfter(tidx, absOffset) {
@@ -4422,6 +4425,29 @@ function nextTidxAbsOffsetAfter(tidx, absOffset) {
     else lo = mid + 1;
   }
   return BigInt(arr[lo] ?? 0n);
+}
+
+function nextTidxIndexAtOrAfter(tidx, absOffset) {
+  if (!tidx || typeof tidx !== "object") return null;
+  const arr = tidx.endOffsets;
+  if (!Array.isArray(arr) || !arr.length) return null;
+  let abs = 0n;
+  if (typeof absOffset === "bigint") abs = absOffset;
+  else abs = BigInt(clampInt(Number(absOffset), 0, Number.MAX_SAFE_INTEGER));
+  if (abs < 0n) abs = 0n;
+  const off = abs + 1n;
+
+  let lo = 0;
+  let hi = arr.length - 1;
+  const last = BigInt(arr[hi] ?? 0n);
+  if (off > last) return null;
+
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (BigInt(arr[mid]) >= off) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
 }
 
 let lastHopNextLabel = null;
@@ -4480,6 +4506,90 @@ function updateHopNextUi() {
   if (title !== lastHopNextTitle) ui.hopNext.title = title;
   lastHopNextLabel = label;
   lastHopNextTitle = title;
+}
+
+let lastStepInputLabel = null;
+let lastStepInputTitle = null;
+function updateStepInputTidxUi() {
+  if (!ui.stepInputTidx) return;
+  const tidx = currentInput && currentInput.tidx ? currentInput.tidx : null;
+  const u8 = currentInput && currentInput.u8 ? currentInput.u8 : null;
+  if (!tidx || !u8) {
+    ui.stepInputTidx.disabled = true;
+    const label = "Step input tidx chunk";
+    const title = "Feed one input tidx-delimited chunk (requires input .tidx).";
+    if (label !== lastStepInputLabel) ui.stepInputTidx.textContent = label;
+    if (title !== lastStepInputTitle) ui.stepInputTidx.title = title;
+    lastStepInputLabel = label;
+    lastStepInputTitle = title;
+    return;
+  }
+
+  const baseAbs = BigInt(currentInput.baseOffset || 0);
+  const currentAbs = typeof currentInput.lastAbsOffset === "bigint" ? currentInput.lastAbsOffset : baseAbs;
+  const nextAbs = nextTidxAbsOffsetAfter(tidx, currentAbs);
+  if (nextAbs == null) {
+    ui.stepInputTidx.disabled = true;
+    const label = "Step input tidx chunk";
+    const title = "Already at the last indexed input offset.";
+    if (label !== lastStepInputLabel) ui.stepInputTidx.textContent = label;
+    if (title !== lastStepInputTitle) ui.stepInputTidx.title = title;
+    lastStepInputLabel = label;
+    lastStepInputTitle = title;
+    return;
+  }
+
+  const nextLocalBig = nextAbs - baseAbs;
+  const withinLoaded =
+    nextLocalBig >= 0n &&
+    nextLocalBig <= BigInt(Number.MAX_SAFE_INTEGER) &&
+    Number(nextLocalBig) <= (u8 ? u8.length : 0);
+
+  ui.stepInputTidx.disabled = !withinLoaded;
+  const bytesDelta = nextAbs - currentAbs;
+  const idx = nextTidxIndexAtOrAfter(tidx, currentAbs);
+  const nextTimeNs = timeAtOffsetNs(tidx, nextAbs);
+  const nowTimeNs =
+    typeof currentInput.lastTimeNs === "bigint" ? currentInput.lastTimeNs : timeAtOffsetNs(tidx, currentAbs);
+  const timeDeltaNs = nextTimeNs > nowTimeNs ? nextTimeNs - nowTimeNs : 0n;
+  const label = "Step input tidx chunk";
+  const title = withinLoaded
+    ? `Advance to next input tidx boundary: +${fmtBytesBigint(bytesDelta)} (t+${fmtNs(timeDeltaNs)})${idx != null ? ` seg#${idx}` : ""}`
+    : "Next input tidx boundary is outside the loaded input window; increase Tail or set Tail=0.";
+  if (label !== lastStepInputLabel) ui.stepInputTidx.textContent = label;
+  if (title !== lastStepInputTitle) ui.stepInputTidx.title = title;
+  lastStepInputLabel = label;
+  lastStepInputTitle = title;
+}
+
+function stepInputByNextTidxChunk() {
+  const tidx = currentInput && currentInput.tidx ? currentInput.tidx : null;
+  const u8 = currentInput && currentInput.u8 ? currentInput.u8 : null;
+  if (!tidx || !u8) return;
+
+  const baseAbs = BigInt(currentInput.baseOffset || 0);
+  const currentAbs = typeof currentInput.lastAbsOffset === "bigint" ? currentInput.lastAbsOffset : baseAbs;
+  const nextAbs = nextTidxAbsOffsetAfter(tidx, currentAbs);
+  if (nextAbs == null) return;
+  const nextLocalBig = nextAbs - baseAbs;
+  const nextLocal =
+    nextLocalBig >= 0n && nextLocalBig <= BigInt(Number.MAX_SAFE_INTEGER)
+      ? clampInt(Number(nextLocalBig), 0, u8.length)
+      : null;
+  if (nextLocal == null) return;
+
+  const idx = nextTidxIndexAtOrAfter(tidx, currentAbs);
+  const nextTimeNs = timeAtOffsetNs(tidx, nextAbs);
+  const nowTimeNs =
+    typeof currentInput.lastTimeNs === "bigint" ? currentInput.lastTimeNs : timeAtOffsetNs(tidx, currentAbs);
+  const bytesDelta = nextAbs - currentAbs;
+  const timeDeltaNs = nextTimeNs > nowTimeNs ? nextTimeNs - nowTimeNs : 0n;
+  if (ui.inputHoverStatus) {
+    ui.inputHoverStatus.textContent = `step to seg#${idx != null ? idx : "?"} +${fmtBytesBigint(bytesDelta)} t+${fmtNs(timeDeltaNs)}`;
+  }
+
+  renderInputLogFromLocalOffset(nextLocal, { absOffset: nextAbs, timeNs: nextTimeNs });
+  updateStepInputTidxUi();
 }
 
 // -----------------------------------------------------------------------------
@@ -5036,6 +5146,10 @@ ui.hopNext?.addEventListener("click", () => {
     if (wasPlaying) player.play();
     updateHopNextUi();
   })();
+});
+
+ui.stepInputTidx?.addEventListener("click", () => {
+  stepInputByNextTidxChunk();
 });
 
 ui.rateBps.addEventListener("change", () => {
