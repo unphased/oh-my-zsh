@@ -666,6 +666,9 @@ class ChunkPerfMonitor {
     this._count = 0;
     this._scaleMaxBytes = 1;
     this._frameDtEmaMs = null;
+    this._renderLastMs = null;
+    this._renderEmaMs = null;
+    this._renderMaxMs = null;
     this._last = null;
     this._hover = null; // { x, idx } | null
     this._raf = null;
@@ -980,6 +983,7 @@ class ChunkPerfMonitor {
   }
 
   render() {
+    const t0 = performance.now();
     const c = this.canvas;
     if (!c || !this._bytes || !this._writes || !this._phase) return;
     const ctx = c.getContext("2d");
@@ -1154,18 +1158,28 @@ class ChunkPerfMonitor {
       : `${lastNote} • ${rateNote} • window=${fmtBytes(bytesWindow)} (${writesWindow} writes) • ${binNote}`;
     if (this.summaryEl) this.summaryEl.textContent = summary;
 
-	    perfInfo.runtime.chunks = {
-	      mode: "raf",
-	      windowFrames: this._bins,
-	      frameDtEmaMs: this._frameDtEmaMs,
-	      frameHzEma: hz,
-	      binMs: this._frameDtEmaMs,
-	      bins: this._bins,
-	      scaleMaxBytes: this._scaleMaxBytes,
-	      last: last
-	        ? {
-	            tsMs: last.tsMs,
-	            phase: last.phase,
+    const renderMs = performance.now() - t0;
+    this._renderLastMs = renderMs;
+    this._renderEmaMs = this._renderEmaMs == null ? renderMs : this._renderEmaMs * 0.9 + renderMs * 0.1;
+    this._renderMaxMs = this._renderMaxMs == null ? renderMs : Math.max(this._renderMaxMs, renderMs);
+
+    perfInfo.runtime.chunks = {
+      mode: "raf",
+      windowFrames: this._bins,
+      frameDtEmaMs: this._frameDtEmaMs,
+      frameHzEma: hz,
+      binMs: this._frameDtEmaMs,
+      bins: this._bins,
+      scaleMaxBytes: this._scaleMaxBytes,
+      render: {
+        lastMs: this._renderLastMs,
+        emaMs: this._renderEmaMs,
+        maxMs: this._renderMaxMs,
+      },
+      last: last
+        ? {
+            tsMs: last.tsMs,
+            phase: last.phase,
 	            bytes: last.bytes,
 	            chars: last.chars,
 	            absStart: typeof last.absStart === "bigint" ? String(last.absStart) : null,
