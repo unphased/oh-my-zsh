@@ -119,6 +119,8 @@ export class PerfBarGraph {
 
     this._absMin = null; // Float64Array
     this._absMax = null; // Float64Array
+    this._tNsMin = null; // Float64Array (tidx time, ns)
+    this._tNsMax = null; // Float64Array (tidx time, ns)
 
     this._scaleMax = 1;
 
@@ -204,6 +206,10 @@ export class PerfBarGraph {
       this._absMax = new Float64Array(this._bins);
       this._absMin.fill(Number.NaN);
       this._absMax.fill(Number.NaN);
+      this._tNsMin = new Float64Array(this._bins);
+      this._tNsMax = new Float64Array(this._bins);
+      this._tNsMin.fill(Number.NaN);
+      this._tNsMax.fill(Number.NaN);
 
       this._scaleMax = 1;
       this._frameDtEmaMs = null;
@@ -225,6 +231,8 @@ export class PerfBarGraph {
     if (this._markerBits) this._markerBits.fill(0);
     if (this._absMin) this._absMin.fill(Number.NaN);
     if (this._absMax) this._absMax.fill(Number.NaN);
+    if (this._tNsMin) this._tNsMin.fill(Number.NaN);
+    if (this._tNsMax) this._tNsMax.fill(Number.NaN);
     this._head = 0;
     this._count = 0;
     this._scaleMax = 1;
@@ -265,6 +273,8 @@ export class PerfBarGraph {
     this._markerBits[this._head] = 0;
     this._absMin[this._head] = Number.NaN;
     this._absMax[this._head] = Number.NaN;
+    if (this._tNsMin) this._tNsMin[this._head] = Number.NaN;
+    if (this._tNsMax) this._tNsMax[this._head] = Number.NaN;
 
     const phaseSlots = this.phaseKeys.length + 1;
     const base = this._head * phaseSlots;
@@ -277,7 +287,7 @@ export class PerfBarGraph {
   }
 
   // Accumulate into the current bar.
-  add({ phase, value = 0, count = 0, absStart = null, absEnd = null } = {}) {
+  add({ phase, value = 0, count = 0, absStart = null, absEnd = null, tNs = null } = {}) {
     if (!this._count) {
       this.advance({ key: Number.NaN, tsMs: performance.now() });
     }
@@ -311,6 +321,16 @@ export class PerfBarGraph {
         const prevHi = this._absMax[this._head];
         this._absMin[this._head] = Number.isNaN(prevLo) ? lo : Math.min(prevLo, lo);
         this._absMax[this._head] = Number.isNaN(prevHi) ? hi : Math.max(prevHi, hi);
+      }
+    }
+
+    if (this._tNsMin && this._tNsMax) {
+      const tn = typeof tNs === "bigint" ? Number(tNs) : Number(tNs);
+      if (Number.isFinite(tn) && tn >= 0) {
+        const prevLo = this._tNsMin[this._head];
+        const prevHi = this._tNsMax[this._head];
+        this._tNsMin[this._head] = Number.isNaN(prevLo) ? tn : Math.min(prevLo, tn);
+        this._tNsMax[this._head] = Number.isNaN(prevHi) ? tn : Math.max(prevHi, tn);
       }
     }
 
@@ -597,6 +617,19 @@ export class PerfBarGraph {
           ? ` abs=[${this.fmt.bytes(absMin)}..${this.fmt.bytes(absMax)}]`
           : "";
 
+      const tNsMin = this._tNsMin ? this._tNsMin[idx] : Number.NaN;
+      const tNsMax = this._tNsMax ? this._tNsMax[idx] : Number.NaN;
+      const timeFmt = this.fmt && typeof this.fmt.timeNs === "function" ? this.fmt.timeNs : null;
+      const timeNote = (() => {
+        if (!Number.isFinite(tNsMin) || !Number.isFinite(tNsMax)) return "";
+        if (!timeFmt) return ` tNs=[${tNsMin.toFixed(0)}..${tNsMax.toFixed(0)}]`;
+        const a = timeFmt(BigInt(Math.floor(tNsMin)));
+        const b = timeFmt(BigInt(Math.floor(tNsMax)));
+        const dt = tNsMax >= tNsMin ? timeFmt(BigInt(Math.floor(tNsMax - tNsMin))) : null;
+        if (tNsMin === tNsMax) return ` t=${a}`;
+        return ` t=[${a}..${b}] dt=${dt ?? "?"}`;
+      })();
+
       let mixNote = "";
       if (this._phaseBytes && this._phaseCounts) {
         const phaseSlots = this.phaseKeys.length + 1;
@@ -638,6 +671,7 @@ export class PerfBarGraph {
         ` phase=${domKey}` +
         `${dtPrev != null ? ` dt=${dtPrev.toFixed(1)}ms` : ""}` +
         `${absNote ? ` ${absNote}` : ""}` +
+        `${timeNote ? ` ${timeNote.trim()}` : ""}` +
         `${mixNote}` +
         `${markersNote}`;
       hoverRuntime = {
@@ -650,6 +684,8 @@ export class PerfBarGraph {
         markers: markerKeys,
         absMin: Number.isFinite(absMin) ? absMin : null,
         absMax: Number.isFinite(absMax) ? absMax : null,
+        tNsMin: Number.isFinite(tNsMin) ? tNsMin : null,
+        tNsMax: Number.isFinite(tNsMax) ? tNsMax : null,
       };
 
       if (this.canvas) this.canvas.title = hoverNote;

@@ -2278,7 +2278,7 @@ function installChunkMonitor() {
       phaseKeys: ["tidx_seg"],
       phaseColors: { tidx_seg: "rgba(255,167,38,0.78)" },
       scale: "sqrt",
-      fmt: { bytes: fmtBytes, rate: fmtRate },
+      fmt: { bytes: fmtBytes, rate: fmtRate, timeNs: fmtNs },
       valueLabel: "seg",
       countLabel: "segs",
       rateIncludesCounts: true,
@@ -2410,6 +2410,7 @@ function installChunkMonitor() {
                   count: 1,
                   absStart: segStart,
                   absEnd: segEnd,
+                  tNs: BigInt(consumeTidx.tNs[consumeSegNextIdx] ?? 0n),
                 });
                 consumeSegPrevEnd = segEnd;
                 consumeSegNextIdx++;
