@@ -9,6 +9,8 @@ import {
   truncateTidxToRawLength,
 } from "../js/tcap/index.js";
 
+import { PerfBarGraph, PerfVizHub } from "./perf_viz.js";
+
 /**
  * termplex web viewer architecture (single-file PoC)
  *
@@ -642,9 +644,10 @@ class DensityStrip {
   }
 }
 
+// Legacy perf graph implementation (superseded by `PerfBarGraph` + `PerfVizHub` in `termplex/web/perf_viz.js`).
 const CHUNK_PHASE_COUNT = 5; // 0=none, 1=playback, 2=mode1, 3=seek, 4=bulk_seek
 
-class ChunkPerfMonitor {
+class LegacyChunkPerfMonitor {
   constructor({ canvas, summaryEl, windowMs = 6000 } = {}) {
     this.canvas = canvas || null;
     this.summaryEl = summaryEl || null;
@@ -1223,6 +1226,7 @@ class OutputPlayer {
     this._baseOffset = 0n;
     this._raf = null;
     this._playing = false;
+    this._frameId = 0;
     this._speedBps = 500_000;
     this._chunkBytes = 32_768;
     this._lastTs = 0;
@@ -1268,6 +1272,7 @@ class OutputPlayer {
     this._buf = u8;
     this._offset = 0;
     this._baseOffset = BigInt(baseOffset);
+    this._frameId = 0;
     this._lastTs = 0;
     this._carryBytes = 0;
     this._clockTimeNs = null;
@@ -1598,7 +1603,8 @@ class OutputPlayer {
   _emitFrame(tsMs) {
     if (!this._onChunk) return;
     const now = Number.isFinite(tsMs) ? tsMs : performance.now();
-    this._onChunk({ tsMs: now, phase: "frame", bytes: 0, chars: 0 });
+    const key = ++this._frameId;
+    this._onChunk({ tsMs: now, key, phase: "frame", bytes: 0, chars: 0 });
   }
 
   _estimateRaf(dtMs) {
@@ -2067,7 +2073,8 @@ let currentOutputSource = null; // { type:"url", url } | { type:"file", file } |
 let currentInputSource = null; // { type:"url", url } | { type:"file", file } | null
 let loadSeq = 0;
 let suppressUiProgress = false;
-let chunkMonitor = null; // ChunkPerfMonitor | null
+let perfVizHub = null; // PerfVizHub | null
+let chunkMonitor = null; // { record(info), clear(), resize()? } | null
 let timeDensityStrip = null; // DensityStrip | null
 let offsetDensityStrip = null; // DensityStrip | null
 let lastAppliedOutputResize = null; // { tNs, streamOffset, cols, rows, appliedAtTsMs } | null
@@ -2100,18 +2107,63 @@ function renderInfoThrottled({ force = false } = {}) {
 
 function installChunkMonitor() {
   if (!ui.chunkCanvas) return null;
-  const monitor = new ChunkPerfMonitor({ canvas: ui.chunkCanvas, summaryEl: ui.chunkSummary, windowMs: 6000 });
-  ui.clearChunkGraph?.addEventListener("click", () => monitor.clear());
+  if (!perfVizHub) perfVizHub = new PerfVizHub();
+
+  const graph = new PerfBarGraph({
+    id: "output-chunks",
+    canvas: ui.chunkCanvas,
+    summaryEl: ui.chunkSummary,
+    hub: perfVizHub,
+    phaseKeys: ["playback", "mode1", "seek", "bulk_seek"],
+    markerKeys: ["resize"],
+    markerColors: { resize: "rgba(255,235,59,0.70)" },
+    fmt: { bytes: fmtBytes, rate: fmtRate },
+    onRuntime: (runtime) => {
+      perfInfo.runtime.chunks = runtime;
+      renderInfoThrottled();
+    },
+  });
+
+  const adapter = {
+    resize: () => graph.resize(),
+    clear: () => {
+      graph.clear();
+      renderInfoThrottled();
+    },
+    record: (info) => {
+      if (!info || typeof info !== "object") return;
+      const phase = typeof info.phase === "string" ? info.phase : null;
+      if (phase === "frame") {
+        graph.advance({ key: info.key, tsMs: info.tsMs });
+        return;
+      }
+      if (info.event === "resize" || phase === "resize") {
+        graph.mark("resize");
+      }
+      const b = clampInt(Number(info.bytes), 0, 1_000_000_000);
+      if (b > 0) {
+        graph.add({
+          phase,
+          value: b,
+          count: 1,
+          absStart: info.absStart,
+          absEnd: info.absEnd,
+        });
+      }
+    },
+  };
+
+  ui.clearChunkGraph?.addEventListener("click", () => adapter.clear());
 
   if (typeof ResizeObserver === "function") {
-    const ro = new ResizeObserver(() => monitor.resize());
+    const ro = new ResizeObserver(() => adapter.resize());
     ro.observe(ui.chunkCanvas);
   } else {
-    window.addEventListener("resize", () => monitor.resize());
+    window.addEventListener("resize", () => adapter.resize());
   }
 
-  monitor.resize();
-  return monitor;
+  adapter.resize();
+  return adapter;
 }
 
 function installDensityStrips() {
