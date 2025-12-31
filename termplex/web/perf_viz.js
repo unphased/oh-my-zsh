@@ -489,7 +489,40 @@ export class PerfBarGraph {
     }
 
     // External hover highlight.
-    if (this._externalHoverIdx != null) {
+    if (this._externalHoverKey != null && this._keys) {
+      const extKey = this._externalHoverKey;
+      let matches = 0;
+      for (let x = 0; x < this._bins; x++) {
+        const at = (this._head + 1 + x) % this._bins;
+        const k = this._keys[at];
+        if (!Number.isFinite(k)) continue;
+        if (Math.abs(k - extKey) > 0.5) continue;
+        const x0 = x * barW;
+        ctx.fillStyle = "rgba(255,255,255,0.14)";
+        ctx.fillRect(x0, 0, Math.max(1, barW), h);
+        matches++;
+      }
+      if (!matches && this._externalHoverIdx != null) {
+        const idx = this._externalHoverIdx;
+        // Find the x position for this idx (scan visible x; bins are small).
+        let xFound = null;
+        for (let x = 0; x < this._bins; x++) {
+          const at = (this._head + 1 + x) % this._bins;
+          if (at === idx) {
+            xFound = x;
+            break;
+          }
+        }
+        if (xFound != null) {
+          const x0 = xFound * barW;
+          ctx.fillStyle = "rgba(255,255,255,0.14)";
+          ctx.fillRect(x0, 0, Math.max(1, barW), h);
+          ctx.strokeStyle = "rgba(255,255,255,0.30)";
+          ctx.lineWidth = Math.max(1, Math.floor(this._dpr));
+          ctx.strokeRect(x0 + 0.5, 0.5, Math.max(1, barW) - 1, h - 1);
+        }
+      }
+    } else if (this._externalHoverIdx != null) {
       const idx = this._externalHoverIdx;
       // Find the x position for this idx (scan visible x; bins are small).
       let xFound = null;
@@ -615,6 +648,8 @@ export class PerfBarGraph {
         writes,
         phase: domKey,
         markers: markerKeys,
+        absMin: Number.isFinite(absMin) ? absMin : null,
+        absMax: Number.isFinite(absMax) ? absMax : null,
       };
 
       if (this.canvas) this.canvas.title = hoverNote;

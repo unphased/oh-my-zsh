@@ -48,10 +48,12 @@
 	        <details class="expando" open>
 	          <summary>Perf</summary>
 	          <div class="expando-body">
-	            <canvas id="chunkCanvas" class="perf-canvas" width="320" height="64"></canvas>
-	            <div class="status" id="chunkSummary"></div>
-	            <canvas id="frameCanvas" class="perf-canvas" width="320" height="64" style="margin-top: 10px"></canvas>
+	            <canvas id="frameCanvas" class="perf-canvas" width="320" height="64"></canvas>
 	            <div class="status" id="frameSummary"></div>
+	            <canvas id="chunkCanvas" class="perf-canvas" width="320" height="64" style="margin-top: 10px"></canvas>
+	            <div class="status" id="chunkSummary"></div>
+	            <canvas id="consumeCanvas" class="perf-canvas" width="320" height="64" style="margin-top: 10px"></canvas>
+	            <div class="status" id="consumeSummary"></div>
 	            <div class="panel-controls" style="margin-top: 10px">
 	              <div class="buttons">
 	                <button id="clearChunkGraph" type="button" title="Clear the chunk graph history">Clear graph</button>

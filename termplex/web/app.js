@@ -89,6 +89,8 @@ const ui = {
   chunkSummary: document.getElementById("chunkSummary"),
   frameCanvas: document.getElementById("frameCanvas"),
   frameSummary: document.getElementById("frameSummary"),
+  consumeCanvas: document.getElementById("consumeCanvas"),
+  consumeSummary: document.getElementById("consumeSummary"),
   clearChunkGraph: document.getElementById("clearChunkGraph"),
   outputFollow: document.getElementById("outputFollow"),
   inputStatus: document.getElementById("inputStatus"),
@@ -1241,8 +1243,8 @@ class LegacyChunkPerfMonitor {
 //
 // Refactor candidate: move to `web/viewer/player.js` and unit test it with a fake sink.
 // -----------------------------------------------------------------------------
-class OutputPlayer {
-  constructor({ write, reset, onProgress, onChunk } = {}) {
+	class OutputPlayer {
+	  constructor({ write, reset, onProgress, onChunk } = {}) {
     this._write = write;
     this._reset = reset;
     this._onProgress = onProgress;
@@ -1251,11 +1253,12 @@ class OutputPlayer {
     this._buf = null;
     this._offset = 0;
     this._baseOffset = 0n;
-    this._raf = null;
-    this._playing = false;
-    this._frameId = 0;
-    this._speedBps = 500_000;
-    this._chunkBytes = 32_768;
+	    this._raf = null;
+	    this._playing = false;
+	    this._frameId = 0;
+	    this._frameKey = 0;
+	    this._speedBps = 500_000;
+	    this._chunkBytes = 32_768;
     this._lastTs = 0;
     this._carryBytes = 0;
     this._events = null;
@@ -1292,21 +1295,22 @@ class OutputPlayer {
 
   // Replace the currently loaded byte buffer and reset playback state back to 0.
   // `baseOffset` is the absolute stream offset that corresponds to local offset 0 (tail loads use this).
-  load(u8, { baseOffset = 0 } = {}) {
-    this.stop();
-    this._reset();
-    this._decoder = new TextDecoder("utf-8", { fatal: false });
-    this._buf = u8;
-    this._offset = 0;
-    this._baseOffset = BigInt(baseOffset);
-    this._frameId = 0;
-    this._lastTs = 0;
-    this._carryBytes = 0;
-    this._clockTimeNs = null;
-    this._eventIndex = 0;
-    this._applyEventsAtAbsOffset(this._baseOffset);
-    this._emitProgress(0);
-  }
+	  load(u8, { baseOffset = 0 } = {}) {
+	    this.stop();
+	    this._reset();
+	    this._decoder = new TextDecoder("utf-8", { fatal: false });
+	    this._buf = u8;
+	    this._offset = 0;
+	    this._baseOffset = BigInt(baseOffset);
+	    this._frameId = 0;
+	    this._frameKey = 0;
+	    this._lastTs = 0;
+	    this._carryBytes = 0;
+	    this._clockTimeNs = null;
+	    this._eventIndex = 0;
+	    this._applyEventsAtAbsOffset(this._baseOffset);
+	    this._emitProgress(0);
+	  }
 
   configure({ speedBps, chunkBytes, clockMode, clockSpeedX, clockTidx, tidxEmitHzCap, tidxLagTauMs } = {}) {
     this._speedBps = speedBps;
@@ -1544,30 +1548,31 @@ class OutputPlayer {
 
   _applyEventsAtAbsOffset(absOffset) {
     if (!this._events || !this._onEvent) return;
-    while (this._eventIndex < this._events.length) {
-      const ev = this._events[this._eventIndex];
+	    while (this._eventIndex < this._events.length) {
+	      const ev = this._events[this._eventIndex];
       if (!ev || ev.type !== "resize") {
         this._eventIndex++;
         continue;
       }
       const off = BigInt(ev.streamOffset ?? 0n);
       if (off !== absOffset) break;
-      this._onEvent(ev);
-      if (this._onChunk) {
-        const evAbs = BigInt(ev.streamOffset ?? absOffset);
-        this._onChunk({
-          tsMs: performance.now(),
-          phase: "resize",
-          bytes: 0,
-          chars: 0,
-          event: "resize",
-          cols: ev.cols,
-          rows: ev.rows,
-          tNs: ev.tNs,
-          absStart: evAbs,
-          absEnd: evAbs,
-        });
-      }
+	      this._onEvent(ev);
+	      if (this._onChunk) {
+	        const evAbs = BigInt(ev.streamOffset ?? absOffset);
+	        this._onChunk({
+	          tsMs: performance.now(),
+	          key: this._frameKey,
+	          phase: "resize",
+	          bytes: 0,
+	          chars: 0,
+	          event: "resize",
+	          cols: ev.cols,
+	          rows: ev.rows,
+	          tNs: ev.tNs,
+	          absStart: evAbs,
+	          absEnd: evAbs,
+	        });
+	      }
       this._eventIndex++;
     }
   }
@@ -1594,21 +1599,22 @@ class OutputPlayer {
       }
       const tNs = typeof ev.tNs === "bigint" ? ev.tNs : BigInt(ev.tNs ?? 0n);
       if (tNs > clockTimeNs) break;
-      this._onEvent(ev);
-      if (this._onChunk) {
-        this._onChunk({
-          tsMs: performance.now(),
-          phase: "resize",
-          bytes: 0,
-          chars: 0,
-          event: "resize",
-          cols: ev.cols,
-          rows: ev.rows,
-          tNs: ev.tNs,
-          absStart: off,
-          absEnd: off,
-        });
-      }
+	      this._onEvent(ev);
+	      if (this._onChunk) {
+	        this._onChunk({
+	          tsMs: performance.now(),
+	          key: this._frameKey,
+	          phase: "resize",
+	          bytes: 0,
+	          chars: 0,
+	          event: "resize",
+	          cols: ev.cols,
+	          rows: ev.rows,
+	          tNs: ev.tNs,
+	          absStart: off,
+	          absEnd: off,
+	        });
+	      }
       this._eventIndex++;
       applied++;
     }
@@ -1627,12 +1633,13 @@ class OutputPlayer {
     });
   }
 
-  _emitFrame(tsMs) {
-    if (!this._onChunk) return;
-    const now = Number.isFinite(tsMs) ? tsMs : performance.now();
-    const key = ++this._frameId;
-    this._onChunk({ tsMs: now, key, phase: "frame", bytes: 0, chars: 0 });
-  }
+	  _emitFrame(tsMs) {
+	    if (!this._onChunk) return;
+	    const now = Number.isFinite(tsMs) ? tsMs : performance.now();
+	    const key = ++this._frameId;
+	    this._frameKey = key;
+	    this._onChunk({ tsMs: now, key, phase: "frame", bytes: 0, chars: 0 });
+	  }
 
   _estimateRaf(dtMs) {
     if (!Number.isFinite(dtMs) || dtMs <= 0 || dtMs > 1000) return;
@@ -1871,26 +1878,27 @@ class OutputPlayer {
     this._raf = requestAnimationFrame((nextTs) => this._tick(nextTs));
   }
 
-  _writeBytesWithResizeEvents(start, end) {
-    if (!this._buf) return;
-    if (!this._events || !this._onEvent) {
-      const chunk = this._buf.subarray(start, end);
-      const text = this._decoder.decode(chunk, { stream: true });
-      if (text) {
-        if (this._onChunk) {
-          this._onChunk({
-            tsMs: performance.now(),
-            phase: this._chunkPhase,
-            bytes: chunk.length,
-            chars: text.length,
-            absStart: this._baseOffset + BigInt(start),
-            absEnd: this._baseOffset + BigInt(end),
-          });
-        }
-        this._write(text);
-      }
-      return;
-    }
+	  _writeBytesWithResizeEvents(start, end) {
+	    if (!this._buf) return;
+	    if (!this._events || !this._onEvent) {
+	      const chunk = this._buf.subarray(start, end);
+	      const text = this._decoder.decode(chunk, { stream: true });
+	      if (text) {
+	        if (this._onChunk) {
+	          this._onChunk({
+	            tsMs: performance.now(),
+	            key: this._frameKey,
+	            phase: this._chunkPhase,
+	            bytes: chunk.length,
+	            chars: text.length,
+	            absStart: this._baseOffset + BigInt(start),
+	            absEnd: this._baseOffset + BigInt(end),
+	          });
+	        }
+	        this._write(text);
+	      }
+	      return;
+	    }
 
 	    let cursor = start;
 	    while (cursor < end) {
@@ -1900,19 +1908,20 @@ class OutputPlayer {
 	        const off = BigInt(ev && ev.streamOffset != null ? ev.streamOffset : 0n);
 	        if (off >= cursorAbs) break;
 	        this._onEvent(ev);
-        if (this._onChunk && ev && ev.type === "resize") {
-          this._onChunk({
-            tsMs: performance.now(),
-            phase: "resize",
-            bytes: 0,
-            chars: 0,
-            event: "resize",
-            cols: ev.cols,
-            rows: ev.rows,
-            tNs: ev.tNs,
-            absStart: BigInt(ev.streamOffset ?? off),
-            absEnd: BigInt(ev.streamOffset ?? off),
-          });
+	        if (this._onChunk && ev && ev.type === "resize") {
+	          this._onChunk({
+	            tsMs: performance.now(),
+	            key: this._frameKey,
+	            phase: "resize",
+	            bytes: 0,
+	            chars: 0,
+	            event: "resize",
+	            cols: ev.cols,
+	            rows: ev.rows,
+	            tNs: ev.tNs,
+	            absStart: BigInt(ev.streamOffset ?? off),
+	            absEnd: BigInt(ev.streamOffset ?? off),
+	          });
 	        }
 	        this._eventIndex++;
 	      }
@@ -1934,21 +1943,22 @@ class OutputPlayer {
       const chunk = this._buf.subarray(cursor, cut);
       cursor = cut;
       const text = this._decoder.decode(chunk, { stream: true });
-      if (text) {
-        if (this._onChunk) {
-          this._onChunk({
-            tsMs: performance.now(),
-            phase: this._chunkPhase,
-            bytes: chunk.length,
-            chars: text.length,
-            absStart: this._baseOffset + BigInt(cursor - chunk.length),
-            absEnd: this._baseOffset + BigInt(cursor),
-          });
-        }
-        this._write(text);
-      }
-    }
-  }
+	      if (text) {
+	        if (this._onChunk) {
+	          this._onChunk({
+	            tsMs: performance.now(),
+	            key: this._frameKey,
+	            phase: this._chunkPhase,
+	            bytes: chunk.length,
+	            chars: text.length,
+	            absStart: this._baseOffset + BigInt(cursor - chunk.length),
+	            absEnd: this._baseOffset + BigInt(cursor),
+	          });
+	        }
+	        this._write(text);
+	      }
+	    }
+	  }
 }
 
 // -----------------------------------------------------------------------------
@@ -2136,25 +2146,7 @@ function installChunkMonitor() {
   if (!ui.chunkCanvas) return null;
   if (!perfVizHub) perfVizHub = new PerfVizHub();
 
-  const graph = new PerfBarGraph({
-    id: "output-chunks",
-    canvas: ui.chunkCanvas,
-    summaryEl: ui.chunkSummary,
-    hub: perfVizHub,
-    phaseKeys: ["playback", "mode1", "seek", "bulk_seek"],
-    markerKeys: ["resize"],
-    markerColors: { resize: "rgba(255,235,59,0.70)" },
-    fmt: { bytes: fmtBytes, rate: fmtRate },
-    valueLabel: "bytes",
-    countLabel: "writes",
-    rateIncludesCounts: true,
-    onRuntime: (runtime) => {
-      perfInfo.runtime.chunks = runtime;
-      renderInfoThrottled();
-    },
-  });
-
-  const graphs = [graph];
+  const graphs = [];
 
   let frameGraph = null;
   let lastFrameKey = null;
@@ -2193,6 +2185,71 @@ function installChunkMonitor() {
     graphs.push(frameGraph);
   }
 
+  const graph = new PerfBarGraph({
+    id: "output-chunks",
+    canvas: ui.chunkCanvas,
+    summaryEl: ui.chunkSummary,
+    hub: perfVizHub,
+    phaseKeys: ["playback", "mode1", "seek", "bulk_seek"],
+    markerKeys: ["resize"],
+    markerColors: { resize: "rgba(255,235,59,0.70)" },
+    fmt: { bytes: fmtBytes, rate: fmtRate },
+    valueLabel: "bytes",
+    countLabel: "writes",
+    rateIncludesCounts: true,
+    onRuntime: (runtime) => {
+      perfInfo.runtime.chunks = runtime;
+      renderInfoThrottled();
+    },
+  });
+  graphs.push(graph);
+
+  let consumeGraph = null;
+  if (ui.consumeCanvas) {
+    consumeGraph = new PerfBarGraph({
+      id: "tidx-consume",
+      canvas: ui.consumeCanvas,
+      summaryEl: ui.consumeSummary,
+      hub: perfVizHub,
+      phaseKeys: ["tidx_seg"],
+      phaseColors: { tidx_seg: "rgba(255,167,38,0.78)" },
+      scale: "sqrt",
+      fmt: { bytes: fmtBytes, rate: fmtRate },
+      valueLabel: "seg",
+      countLabel: "segs",
+      rateIncludesCounts: true,
+      onRuntime: (runtime) => {
+        perfInfo.runtime.consume = runtime;
+        renderInfoThrottled();
+      },
+    });
+    graphs.push(consumeGraph);
+  }
+
+  let consumeSegNextIdx = 0;
+  let consumeSegPrevEnd = 0n;
+  let consumeLastAbsEnd = null;
+  let consumeTidx = null;
+
+  function consumeResetAtAbs(abs) {
+    consumeLastAbsEnd = typeof abs === "bigint" ? abs : BigInt(abs ?? 0n);
+    consumeSegNextIdx = 0;
+    consumeSegPrevEnd = 0n;
+    const outTidx = currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+    consumeTidx = outTidx;
+    if (!consumeTidx || !Array.isArray(consumeTidx.endOffsets) || !consumeTidx.endOffsets.length) return;
+    const arr = consumeTidx.endOffsets;
+    let lo = 0;
+    let hi = arr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (BigInt(arr[mid] ?? 0n) > consumeLastAbsEnd) hi = mid;
+      else lo = mid + 1;
+    }
+    consumeSegNextIdx = lo;
+    consumeSegPrevEnd = lo > 0 ? BigInt(arr[lo - 1] ?? 0n) : 0n;
+  }
+
   const adapter = {
     resize: () => {
       for (const g of graphs) g.resize();
@@ -2204,6 +2261,10 @@ function installChunkMonitor() {
       lastActiveFrameTsMs = null;
       frameGraphHasBarThisFrame = false;
       frameGraphPendingResize = false;
+      consumeSegNextIdx = 0;
+      consumeSegPrevEnd = 0n;
+      consumeLastAbsEnd = null;
+      consumeTidx = null;
       renderInfoThrottled();
     },
     record: (info) => {
@@ -2257,6 +2318,47 @@ function installChunkMonitor() {
             frameGraphPendingResize = false;
           }
         }
+
+        if (consumeGraph) {
+          const k = Number.isFinite(Number(info.key)) ? Number(info.key) : lastFrameKey;
+          const tsMs = Number.isFinite(Number(info.tsMs)) ? Number(info.tsMs) : lastFrameTsMs;
+          const absStart = typeof info.absStart === "bigint" ? info.absStart : info.absStart != null ? BigInt(info.absStart) : null;
+          const absEnd = typeof info.absEnd === "bigint" ? info.absEnd : info.absEnd != null ? BigInt(info.absEnd) : null;
+          if (absStart != null && absEnd != null) {
+            const outTidx =
+              currentLoadedKind === "output" && currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+            if (outTidx !== consumeTidx) consumeResetAtAbs(absStart);
+            if (consumeLastAbsEnd == null || absStart < consumeLastAbsEnd || absEnd < consumeLastAbsEnd) {
+              consumeResetAtAbs(absStart);
+            }
+
+            const arr = consumeTidx && Array.isArray(consumeTidx.endOffsets) ? consumeTidx.endOffsets : null;
+            if (arr && arr.length) {
+              const endBound = BigInt(arr[arr.length - 1] ?? 0n);
+              const z = absEnd > endBound ? endBound : absEnd;
+              while (consumeSegNextIdx < arr.length) {
+                const segEnd = BigInt(arr[consumeSegNextIdx] ?? 0n);
+                if (segEnd > z) break;
+                const segStart = consumeSegPrevEnd;
+                const segBytesBig = segEnd > segStart ? segEnd - segStart : 0n;
+                const segBytes =
+                  segBytesBig <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(segBytesBig) : Number.MAX_SAFE_INTEGER;
+                consumeGraph.advance({ key: k, tsMs });
+                consumeGraph.add({
+                  phase: "tidx_seg",
+                  value: segBytes,
+                  count: 1,
+                  absStart: segStart,
+                  absEnd: segEnd,
+                });
+                consumeSegPrevEnd = segEnd;
+                consumeSegNextIdx++;
+                consumeLastAbsEnd = segEnd;
+              }
+              consumeLastAbsEnd = z;
+            }
+          }
+        }
       }
     },
   };
@@ -2267,6 +2369,7 @@ function installChunkMonitor() {
     const ro = new ResizeObserver(() => adapter.resize());
     ro.observe(ui.chunkCanvas);
     if (ui.frameCanvas) ro.observe(ui.frameCanvas);
+    if (ui.consumeCanvas) ro.observe(ui.consumeCanvas);
   } else {
     window.addEventListener("resize", () => adapter.resize());
   }
