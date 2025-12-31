@@ -3587,6 +3587,15 @@ function lowerBoundResizeEventIndex(events, absOffset) {
 }
 
 function onPlaybackProgress({ offset, total, done, clock, raf, tidx, extraBytesWritten }) {
+  // Always update the scrubber progress marks when the ingestion offset changes,
+  // even during bulk seeks where we suppress most UI work.
+  try {
+    const clockTimeNs = clock && clock.mode === "tidx" && typeof clock.timeNs === "bigint" ? clock.timeNs : null;
+    updateScrubberProgressMarks({ localOffset: offset, localTotal: total, clockTimeNs });
+  } catch {
+    // ignore
+  }
+
   if (suppressUiProgress) return;
 
   if (raf) perfInfo.runtime.raf = raf;
