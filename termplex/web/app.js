@@ -2154,6 +2154,8 @@ function installChunkMonitor() {
   let lastActiveFrameTsMs = null;
   let frameGraphHasBarThisFrame = false;
   let frameGraphPendingResize = false;
+  let chunkGraphHasBarThisFrame = false;
+  let chunkGraphPendingResize = false;
   if (ui.frameCanvas) {
     const fmtMs = (n) => `${Number(n).toFixed(1)}ms`;
     frameGraph = new PerfBarGraph({
@@ -2185,7 +2187,7 @@ function installChunkMonitor() {
     graphs.push(frameGraph);
   }
 
-  const graph = new PerfBarGraph({
+  const chunkGraph = new PerfBarGraph({
     id: "output-chunks",
     canvas: ui.chunkCanvas,
     summaryEl: ui.chunkSummary,
@@ -2202,7 +2204,7 @@ function installChunkMonitor() {
       renderInfoThrottled();
     },
   });
-  graphs.push(graph);
+  graphs.push(chunkGraph);
 
   let consumeGraph = null;
   if (ui.consumeCanvas) {
@@ -2261,6 +2263,8 @@ function installChunkMonitor() {
       lastActiveFrameTsMs = null;
       frameGraphHasBarThisFrame = false;
       frameGraphPendingResize = false;
+      chunkGraphHasBarThisFrame = false;
+      chunkGraphPendingResize = false;
       consumeSegNextIdx = 0;
       consumeSegPrevEnd = 0n;
       consumeLastAbsEnd = null;
@@ -2273,17 +2277,19 @@ function installChunkMonitor() {
       if (phase === "frame") {
         const tsMs = Number(info.tsMs);
         const key = Number(info.key);
-        graph.advance({ key, tsMs });
         if (frameGraph) {
           lastFrameKey = Number.isFinite(key) ? key : lastFrameKey;
           lastFrameTsMs = Number.isFinite(tsMs) ? tsMs : lastFrameTsMs;
           frameGraphHasBarThisFrame = false;
           frameGraphPendingResize = false;
         }
+        chunkGraphHasBarThisFrame = false;
+        chunkGraphPendingResize = false;
         return;
       }
       if (info.event === "resize" || phase === "resize") {
-        graph.mark("resize");
+        if (chunkGraphHasBarThisFrame) chunkGraph.mark("resize");
+        else chunkGraphPendingResize = true;
         if (frameGraph) {
           // Only emit markers for frames that actually produced a dt sample; otherwise we'd create "empty" bars.
           if (frameGraphHasBarThisFrame) frameGraph.mark("resize");
@@ -2292,13 +2298,18 @@ function installChunkMonitor() {
       }
       const b = clampInt(Number(info.bytes), 0, 1_000_000_000);
       if (b > 0) {
-        graph.add({
-          phase,
-          value: b,
-          count: 1,
-          absStart: info.absStart,
-          absEnd: info.absEnd,
-        });
+        // Condense idle frames: only create a bar in the chunk graph when we actually wrote bytes (or had a marker).
+        if (!chunkGraphHasBarThisFrame) {
+          const k = Number.isFinite(Number(info.key)) ? Number(info.key) : lastFrameKey;
+          const tsMs = Number.isFinite(Number(info.tsMs)) ? Number(info.tsMs) : lastFrameTsMs;
+          chunkGraph.advance({ key: k, tsMs });
+          if (chunkGraphPendingResize) {
+            chunkGraph.mark("resize");
+            chunkGraphPendingResize = false;
+          }
+          chunkGraphHasBarThisFrame = true;
+        }
+        chunkGraph.add({ phase, value: b, count: 1, absStart: info.absStart, absEnd: info.absEnd });
         if (frameGraph && !frameGraphHasBarThisFrame && lastFrameKey != null && lastFrameTsMs != null) {
           if (lastActiveFrameTsMs != null) {
             const dt = lastFrameTsMs - lastActiveFrameTsMs;
