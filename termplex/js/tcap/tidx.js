@@ -89,3 +89,31 @@ export function timeAtOffsetNs(tidx, offset) {
   return BigInt(tidx.tNs[lo] ?? 0n);
 }
 
+// Returns the timestamp of the most recent *completed* tidx segment at `offset`.
+// This differs from timeAtOffsetNs(), which returns the time of the first segment whose endOffset >= offset
+// (i.e. it assigns the segment's end time to any offset within that segment).
+//
+// For playback lag diagnostics and dynamic chunk sizing, we want a conservative "rendered time" that only
+// advances once we've actually reached a segment boundary.
+export function renderedTimeAtOffsetNs(tidx, offset) {
+  const off = toBigInt(offset, "offset");
+  const arr = tidx.endOffsets;
+  if (!arr.length) return 0n;
+  if (off <= 0n) return 0n;
+
+  const lastIdx = arr.length - 1;
+  const lastEnd = BigInt(arr[lastIdx] ?? 0n);
+  if (off >= lastEnd) return BigInt(tidx.tNs[lastIdx] ?? 0n);
+
+  let lo = 0;
+  let hi = lastIdx;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (BigInt(arr[mid]) <= off) lo = mid;
+    else hi = mid - 1;
+  }
+
+  const end = BigInt(arr[lo] ?? 0n);
+  if (end > off && lo > 0) lo--;
+  return BigInt(tidx.tNs[lo] ?? 0n);
+}

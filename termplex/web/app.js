@@ -4,6 +4,7 @@ import {
   offsetAtTimeNs,
   parseEventsJsonl,
   parseTidx,
+  renderedTimeAtOffsetNs,
   timeAtOffsetNs,
   truncateTidxToRawLength,
 } from "../js/tcap/index.js";
@@ -1028,6 +1029,7 @@ class OutputPlayer {
     this._chunkPhase = null;
     this._tidxLagTauMs = 120;
     this._tidxChunkEma = null;
+    this._tidxBurstNoYield = false;
   }
 
   hasLoaded() {
@@ -1071,6 +1073,10 @@ class OutputPlayer {
     this._clockTidx = clockTidx || null;
     if (Number.isFinite(tidxEmitHzCap)) this._tidxEmitHzCap = clampInt(Number(tidxEmitHzCap), 0, 10_000);
     if (Number.isFinite(tidxLagTauMs)) this._tidxLagTauMs = clampInt(Number(tidxLagTauMs), 1, 60_000);
+  }
+
+  setTidxBurstNoYield(enabled) {
+    this._tidxBurstNoYield = !!enabled;
   }
 
   stop() {
@@ -1229,7 +1235,7 @@ class OutputPlayer {
 
         if (hasTidxTarget && tidx && desiredAbs != null) {
           const currentAbsStart = this._baseOffset + BigInt(start);
-          const renderedTimeNs = timeAtOffsetNs(tidx, currentAbsStart);
+          const renderedTimeNs = renderedTimeAtOffsetNs(tidx, currentAbsStart);
           const lagTimeNs = tidxTargetTimeNs > renderedTimeNs ? tidxTargetTimeNs - renderedTimeNs : 0n;
           const lagMs = Number(lagTimeNs / 1_000_000n);
           budget = this._tidxDynamicChunkBytes({ lagMs, dtMs, maxChunkBytes: this._chunkBytes });
@@ -1410,10 +1416,66 @@ class OutputPlayer {
       }
 
       this._tidxSinceEmitMs = 0;
-      const lagTimeNs = targetTimeNs > timeAtOffsetNs(this._clockTidx, currentAbs) ? targetTimeNs - timeAtOffsetNs(this._clockTidx, currentAbs) : 0n;
-      const lagMs = Number(lagTimeNs <= BigInt(Number.MAX_SAFE_INTEGER) ? lagTimeNs : BigInt(Number.MAX_SAFE_INTEGER)) / 1_000_000;
-      const dynChunk = this._tidxDynamicChunkBytes({ lagMs, dtMs, maxChunkBytes: this._chunkBytes });
-      end = Math.min(desired, this._offset + dynChunk);
+      const tickStart = performance.now();
+      let wroteBytes = 0;
+      let lastLagTimeNs = 0n;
+      let lastLagBytes = 0n;
+      let iter = 0;
+
+      while (this._offset < desired) {
+        const currentAbsIter = this._baseOffset + BigInt(this._offset);
+        const renderedTimeNs = renderedTimeAtOffsetNs(this._clockTidx, currentAbsIter);
+        const lagTimeNs = targetTimeNs > renderedTimeNs ? targetTimeNs - renderedTimeNs : 0n;
+        lastLagTimeNs = lagTimeNs;
+
+        const lagMs = Number(lagTimeNs <= BigInt(Number.MAX_SAFE_INTEGER) ? lagTimeNs : BigInt(Number.MAX_SAFE_INTEGER)) / 1_000_000;
+        const dynChunk = this._tidxDynamicChunkBytes({
+          lagMs,
+          dtMs: iter === 0 ? dtMs : 16.667,
+          maxChunkBytes: this._chunkBytes,
+        });
+
+        const start = this._offset;
+        end = Math.min(desired, start + dynChunk);
+        this._offset = end;
+        this._writeBytesWithResizeEvents(start, end);
+        wroteBytes += end - start;
+
+        const currentAbsEnd = this._baseOffset + BigInt(this._offset);
+        lastLagBytes = targetAbs > currentAbsEnd ? targetAbs - currentAbsEnd : 0n;
+
+        const allowBurst = this._tidxBurstNoYield && lagMs > this._tidxLagTauMs;
+        if (!allowBurst) break;
+        if (performance.now() - tickStart > 50) break;
+        iter++;
+      }
+
+      if (this._offset >= this._buf.length) {
+        const flush = this._decoder.decode(new Uint8Array(), { stream: false });
+        if (flush) this._write(flush);
+        this._emitProgress(wroteBytes);
+        this.stop();
+        return;
+      }
+
+      const currentAbsEnd = this._baseOffset + BigInt(this._offset);
+      this._emitProgress(wroteBytes, {
+        clock: { mode: "tidx", timeNs: this._clockTimeNs, speedX: this._clockSpeedX },
+        raf: { avgMs: this._rafAvgMs, hz: rafHz },
+        tidx: {
+          desiredAbs: targetAbs,
+          currentAbs: currentAbsEnd,
+          effectiveEmitMs,
+          sinceEmitMs: this._tidxSinceEmitMs,
+          emitHzCap: this._tidxEmitHzCap,
+          idle,
+          lagBytes: lastLagBytes,
+          dynChunkBytes: this._tidxChunkEma != null ? Math.floor(this._tidxChunkEma) : null,
+          lagTimeNs: lastLagTimeNs,
+        },
+      });
+      this._raf = requestAnimationFrame((nextTs) => this._tick(nextTs));
+      return;
     } else {
       let budget = this._chunkBytes;
       if (Number.isFinite(this._speedBps)) {
@@ -2920,7 +2982,7 @@ function onPlaybackProgress({ offset, total, done, clock, raf, tidx, extraBytesW
     currentTcap.outputTidx
   ) {
     const lagBytes = tidx.desiredAbs > tidx.currentAbs ? tidx.desiredAbs - tidx.currentAbs : 0n;
-    const renderedTimeNs = timeAtOffsetNs(currentTcap.outputTidx, tidx.currentAbs);
+    const renderedTimeNs = renderedTimeAtOffsetNs(currentTcap.outputTidx, tidx.currentAbs);
     const lagTimeNs = clock.timeNs > renderedTimeNs ? clock.timeNs - renderedTimeNs : 0n;
     // Always show while in tidx mode; it’s the key diagnostic for “falling behind”.
     lagNote = ` lag=${fmtBytesBigint(lagBytes)} lagT=${fmtNs(lagTimeNs)}`;
@@ -3178,7 +3240,7 @@ async function mode1AdvanceToAbsOffset(absOffset, { source = "scrub", ms = null 
     if (tidx && typeof setpointMs === "number" && Number.isFinite(setpointMs)) {
       tidxTargetTimeNs = BigInt(clampInt(Number(setpointMs), 0, Number.MAX_SAFE_INTEGER)) * 1_000_000n;
       const currentAbs = BigInt(currentLoadedBaseOffset || 0) + BigInt(player.bytesOffset());
-      const renderedTimeNs = timeAtOffsetNs(tidx, currentAbs);
+      const renderedTimeNs = renderedTimeAtOffsetNs(tidx, currentAbs);
       const lagTimeNs = tidxTargetTimeNs > renderedTimeNs ? tidxTargetTimeNs - renderedTimeNs : 0n;
       const lagMs = Number(lagTimeNs / 1_000_000n);
       if (bulkNoYield && lagMs > tidxLagTauMs) yieldEveryMs = null;
@@ -5132,6 +5194,7 @@ ui.inputTokenCap?.addEventListener("change", () => {
 ui.bulkNoYield?.addEventListener("change", () => {
   bulkNoYield = !!ui.bulkNoYield.checked;
   savePrefs();
+  if (player) player.setTidxBurstNoYield(bulkNoYield);
   renderInfo();
 });
 
@@ -5274,6 +5337,7 @@ installCustomScrubberTracks();
     clockTidx: null,
     tidxEmitHzCap,
   });
+player.setTidxBurstNoYield(bulkNoYield);
 updateButtons();
 configureScrubbers();
 
