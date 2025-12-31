@@ -4,12 +4,37 @@ import {
   offsetAtTimeNs,
   parseEventsJsonl,
   parseTidx,
-  renderedTimeAtOffsetNs,
   timeAtOffsetNs,
   truncateTidxToRawLength,
 } from "../js/tcap/index.js";
 
 import { PerfBarGraph, PerfVizHub } from "./perf_viz.js";
+
+// NOTE: Keep this helper local to avoid hard coupling the UI bundle to the exact
+// exported surface of the served `../js/tcap/index.js` module (which may be stale
+// depending on how the dev server is wired).
+function renderedTimeAtOffsetNs(tidx, offset) {
+  const off = typeof offset === "bigint" ? offset : BigInt(offset);
+  const arr = tidx?.endOffsets;
+  if (!arr?.length) return 0n;
+  if (off <= 0n) return 0n;
+
+  const lastIdx = arr.length - 1;
+  const lastEnd = BigInt(arr[lastIdx] ?? 0n);
+  if (off >= lastEnd) return BigInt(tidx.tNs[lastIdx] ?? 0n);
+
+  let lo = 0;
+  let hi = lastIdx;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (BigInt(arr[mid]) <= off) lo = mid;
+    else hi = mid - 1;
+  }
+
+  const end = BigInt(arr[lo] ?? 0n);
+  if (end > off && lo > 0) lo--;
+  return BigInt(tidx.tNs[lo] ?? 0n);
+}
 
 /**
  * termplex web viewer architecture (single-file PoC)
