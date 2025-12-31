@@ -2151,8 +2151,6 @@ function installChunkMonitor() {
   let frameGraph = null;
   let lastFrameKey = null;
   let lastFrameTsMs = null;
-  let lastActiveFrameTsMs = null;
-  let frameGraphHasBarThisFrame = false;
   let frameGraphPendingResize = false;
   let chunkGraphHasBarThisFrame = false;
   let chunkGraphPendingResize = false;
@@ -2173,7 +2171,7 @@ function installChunkMonitor() {
         rate: (_sum, { counts1s, frameHzEma, frameDtEmaMs } = {}) => {
           const hz = Number.isFinite(frameHzEma) ? frameHzEma : null;
           const dt = Number.isFinite(frameDtEmaMs) ? frameDtEmaMs : null;
-          return `active≈${hz != null ? hz.toFixed(1) : "?"}Hz gap≈${dt != null ? dt.toFixed(1) : "?"}ms samples=${counts1s ?? "?"}/s`;
+          return `fps≈${hz != null ? hz.toFixed(1) : "?"} frame≈${dt != null ? dt.toFixed(1) : "?"}ms samples=${counts1s ?? "?"}/s`;
         },
       },
       valueLabel: "dt",
@@ -2260,8 +2258,6 @@ function installChunkMonitor() {
       for (const g of graphs) g.clear();
       lastFrameKey = null;
       lastFrameTsMs = null;
-      lastActiveFrameTsMs = null;
-      frameGraphHasBarThisFrame = false;
       frameGraphPendingResize = false;
       chunkGraphHasBarThisFrame = false;
       chunkGraphPendingResize = false;
@@ -2277,11 +2273,19 @@ function installChunkMonitor() {
       if (phase === "frame") {
         const tsMs = Number(info.tsMs);
         const key = Number(info.key);
-        if (frameGraph) {
-          lastFrameKey = Number.isFinite(key) ? key : lastFrameKey;
-          lastFrameTsMs = Number.isFinite(tsMs) ? tsMs : lastFrameTsMs;
-          frameGraphHasBarThisFrame = false;
-          frameGraphPendingResize = false;
+        const prevTs = lastFrameTsMs;
+        lastFrameKey = Number.isFinite(key) ? key : lastFrameKey;
+        lastFrameTsMs = Number.isFinite(tsMs) ? tsMs : lastFrameTsMs;
+        if (frameGraph && lastFrameKey != null && lastFrameTsMs != null) {
+          frameGraph.advance({ key: lastFrameKey, tsMs: lastFrameTsMs });
+          if (frameGraphPendingResize) {
+            frameGraph.mark("resize");
+            frameGraphPendingResize = false;
+          }
+          if (prevTs != null && Number.isFinite(prevTs)) {
+            const dt = lastFrameTsMs - prevTs;
+            if (Number.isFinite(dt) && dt >= 0) frameGraph.add({ phase: "dt_ms", value: dt, count: 1 });
+          }
         }
         chunkGraphHasBarThisFrame = false;
         chunkGraphPendingResize = false;
@@ -2291,8 +2295,8 @@ function installChunkMonitor() {
         if (chunkGraphHasBarThisFrame) chunkGraph.mark("resize");
         else chunkGraphPendingResize = true;
         if (frameGraph) {
-          // Only emit markers for frames that actually produced a dt sample; otherwise we'd create "empty" bars.
-          if (frameGraphHasBarThisFrame) frameGraph.mark("resize");
+          // Mark the current frame bar when available; otherwise defer to the next frame.
+          if (lastFrameKey != null && lastFrameTsMs != null) frameGraph.mark("resize");
           else frameGraphPendingResize = true;
         }
       }
@@ -2310,25 +2314,6 @@ function installChunkMonitor() {
           chunkGraphHasBarThisFrame = true;
         }
         chunkGraph.add({ phase, value: b, count: 1, absStart: info.absStart, absEnd: info.absEnd });
-        if (frameGraph && !frameGraphHasBarThisFrame && lastFrameKey != null && lastFrameTsMs != null) {
-          if (lastActiveFrameTsMs != null) {
-            const dt = lastFrameTsMs - lastActiveFrameTsMs;
-            if (Number.isFinite(dt) && dt > 0) {
-              frameGraph.advance({ key: lastFrameKey, tsMs: lastFrameTsMs });
-              if (frameGraphPendingResize) {
-                frameGraph.mark("resize");
-                frameGraphPendingResize = false;
-              }
-              frameGraph.add({ phase: "dt_ms", value: dt, count: 1 });
-              frameGraphHasBarThisFrame = true;
-              lastActiveFrameTsMs = lastFrameTsMs;
-            }
-          } else {
-            // Prime the first active frame; emit the first dt sample on the *next* active frame.
-            lastActiveFrameTsMs = lastFrameTsMs;
-            frameGraphPendingResize = false;
-          }
-        }
 
         if (consumeGraph) {
           const k = Number.isFinite(Number(info.key)) ? Number(info.key) : lastFrameKey;
