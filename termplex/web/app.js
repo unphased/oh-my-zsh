@@ -5550,7 +5550,11 @@ async function fullSeekToAbsOffset(absOffset, { source = "offset" } = {}) {
 
   try {
     if (useWriteSync && sink && typeof sink.setWriteMode === "function") sink.setWriteMode("sync");
-    await player.seekToLocalOffset(localOffset, { yieldEveryMs: doNoYield ? null : 12 });
+    // Even in "no-yield" bulk mode, we still need occasional browser paints so the user can see
+    // progress (blue scrubber marks) while the terminal ingestion runs with rendering disabled.
+    // A truly tight loop cannot update the UI mid-seek because the main thread never yields.
+    const uiPulseMs = doNoYield ? 80 : 12;
+    await player.seekToLocalOffset(localOffset, { yieldEveryMs: uiPulseMs });
     seekMs = performance.now() - seekStart;
 
     // xterm.write() is async; always flush so timings reflect *processed* terminal state, not just queued writes.
