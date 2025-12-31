@@ -1283,6 +1283,13 @@ class OutputPlayer {
     return !!this._buf;
   }
 
+  peekLocalBytes(start, end) {
+    if (!this._buf) return null;
+    const s = clampInt(Number(start), 0, this._buf.length);
+    const e = clampInt(Number(end), s, this._buf.length);
+    return this._buf.subarray(s, e);
+  }
+
   isPlaying() {
     return !!this._playing;
   }
@@ -4627,9 +4634,29 @@ function updateStepOutputTidxUi() {
   const nextTimeNs = timeAtOffsetNs(tidx, nextAbs);
   const nowTimeNs = timeAtOffsetNs(tidx, currentAbs);
   const timeDeltaNs = nextTimeNs > nowTimeNs ? nextTimeNs - nowTimeNs : 0n;
-  ui.stepOutputTidx.title = withinLoaded
-    ? `Feed one output tidx chunk: +${fmtBytesBigint(bytesDelta)} (t+${fmtNs(timeDeltaNs)})`
-    : "Next output tidx boundary is outside the currently loaded bytes (increase Tail or set Tail=0).";
+  if (!withinLoaded) {
+    ui.stepOutputTidx.title =
+      "Next output tidx boundary is outside the currently loaded bytes (increase Tail or set Tail=0).";
+    return;
+  }
+
+  const localStart = player.bytesOffset();
+  const localEnd = Number(nextLocalBig);
+  const raw = typeof player.peekLocalBytes === "function" ? player.peekLocalBytes(localStart, localEnd) : null;
+  const total = raw ? raw.length : Math.max(0, localEnd - localStart);
+
+  const MAX_PREVIEW_BYTES = 512;
+  const MAX_PREVIEW_CHARS = 2000;
+  const previewBytes = raw && raw.length > MAX_PREVIEW_BYTES ? raw.subarray(0, MAX_PREVIEW_BYTES) : raw;
+  let preview = previewBytes ? hexflowFormatBytes(previewBytes) : "";
+  if (preview.length > MAX_PREVIEW_CHARS) preview = `${preview.slice(0, MAX_PREVIEW_CHARS)}…`;
+  const truncNote =
+    raw && raw.length > MAX_PREVIEW_BYTES ? `\n(truncated: showing first ${MAX_PREVIEW_BYTES} of ${total} bytes)` : "";
+
+  ui.stepOutputTidx.title =
+    `Feed one output tidx chunk: +${fmtBytesBigint(bytesDelta)} (t+${fmtNs(timeDeltaNs)})` +
+    `\n\nRaw bytes (hexflow):\n${preview}` +
+    `${truncNote}`;
 }
 
 // -----------------------------------------------------------------------------
