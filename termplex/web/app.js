@@ -3846,14 +3846,8 @@ function absOffsetAtMs(ms) {
 }
 
 function mode1UpdateMaxMarks() {
-  if (!mode1State.active) return;
-  if (ui.offsetScrub && ui.offsetMaxMark && !ui.offsetScrub.disabled) {
-    setRangeMark(ui.offsetMaxMark, ui.offsetScrub, mode1State.maxAbs);
-  }
-  if (ui.timeScrub && ui.timeMaxMark && !ui.timeScrub.disabled) {
-    const ms = mode1State.maxMs || msAtAbsOffset(mode1State.maxAbs);
-    setRangeMark(ui.timeMaxMark, ui.timeScrub, ms);
-  }
+  // Markers now track ingestion progress continuously via onProgress.
+  return;
 }
 
 function mode1BeginGesture(source) {
@@ -3871,7 +3865,7 @@ function mode1BeginGesture(source) {
     fullRecompute: false,
   };
   player.pause();
-  mode1UpdateMaxMarks();
+  updateScrubberProgressMarks({ localOffset: player.bytesOffset(), localTotal: player.bytesTotal() });
   renderInfo();
 }
 
@@ -4034,8 +4028,8 @@ function resetGestureUi() {
   mode1State.pendingMs = null;
   mode1State.pumping = false;
   mode1State.pumpSeq++;
-  hideRangeMark(ui.timeMaxMark);
-  hideRangeMark(ui.offsetMaxMark);
+  // Keep the progress markers visible; they represent current ingestion progress, not gesture max.
+  updateScrubberProgressMarks({ localOffset: player.bytesOffset(), localTotal: player.bytesTotal() });
   perfInfo.gesture = { active: false, source: null, maxAbs: 0, maxMs: 0, releasedAbs: 0, fullRecompute: false };
   renderInfo();
 }
@@ -4563,6 +4557,12 @@ function configureOffsetScrubber() {
 function configureScrubbers() {
   configureTimeScrubber();
   configureOffsetScrubber();
+  // Ensure thumbs + progress markers reflect the current playback position after enabling/disabling ranges.
+  try {
+    syncScrubbersFromProgress({ localOffset: player.bytesOffset(), localTotal: player.bytesTotal() });
+  } catch {
+    // ignore
+  }
 }
 
 function installCustomScrubberTracks() {
@@ -4644,7 +4644,32 @@ function syncScrubberThumbs() {
   setScrubThumb(ui.offsetThumb, ui.offsetScrub);
 }
 
+function updateScrubberProgressMarks({ localOffset, localTotal, clockTimeNs } = {}) {
+  const absOffset = currentLoadedBaseOffset + clampInt(Number(localOffset), 0, Number.MAX_SAFE_INTEGER);
+  const absMax =
+    Number.isFinite(currentLoadedAbsSize) && currentLoadedAbsSize != null
+      ? currentLoadedAbsSize
+      : currentLoadedBaseOffset + clampInt(Number(localTotal), 0, Number.MAX_SAFE_INTEGER);
+
+  if (ui.offsetScrub && ui.offsetMaxMark && !ui.offsetScrub.disabled && absMax > 0) {
+    setRangeMark(ui.offsetMaxMark, ui.offsetScrub, absOffset);
+  } else {
+    hideRangeMark(ui.offsetMaxMark);
+  }
+
+  const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
+  if (tidx && ui.timeScrub && ui.timeMaxMark && !ui.timeScrub.disabled) {
+    const tNs = typeof clockTimeNs === "bigint" ? clockTimeNs : timeAtOffsetNs(tidx, BigInt(absOffset));
+    const ms = Number(tNs / 1_000_000n);
+    if (Number.isFinite(ms)) setRangeMark(ui.timeMaxMark, ui.timeScrub, clampInt(ms, 0, Number.MAX_SAFE_INTEGER));
+  } else {
+    hideRangeMark(ui.timeMaxMark);
+  }
+}
+
 function syncScrubbersFromProgress({ localOffset, localTotal, clockTimeNs } = {}) {
+  // Always keep the progress markers updated (even while the user is scrubbing).
+  updateScrubberProgressMarks({ localOffset, localTotal, clockTimeNs });
   if (scrubUserActive) return;
   const absOffset = currentLoadedBaseOffset + clampInt(Number(localOffset), 0, Number.MAX_SAFE_INTEGER);
   const absMax =
