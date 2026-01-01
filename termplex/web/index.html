@@ -226,6 +226,21 @@
             <div class="scrub-meta scrub-meta--off" id="offsetScrubText">off=?</div>
           </div>
         </div>
+        <div class="zoombar" id="scrubZoomBar">
+          <div class="zoom-target scrub-meta" id="scrubZoomTargetText" title="Which scrubber the zoom controls apply to">
+            zoom=time
+          </div>
+          <label class="zoom-control" title="Zoom the active scrubber (mousewheel over a scrubber also zooms)">
+            Zoom
+            <input id="scrubZoom" type="range" min="1" max="4096" value="1" step="1" />
+            <span class="scrub-meta" id="scrubZoomText">x1</span>
+          </label>
+          <label class="zoom-control" title="Pan within the zoomed window">
+            Pan
+            <input id="scrubPan" type="range" min="0" max="1000" value="0" step="1" />
+            <span class="scrub-meta" id="scrubPanText">0%</span>
+          </label>
+        </div>
         <div class="scrubber">
           <div class="range">
             <div class="range-track" id="timeRangeTrack">

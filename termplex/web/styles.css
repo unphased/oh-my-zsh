@@ -622,6 +622,35 @@ textarea.info-panel.info-panel--stats {
   min-width: 0;
 }
 
+.zoombar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(17, 21, 26, 0.42);
+  min-height: 32px;
+  box-sizing: border-box;
+  flex-wrap: wrap;
+}
+
+.zoom-target {
+  flex: 0 0 auto;
+}
+
+.zoom-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.zoom-control input[type="range"] {
+  width: 170px;
+}
+
 .terminal-statusbar {
   display: flex;
   align-items: center;

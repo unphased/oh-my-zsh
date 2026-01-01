@@ -132,6 +132,12 @@ const ui = {
   offsetRangeTrack: document.getElementById("offsetRangeTrack"),
   offsetDensityCanvas: document.getElementById("offsetDensityCanvas"),
   offsetThumb: document.getElementById("offsetThumb"),
+  scrubZoomBar: document.getElementById("scrubZoomBar"),
+  scrubZoomTargetText: document.getElementById("scrubZoomTargetText"),
+  scrubZoom: document.getElementById("scrubZoom"),
+  scrubZoomText: document.getElementById("scrubZoomText"),
+  scrubPan: document.getElementById("scrubPan"),
+  scrubPanText: document.getElementById("scrubPanText"),
   boundsOverlay: document.getElementById("boundsOverlay"),
   boundsLabel: document.getElementById("boundsLabel"),
   stepOutputTidx: document.getElementById("stepOutputTidx"),
@@ -437,16 +443,17 @@ function lerpRgb(a, b, t) {
 }
 
 class DensityStrip {
-  constructor({ canvas, trackEl, mode } = {}) {
+  constructor({ canvas, trackEl, rangeEl, mode } = {}) {
     this.canvas = canvas || null;
     this.trackEl = trackEl || null;
+    this.rangeEl = rangeEl || null;
     this.mode = mode === "offset" ? "offset" : "time"; // time | offset
     this._dpr = 1;
     this._bins = 0;
     this._values = null; // Float32Array (per pixel)
     this._dtMs = null; // Float32Array (per pixel)
     this._dBytes = null; // Float32Array (per pixel)
-    this._meta = null; // { max, total } where total is ms or bytes
+    this._meta = null; // { max, fullTotal, view0, view1 } in ns or bytes (depending on mode)
     this._tidx = null;
     this._seq = 0;
     this._colors = {
@@ -523,10 +530,38 @@ class DensityStrip {
 
     const totalTimeNs = Number(BigInt(tArr[n - 1] ?? 0n));
     const totalBytes = Number(BigInt(offArr[n - 1] ?? 0n));
-    const total = this.mode === "time" ? totalTimeNs : totalBytes;
-    if (!Number.isFinite(total) || total <= 0) {
+    const fullTotal = this.mode === "time" ? totalTimeNs : totalBytes;
+    if (!Number.isFinite(fullTotal) || fullTotal <= 0) {
       this.clear();
       return;
+    }
+
+    let view0 = 0;
+    let view1 = fullTotal;
+    try {
+      const r = this.rangeEl;
+      if (r && !r.disabled) {
+        const rMin = Number(r.min);
+        const rMax = Number(r.max);
+        if (Number.isFinite(rMin) && Number.isFinite(rMax) && rMax > rMin) {
+          if (this.mode === "time") {
+            const a = clampInt(Math.floor(rMin), 0, Number.MAX_SAFE_INTEGER);
+            const b = clampInt(Math.floor(rMax), 0, Number.MAX_SAFE_INTEGER);
+            view0 = Math.min(fullTotal, a * 1_000_000);
+            view1 = Math.min(fullTotal, b * 1_000_000);
+          } else {
+            view0 = Math.min(fullTotal, clampInt(Math.floor(rMin), 0, Number.MAX_SAFE_INTEGER));
+            view1 = Math.min(fullTotal, clampInt(Math.floor(rMax), 0, Number.MAX_SAFE_INTEGER));
+          }
+          if (!Number.isFinite(view0) || !Number.isFinite(view1) || view1 <= view0) {
+            view0 = 0;
+            view1 = fullTotal;
+          }
+        }
+      }
+    } catch {
+      view0 = 0;
+      view1 = fullTotal;
     }
 
     const startTs = performance.now();
@@ -545,8 +580,9 @@ class DensityStrip {
         // Pixel represents a time slice: [t0, t1].
         const frac0 = bins <= 1 ? 0 : x / bins;
         const frac1 = bins <= 1 ? 1 : (x + 1) / bins;
-        const t0 = Math.max(0, Math.floor(totalTimeNs * frac0));
-        const t1 = Math.max(t0, Math.floor(totalTimeNs * frac1));
+        const viewSpan = Math.max(1, view1 - view0);
+        const t0 = Math.max(0, Math.floor(view0 + viewSpan * frac0));
+        const t1 = Math.max(t0, Math.floor(view0 + viewSpan * frac1));
         const off0 = offsetAtTimeNs(tidx, BigInt(t0));
         const off1 = offsetAtTimeNs(tidx, BigInt(t1));
         const dOffBig = off1 > off0 ? off1 - off0 : 0n;
@@ -559,8 +595,9 @@ class DensityStrip {
         // Pixel represents a byte slice: [off0, off1].
         const frac0 = bins <= 1 ? 0 : x / bins;
         const frac1 = bins <= 1 ? 1 : (x + 1) / bins;
-        const o0 = Math.max(0, Math.floor(totalBytes * frac0));
-        const o1 = Math.max(o0, Math.floor(totalBytes * frac1));
+        const viewSpan = Math.max(1, view1 - view0);
+        const o0 = Math.max(0, Math.floor(view0 + viewSpan * frac0));
+        const o1 = Math.max(o0, Math.floor(view0 + viewSpan * frac1));
         const t0 = timeAtOffsetNs(tidx, BigInt(o0));
         const t1 = timeAtOffsetNs(tidx, BigInt(o1));
         const dtNs = t1 > t0 ? t1 - t0 : 0n;
@@ -588,7 +625,7 @@ class DensityStrip {
     this._values = values;
     this._dtMs = dtMsArr;
     this._dBytes = dBytesArr;
-    this._meta = { max, total };
+    this._meta = { max, fullTotal, view0, view1 };
     this._renderCanvas();
   }
 
@@ -657,13 +694,17 @@ class DensityStrip {
     const dBytes = this._dBytes ? this._dBytes[x] || 0 : 0;
     const frac = this._bins <= 1 ? 0 : x / (this._bins - 1);
     if (this.mode === "time") {
-      const totalNs = this._meta.total;
-      const tNs = Math.max(0, Math.floor(totalNs * frac));
+      const view0 = Number(this._meta.view0) || 0;
+      const view1 = Number(this._meta.view1) || 0;
+      const viewSpan = Math.max(1, view1 - view0);
+      const tNs = Math.max(0, Math.floor(view0 + viewSpan * frac));
       const rate = dtMs > 0 ? (dBytes * 1000) / dtMs : 0;
       hoverEl.title = `t≈${fmtNs(BigInt(tNs))} bytes≈${fmtBytes(dBytes)} (hotter=more bytes) rate≈${fmtRate(rate)} Δt≈${dtMs.toFixed(1)}ms`;
     } else {
-      const totalBytes = this._meta.total;
-      const off = Math.max(0, Math.floor(totalBytes * frac));
+      const view0 = Number(this._meta.view0) || 0;
+      const view1 = Number(this._meta.view1) || 0;
+      const viewSpan = Math.max(1, view1 - view0);
+      const off = Math.max(0, Math.floor(view0 + viewSpan * frac));
       hoverEl.title = `off≈${fmtBytes(off)} dt≈${v.toFixed(1)} ms/KiB (hotter=slower/more idle) Δt≈${dtMs.toFixed(1)}ms ΔB≈${fmtBytes(dBytes)}`;
     }
   }
@@ -2496,12 +2537,18 @@ function installChunkMonitor() {
 
 function installDensityStrips() {
   if (ui.timeDensityCanvas) {
-    timeDensityStrip = new DensityStrip({ canvas: ui.timeDensityCanvas, trackEl: ui.timeRangeTrack, mode: "time" });
+    timeDensityStrip = new DensityStrip({
+      canvas: ui.timeDensityCanvas,
+      trackEl: ui.timeRangeTrack,
+      rangeEl: ui.timeScrub,
+      mode: "time",
+    });
   }
   if (ui.offsetDensityCanvas) {
     offsetDensityStrip = new DensityStrip({
       canvas: ui.offsetDensityCanvas,
       trackEl: ui.offsetRangeTrack,
+      rangeEl: ui.offsetScrub,
       mode: "offset",
     });
   }
@@ -4353,6 +4400,13 @@ function loadPrefs() {
       bulkZeroScrollback = prefs.bulkZeroScrollback;
       if (ui.bulkZeroScrollback) ui.bulkZeroScrollback.checked = bulkZeroScrollback;
     }
+    if (typeof prefs.scrubZoomTarget === "string" && (prefs.scrubZoomTarget === "time" || prefs.scrubZoomTarget === "offset")) {
+      scrubZoomTarget = prefs.scrubZoomTarget;
+    }
+    if (typeof prefs.scrubZoomTime === "number") scrubZoomState.time.zoom = clampZoom(prefs.scrubZoomTime);
+    if (typeof prefs.scrubPanTime01 === "number") scrubZoomState.time.pan01 = clamp01(prefs.scrubPanTime01);
+    if (typeof prefs.scrubZoomOffset === "number") scrubZoomState.offset.zoom = clampZoom(prefs.scrubZoomOffset);
+    if (typeof prefs.scrubPanOffset01 === "number") scrubZoomState.offset.pan01 = clamp01(prefs.scrubPanOffset01);
   } catch {
     // ignore
   }
@@ -4383,6 +4437,11 @@ function savePrefs() {
       bulkNoYield,
       bulkRenderOff,
       bulkZeroScrollback,
+      scrubZoomTarget,
+      scrubZoomTime: scrubZoomState.time.zoom,
+      scrubPanTime01: scrubZoomState.time.pan01,
+      scrubZoomOffset: scrubZoomState.offset.zoom,
+      scrubPanOffset01: scrubZoomState.offset.pan01,
     };
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
@@ -4672,22 +4731,186 @@ function updateStepOutputTidxUi() {
 //   - onProgress({ absOffset })
 //   - onUserRelease({ source, absOffset })
 // -----------------------------------------------------------------------------
-function setScrubber({ enabled, text, ms, maxMs } = {}) {
+const SCRUB_ZOOM_MAX = 4096;
+const SCRUB_PAN_STEPS = 1000;
+
+let scrubZoomTarget = "time"; // "time" | "offset"
+const scrubZoomState = {
+  time: { zoom: 1, pan01: 0 },
+  offset: { zoom: 1, pan01: 0 },
+};
+const scrubFullDomain = {
+  time: { min: 0, max: 0 },
+  offset: { min: 0, max: 0 },
+};
+const scrubViewDomain = {
+  time: { min: 0, max: 0 },
+  offset: { min: 0, max: 0 },
+};
+
+function clamp01(x) {
+  return Math.max(0, Math.min(1, Number(x)));
+}
+
+function clampZoom(z) {
+  const v = Number(z);
+  if (!Number.isFinite(v)) return 1;
+  return Math.max(1, Math.min(SCRUB_ZOOM_MAX, v));
+}
+
+function rangeElForScrubKind(kind) {
+  return kind === "offset" ? ui.offsetScrub : ui.timeScrub;
+}
+
+function densityStripForScrubKind(kind) {
+  return kind === "offset" ? offsetDensityStrip : timeDensityStrip;
+}
+
+function computeScrubViewDomain(kind) {
+  const full = scrubFullDomain[kind];
+  const st = scrubZoomState[kind];
+  const fullMin = clampInt(Number(full.min), 0, Number.MAX_SAFE_INTEGER);
+  const fullMax = clampInt(Number(full.max), fullMin, Number.MAX_SAFE_INTEGER);
+  const fullSpan = Math.max(0, fullMax - fullMin);
+  const zoom = clampZoom(st.zoom);
+  const viewSpan = fullSpan > 0 ? Math.max(1, Math.floor(fullSpan / zoom)) : 0;
+  const maxStart = Math.max(0, fullSpan - viewSpan);
+  const start = maxStart > 0 ? fullMin + Math.floor(clamp01(st.pan01) * maxStart) : fullMin;
+  const end = viewSpan > 0 ? start + viewSpan : fullMax;
+  return { fullMin, fullMax, fullSpan, zoom, viewMin: start, viewMax: end, viewSpan, maxStart };
+}
+
+function applyScrubViewDomain(kind, { anchorValue = null, anchorFrac = 0.5, skipDensity = false } = {}) {
+  const rangeEl = rangeElForScrubKind(kind);
+  if (!rangeEl) return;
+  const full = scrubFullDomain[kind];
+  if (!Number.isFinite(Number(full.max)) || Number(full.max) <= Number(full.min)) return;
+
+  const st = scrubZoomState[kind];
+  st.zoom = clampZoom(st.zoom);
+  st.pan01 = clamp01(st.pan01);
+
+  const computed = computeScrubViewDomain(kind);
+  let { viewMin, viewMax, viewSpan, maxStart, fullMin } = computed;
+
+  if (anchorValue != null && viewSpan > 0 && maxStart > 0) {
+    const frac = clamp01(anchorFrac);
+    const anchoredMinRaw = Math.floor(Number(anchorValue) - frac * viewSpan);
+    const anchoredMin = clampInt(anchoredMinRaw, fullMin, fullMin + maxStart);
+    viewMin = anchoredMin;
+    viewMax = anchoredMin + viewSpan;
+    st.pan01 = maxStart > 0 ? (anchoredMin - fullMin) / maxStart : 0;
+  }
+
+  const prev = scrubViewDomain[kind];
+  const changed = prev.min !== viewMin || prev.max !== viewMax;
+  scrubViewDomain[kind] = { min: viewMin, max: viewMax };
+
+  rangeEl.min = String(viewMin);
+  rangeEl.max = String(viewMax);
+
+  const cur = Number(rangeEl.value);
+  if (Number.isFinite(cur)) rangeEl.value = String(clampInt(cur, viewMin, viewMax));
+  syncScrubberThumbs();
+
+  if (changed && !skipDensity) {
+    const strip = densityStripForScrubKind(kind);
+    if (strip) void strip.renderFromTidx();
+  }
+}
+
+function ensureScrubViewContainsValue(kind, value, { biasFrac = 0.5, skipDensity = false } = {}) {
+  const rangeEl = rangeElForScrubKind(kind);
+  if (!rangeEl) return;
+  const full = scrubFullDomain[kind];
+  if (!Number.isFinite(Number(full.max)) || Number(full.max) <= Number(full.min)) return;
+
+  const st = scrubZoomState[kind];
+  st.zoom = clampZoom(st.zoom);
+  const computed = computeScrubViewDomain(kind);
+  if (computed.viewSpan <= 0 || computed.maxStart <= 0) return;
+
+  const v = clampInt(Number(value), computed.fullMin, computed.fullMax);
+  if (v >= computed.viewMin && v <= computed.viewMax) return;
+  applyScrubViewDomain(kind, { anchorValue: v, anchorFrac: clamp01(biasFrac), skipDensity });
+}
+
+function fmtScrubWindow(kind, viewMin, viewMax) {
+  const span = Math.max(0, clampInt(Number(viewMax) - Number(viewMin), 0, Number.MAX_SAFE_INTEGER));
+  if (kind === "time") return fmtNs(BigInt(span) * 1_000_000n);
+  return fmtBytes(span);
+}
+
+function syncScrubZoomUi() {
+  if (!ui.scrubZoom || !ui.scrubPan || !ui.scrubZoomTargetText || !ui.scrubZoomText || !ui.scrubPanText) return;
+  const kind = scrubZoomTarget === "offset" ? "offset" : "time";
+  const st = scrubZoomState[kind];
+  const zoom = clampZoom(st.zoom);
+  const pan01 = clamp01(st.pan01);
+  const computed = computeScrubViewDomain(kind);
+  const rangeEl = rangeElForScrubKind(kind);
+  const canControl = !!rangeEl && !rangeEl.disabled && computed.fullSpan > 0;
+
+  ui.scrubZoomTargetText.textContent = `zoom=${kind}`;
+  ui.scrubZoom.disabled = !canControl;
+  ui.scrubZoom.value = String(clampInt(Math.round(zoom), 1, SCRUB_ZOOM_MAX));
+  ui.scrubZoomText.textContent = `x${Math.round(zoom)}`;
+
+  ui.scrubPan.value = String(clampInt(Math.round(pan01 * SCRUB_PAN_STEPS), 0, SCRUB_PAN_STEPS));
+  ui.scrubPan.disabled = !canControl || zoom <= 1 || computed.maxStart <= 0;
+  const pct = (pan01 * 100).toFixed(1);
+  ui.scrubPanText.textContent = `${pct}% win=${fmtScrubWindow(kind, computed.viewMin, computed.viewMax)}`;
+
+  try {
+    perfInfo.runtime.scrubbers = {
+      target: kind,
+      time: { ...scrubZoomState.time, full: scrubFullDomain.time, view: scrubViewDomain.time },
+      offset: { ...scrubZoomState.offset, full: scrubFullDomain.offset, view: scrubViewDomain.offset },
+    };
+  } catch {
+    // ignore
+  }
+}
+
+function setScrubZoomTarget(kind) {
+  const next = kind === "offset" ? "offset" : "time";
+  if (scrubZoomTarget === next) return;
+  scrubZoomTarget = next;
+  syncScrubZoomUi();
+}
+
+function setScrubber({ enabled, text, ms, minMs = 0, maxMs } = {}) {
   if (!ui.timeScrub || !ui.timeScrubText) return;
-  if (Number.isFinite(maxMs)) ui.timeScrub.max = String(Math.max(0, Math.floor(maxMs)));
+  if (Number.isFinite(maxMs)) {
+    const fullMin = clampInt(Number(minMs), 0, Number.MAX_SAFE_INTEGER);
+    const fullMax = clampInt(Number(maxMs), fullMin, Number.MAX_SAFE_INTEGER);
+    scrubFullDomain.time = { min: fullMin, max: fullMax };
+    ui.timeScrub.min = String(fullMin);
+    ui.timeScrub.max = String(fullMax);
+  }
   if (Number.isFinite(ms)) ui.timeScrub.value = String(Math.max(0, Math.floor(ms)));
   ui.timeScrub.disabled = !enabled;
   if (typeof text === "string") ui.timeScrubText.textContent = text;
+  if (enabled) applyScrubViewDomain("time");
   syncScrubberThumbs();
+  syncScrubZoomUi();
 }
 
-function setOffsetScrubber({ enabled, text, absOffset, absMax } = {}) {
+function setOffsetScrubber({ enabled, text, absOffset, absMin = 0, absMax } = {}) {
   if (!ui.offsetScrub || !ui.offsetScrubText) return;
-  if (Number.isFinite(absMax)) ui.offsetScrub.max = String(Math.max(0, Math.floor(absMax)));
+  if (Number.isFinite(absMax)) {
+    const fullMin = clampInt(Number(absMin), 0, Number.MAX_SAFE_INTEGER);
+    const fullMax = clampInt(Number(absMax), fullMin, Number.MAX_SAFE_INTEGER);
+    scrubFullDomain.offset = { min: fullMin, max: fullMax };
+    ui.offsetScrub.min = String(fullMin);
+    ui.offsetScrub.max = String(fullMax);
+  }
   if (Number.isFinite(absOffset)) ui.offsetScrub.value = String(Math.max(0, Math.floor(absOffset)));
   ui.offsetScrub.disabled = !enabled;
   if (typeof text === "string") ui.offsetScrubText.textContent = text;
+  if (enabled) applyScrubViewDomain("offset");
   syncScrubberThumbs();
+  syncScrubZoomUi();
 }
 
 function configureTimeScrubber() {
@@ -4695,6 +4918,8 @@ function configureTimeScrubber() {
 
   const tidx = currentTcap && currentTcap.outputTidx ? currentTcap.outputTidx : null;
   if (!tidx || currentLoadedKind !== "output") {
+    scrubFullDomain.time = { min: 0, max: 0 };
+    scrubViewDomain.time = { min: 0, max: 0 };
     setScrubber({ enabled: false, text: "t=?" });
     return;
   }
@@ -4702,6 +4927,8 @@ function configureTimeScrubber() {
   const lastNs = tidx.tNs.length ? BigInt(tidx.tNs[tidx.tNs.length - 1]) : 0n;
   const maxMs = Number(lastNs / 1_000_000n);
   if (!Number.isFinite(maxMs) || maxMs < 0) {
+    scrubFullDomain.time = { min: 0, max: 0 };
+    scrubViewDomain.time = { min: 0, max: 0 };
     setScrubber({ enabled: false, text: "t=?" });
     return;
   }
@@ -4718,6 +4945,8 @@ function configureOffsetScrubber() {
   if (!ui.offsetScrub || !ui.offsetScrubText) return;
 
   if ((currentLoadedKind !== "output" && currentLoadedKind !== "input") || !player.hasLoaded()) {
+    scrubFullDomain.offset = { min: 0, max: 0 };
+    scrubViewDomain.offset = { min: 0, max: 0 };
     setOffsetScrubber({ enabled: false, text: "off=?" });
     return;
   }
@@ -4728,6 +4957,8 @@ function configureOffsetScrubber() {
       : currentLoadedBaseOffset + player.bytesTotal();
 
   if (!Number.isFinite(absMax) || absMax < 0) {
+    scrubFullDomain.offset = { min: 0, max: 0 };
+    scrubViewDomain.offset = { min: 0, max: 0 };
     setOffsetScrubber({ enabled: false, text: "off=?" });
     return;
   }
@@ -4780,6 +5011,7 @@ function installCustomScrubberTracks() {
       }
       dragging = true;
       scrubUserActive = kind;
+      setScrubZoomTarget(kind);
       mode1BeginGesture(kind);
       setFromPointer(e);
     });
@@ -4800,6 +5032,37 @@ function installCustomScrubberTracks() {
       scrubUserActive = null;
       if (isMode1Enabled()) resetGestureUi();
     });
+
+    // Mousewheel zoom (PC-style): zoom around the pointer position over the scrubber.
+    trackEl.addEventListener(
+      "wheel",
+      (e) => {
+        if (rangeEl.disabled) return;
+        if (!e) return;
+        try {
+          e.preventDefault();
+        } catch {
+          // ignore
+        }
+        setScrubZoomTarget(kind);
+        const rect = trackEl.getBoundingClientRect();
+        if (!rect || rect.width <= 0) return;
+        const x = e.clientX - rect.left;
+        const frac = Math.max(0, Math.min(1, x / rect.width));
+        const viewMin = Number(rangeEl.min || 0);
+        const viewMax = Number(rangeEl.max || 0);
+        const anchor = viewMin + frac * (viewMax - viewMin);
+
+        const st = scrubZoomState[kind];
+        const dy = Number.isFinite(e.deltaY) ? e.deltaY : 0;
+        const zoomMul = Math.exp(-dy * 0.002);
+        st.zoom = clampZoom(st.zoom * zoomMul);
+        applyScrubViewDomain(kind, { anchorValue: anchor, anchorFrac: frac });
+        syncScrubZoomUi();
+        savePrefs();
+      },
+      { passive: false },
+    );
   };
 
   install({ kind: "time", trackEl: ui.timeRangeTrack, rangeEl: ui.timeScrub });
@@ -4809,6 +5072,38 @@ function installCustomScrubberTracks() {
 
 let scrubSyncGuard = false;
 let scrubUserActive = null; // "time" | "offset" | null
+
+function installScrubZoomControls() {
+  if (!ui.scrubZoom || !ui.scrubPan || !ui.scrubZoomTargetText) return;
+
+  ui.scrubZoom.addEventListener("input", () => {
+    const kind = scrubZoomTarget === "offset" ? "offset" : "time";
+    const st = scrubZoomState[kind];
+    st.zoom = clampZoom(Number(ui.scrubZoom.value));
+    const rangeEl = rangeElForScrubKind(kind);
+    const cur = rangeEl && !rangeEl.disabled ? Number(rangeEl.value) : null;
+    applyScrubViewDomain(kind, { anchorValue: Number.isFinite(cur) ? cur : null, anchorFrac: 0.5 });
+    syncScrubZoomUi();
+    savePrefs();
+  });
+
+  ui.scrubPan.addEventListener("input", () => {
+    const kind = scrubZoomTarget === "offset" ? "offset" : "time";
+    const st = scrubZoomState[kind];
+    st.pan01 = clamp01(Number(ui.scrubPan.value) / SCRUB_PAN_STEPS);
+    applyScrubViewDomain(kind);
+    syncScrubZoomUi();
+    savePrefs();
+  });
+
+  ui.scrubZoomTargetText.addEventListener("click", () => {
+    setScrubZoomTarget(scrubZoomTarget === "time" ? "offset" : "time");
+    syncScrubZoomUi();
+    savePrefs();
+  });
+
+  syncScrubZoomUi();
+}
 
 function setScrubThumb(thumbEl, rangeEl) {
   if (!thumbEl || !rangeEl) return;
@@ -4866,6 +5161,7 @@ function syncScrubbersFromProgress({ localOffset, localTotal, clockTimeNs } = {}
   scrubSyncGuard = true;
   try {
     if (ui.offsetScrub && !ui.offsetScrub.disabled) {
+      ensureScrubViewContainsValue("offset", absOffset, { biasFrac: 0.5 });
       ui.offsetScrub.value = String(absOffset);
       if (ui.offsetScrubText) {
         const pct = absMax > 0 ? ((absOffset / absMax) * 100).toFixed(1) : "0.0";
@@ -4877,7 +5173,10 @@ function syncScrubbersFromProgress({ localOffset, localTotal, clockTimeNs } = {}
     if (tidx && ui.timeScrub && !ui.timeScrub.disabled) {
       const tNs = typeof clockTimeNs === "bigint" ? clockTimeNs : timeAtOffsetNs(tidx, BigInt(absOffset));
       const ms = Number(tNs / 1_000_000n);
-      if (Number.isFinite(ms)) ui.timeScrub.value = String(clampInt(ms, 0, Number.MAX_SAFE_INTEGER));
+      if (Number.isFinite(ms)) {
+        ensureScrubViewContainsValue("time", ms, { biasFrac: 0.5 });
+        ui.timeScrub.value = String(clampInt(ms, 0, Number.MAX_SAFE_INTEGER));
+      }
       const lastNs = tidx.tNs.length ? BigInt(tidx.tNs[tidx.tNs.length - 1]) : 0n;
       if (ui.timeScrubText) ui.timeScrubText.textContent = `t=${fmtNs(tNs)} / ${fmtNs(lastNs)}`;
     }
@@ -4885,6 +5184,7 @@ function syncScrubbersFromProgress({ localOffset, localTotal, clockTimeNs } = {}
     scrubSyncGuard = false;
   }
   syncScrubberThumbs();
+  syncScrubZoomUi();
 }
 
 // -----------------------------------------------------------------------------
@@ -6176,6 +6476,7 @@ ui.timeScrub?.addEventListener("input", () => {
   try {
     if (ui.offsetScrub && !ui.offsetScrub.disabled) {
       if (abs != null) {
+        ensureScrubViewContainsValue("offset", abs, { biasFrac: 0.5 });
         ui.offsetScrub.value = String(abs);
         const absMax = Number.isFinite(currentLoadedAbsSize) && currentLoadedAbsSize != null ? currentLoadedAbsSize : abs;
         const pct = absMax > 0 ? ((abs / absMax) * 100).toFixed(1) : "0.0";
@@ -6231,7 +6532,10 @@ ui.offsetScrub?.addEventListener("input", () => {
 
     scrubSyncGuard = true;
     try {
-      if (Number.isFinite(ms)) ui.timeScrub.value = String(clampInt(ms, 0, Number.MAX_SAFE_INTEGER));
+      if (Number.isFinite(ms)) {
+        ensureScrubViewContainsValue("time", ms, { biasFrac: 0.5 });
+        ui.timeScrub.value = String(clampInt(ms, 0, Number.MAX_SAFE_INTEGER));
+      }
       if (ui.timeScrubText) ui.timeScrubText.textContent = `t=${fmtNs(tNs)} / ${fmtNs(lastNs)}`;
     } finally {
       scrubSyncGuard = false;
@@ -6275,6 +6579,7 @@ renderInfo();
 applyScrollbackSetting(scrollbackLines);
 installPanelResizer();
 installCustomScrubberTracks();
+installScrubZoomControls();
   player.configure({
     speedBps: rateToBytesPerSec(),
     chunkBytes: (() => {
