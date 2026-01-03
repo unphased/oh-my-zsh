@@ -1,9 +1,0 @@
-{
-  "name": "termplex",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node --test js/test/*.test.js",
-    "test:coverage": "node --test --experimental-test-coverage js/test/*.test.js"
-  }
-}
