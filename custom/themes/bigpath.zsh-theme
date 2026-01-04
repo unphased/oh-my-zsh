@@ -79,12 +79,22 @@ add-zsh-hook chpwd steeef_chpwd
 
 function steeef_precmd {
     if [[ -n "$PR_GIT_UPDATE" ]] ; then
+        local unpushed_indicator=""
+        local commits_ahead=""
+
+        if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' &>/dev/null; then
+            commits_ahead="$(git rev-list --count '@{u}..HEAD' 2>/dev/null)"
+            if [[ -n "$commits_ahead" && "$commits_ahead" -gt 0 ]]; then
+                unpushed_indicator=" %{$turquoise%}↑"
+            fi
+        fi
+
         # check for untracked files or updated submodules, since vcs_info doesn't
         if [[ ! -z $(git ls-files --other --exclude-standard 2> /dev/null) ]]; then
             PR_GIT_UPDATE=1
-            FMT_BRANCH=" %{$turquoise%}%b%u%c%{$turquoise%} ●${PR_RST}"
+            FMT_BRANCH=" %{$turquoise%}%b%u%c%{$turquoise%} ●${unpushed_indicator}${PR_RST}"
         else
-            FMT_BRANCH=" %{$turquoise%}%b%u%c${PR_RST}"
+            FMT_BRANCH=" %{$turquoise%}%b%u%c${unpushed_indicator}${PR_RST}"
         fi
         zstyle ':vcs_info:*:prompt:*' formats       "${FMT_BRANCH}"
 
