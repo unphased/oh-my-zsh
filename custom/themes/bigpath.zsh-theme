@@ -48,7 +48,7 @@ zstyle ':vcs_info:*:prompt:*' check-for-changes true
 # %R - repository path
 # %S - path in the repository
 PR_RST="%{${reset_color}%}"
-FMT_BRANCH=" on %{$turquoise%}%b%u%c${PR_RST}"
+FMT_BRANCH=" %{$turquoise%}%b%u%c${PR_RST}"
 FMT_ACTION=" performing a %{$purple%}%a${PR_RST}"
 FMT_UNSTAGED="%{$hotpink%} ●"
 FMT_STAGED="%{$purple%} ●"
@@ -82,9 +82,9 @@ function steeef_precmd {
         # check for untracked files or updated submodules, since vcs_info doesn't
         if [[ ! -z $(git ls-files --other --exclude-standard 2> /dev/null) ]]; then
             PR_GIT_UPDATE=1
-            FMT_BRANCH="${PM_RST}%{$turquoise%}/%{$turquoise%}%b%u%c%{$turquoise%} ●${PR_RST}"
+            FMT_BRANCH=" %{$turquoise%}%b%u%c%{$turquoise%} ●${PR_RST}"
         else
-            FMT_BRANCH="${PM_RST}%{$turquoise%}/%{$turquoise%}%b%u%c${PR_RST}"
+            FMT_BRANCH=" %{$turquoise%}%b%u%c${PR_RST}"
         fi
         zstyle ':vcs_info:*:prompt:*' formats       "${FMT_BRANCH}"
 
@@ -94,5 +94,16 @@ function steeef_precmd {
 }
 add-zsh-hook precmd steeef_precmd
 
-PROMPT=$'%{$purple%}%n/%{$hotpink%}%2~%{$reset_color%}$(ruby_prompt_info " with%{$fg[red]%} " v g "")$vcs_info_msg_0_%{$turquoise%}/%{$reset_color%} %{$reset_color%}'
+function bigpath_prompt_char {
+    if [[ "$vcs_info_msg_0_" == *"●"* ]]; then
+        return 0
+    fi
+
+    local char='$'
+    [[ $EUID -eq 0 ]] && char='#'
+
+    print -nr -- " %{\e[3m%}%B${char}%b%{\e[23m%}"
+}
+
+PROMPT=$'%{$purple%}%n%{$limegreen%}@%m %{$hotpink%}%2~%{$reset_color%}$(ruby_prompt_info " with%{$fg[red]%} " v g "")$vcs_info_msg_0_$(bigpath_prompt_char)%{$reset_color%} '
 RPROMPT='%{$reset_color%}%T%(?..|ERR:%?)%{$reset_color%}'
