@@ -99,21 +99,31 @@ function steeef_precmd {
         zstyle ':vcs_info:*:prompt:*' formats       "${FMT_BRANCH}"
 
         vcs_info 'prompt'
+        BIGPATH_PROMPT_CHAR=""
+        if [[ "$vcs_info_msg_0_" != *"●"* ]]; then
+            BIGPATH_PROMPT_CHAR="$(bigpath_prompt_char)"
+        fi
         PR_GIT_UPDATE=
     fi
 }
 add-zsh-hook precmd steeef_precmd
 
 function bigpath_prompt_char {
-    if [[ "$vcs_info_msg_0_" == *"●"* ]]; then
-        return 0
-    fi
-
     local char='$'
     [[ $EUID -eq 0 ]] && char='#'
 
-    print -nr -- " %{\e[3m%}%B${char}%b%{\e[23m%}"
+    local italic_on=""
+    local italic_off=""
+    if [[ -n ${terminfo[sitm]-} && -n ${terminfo[ritm]-} ]]; then
+        italic_on="${terminfo[sitm]}"
+        italic_off="${terminfo[ritm]}"
+    else
+        italic_on=$'\e[3m'
+        italic_off=$'\e[23m'
+    fi
+
+    print -nr -- " %{$italic_on%}%B${char}%b%{$italic_off%}"
 }
 
-PROMPT=$'%{$purple%}%n%{$limegreen%}@%m %{$hotpink%}%2~%{$reset_color%}$(ruby_prompt_info " with%{$fg[red]%} " v g "")$vcs_info_msg_0_$(bigpath_prompt_char)%{$reset_color%} '
+PROMPT=$'%{$purple%}%n%{$limegreen%}@%m %{$hotpink%}%2~%{$reset_color%}$(ruby_prompt_info " with%{$fg[red]%} " v g "")$vcs_info_msg_0_$BIGPATH_PROMPT_CHAR%{$reset_color%} '
 RPROMPT='%{$reset_color%}%T%(?..|ERR:%?)%{$reset_color%}'
