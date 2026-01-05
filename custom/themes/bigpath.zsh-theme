@@ -126,4 +126,4 @@ function bigpath_prompt_char {
 }
 
 PROMPT=$'%{$purple%}%n%{$limegreen%}@%m %{$hotpink%}%2~%{$reset_color%}$(ruby_prompt_info " with%{$fg[red]%} " v g "")$vcs_info_msg_0_$BIGPATH_PROMPT_CHAR%{$reset_color%} '
-RPROMPT='%{$reset_color%}%D{%m/%d} %T%(?..|ERR:%?)%{$reset_color%}'
+RPROMPT='%{$reset_color%}%D{%m/%d} %T%(?.. %B%F{88}↵ %?%f%b)%{$reset_color%}'
