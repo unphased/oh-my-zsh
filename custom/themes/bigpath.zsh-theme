@@ -112,6 +112,8 @@ function bigpath_prompt_char {
     local char='$'
     [[ $EUID -eq 0 ]] && char='#'
 
+    local prompt_char_color="%F{#c7a6ff}"
+
     local italic_on=""
     local italic_off=""
     if [[ -n ${terminfo[sitm]-} && -n ${terminfo[ritm]-} ]]; then
@@ -122,7 +124,7 @@ function bigpath_prompt_char {
         italic_off=$'\e[23m'
     fi
 
-    print -nr -- " %{$italic_on%}%B${char}%b%{$italic_off%}"
+    print -nr -- " ${prompt_char_color}%{$italic_on%}%B${char}%b%{$italic_off%}%f"
 }
 
 PROMPT=$'%{$purple%}%n%{$limegreen%}@%m %{$hotpink%}%2~%{$reset_color%}$(ruby_prompt_info " with%{$fg[red]%} " v g "")$vcs_info_msg_0_$BIGPATH_PROMPT_CHAR%{$reset_color%} '
