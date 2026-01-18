@@ -433,6 +433,3 @@ eval "$(pyenv init -)"
 # the atuin setup
 eval "$(atuin init zsh --disable-up-arrow)"
 eval "$(zoxide init zsh)"
-
-# opencode
-export PATH=/home/slu/.opencode/bin:$PATH
