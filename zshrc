@@ -21,7 +21,7 @@ PS4='+$EPOCHREALTIME> '
 # time that oh-my-zsh is loaded.
 ZSH_THEME="lust"
 
-# Per-machine theme override (not checked into git).
+# Per-machine theme override (do no check ~/.zshrc.machine into git):
 # Create: ~/.zshrc.machine
 # Example: ZSH_THEME="lust"
 [[ -r "$HOME/.zshrc.machine" ]] && source "$HOME/.zshrc.machine"
@@ -433,3 +433,4 @@ eval "$(pyenv init -)"
 # the atuin setup
 eval "$(atuin init zsh --disable-up-arrow)"
 eval "$(zoxide init zsh)"
+command -v fzf >/dev/null 2>&1 && source <(fzf --zsh)
