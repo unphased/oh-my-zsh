@@ -6,6 +6,11 @@ export MANPATH="$HOME/.linuxbrew/share/man:$MANPATH"
 export INFOPATH="$HOME/.linuxbrew/share/info:$INFOPATH"
 export COLORTERM=truecolor
 
+if [[ -n ${SSH_CONNECTION:-} || -n ${SSH_TTY:-} ]]; then
+    export TMUX_SSH_BOUNDARY=1
+fi
+
+
 # debug logging, remove me to not waste disk
 # set the trace prompt to include seconds, nanoseconds, script name and line number
 PS4='+$EPOCHREALTIME> '
