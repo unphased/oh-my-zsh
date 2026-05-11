@@ -433,3 +433,6 @@ eval "$(pyenv init -)"
 # the atuin setup
 eval "$(atuin init zsh --disable-up-arrow)"
 eval "$(zoxide init zsh)"
+
+# Linux virtual terminal colors and OLED blanking.
+[ -r "$HOME/.vim/linux-vt-setup.sh" ] && . "$HOME/.vim/linux-vt-setup.sh"
