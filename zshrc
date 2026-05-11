@@ -427,3 +427,14 @@ eval "$(pyenv init -)"
 # the atuin setup
 eval "$(atuin init zsh --disable-up-arrow)"
 eval "$(zoxide init zsh)"
+
+# Added by Antigravity
+export PATH="/Users/slu/.antigravity/antigravity/bin:$PATH"
+
+# pnpm
+export PNPM_HOME="/Users/slu/Library/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+# pnpm end
