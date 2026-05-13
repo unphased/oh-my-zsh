@@ -6,6 +6,11 @@ export MANPATH="$HOME/.linuxbrew/share/man:$MANPATH"
 export INFOPATH="$HOME/.linuxbrew/share/info:$INFOPATH"
 export COLORTERM=truecolor
 
+if [[ -n ${SSH_CONNECTION:-} || -n ${SSH_TTY:-} ]]; then
+    export TMUX_SSH_BOUNDARY=1
+fi
+
+
 # debug logging, remove me to not waste disk
 # set the trace prompt to include seconds, nanoseconds, script name and line number
 PS4='+$EPOCHREALTIME> '
@@ -444,4 +449,8 @@ case ":$PATH:" in
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 # pnpm end
+
+# Linux virtual terminal colors and OLED blanking.
+[ -r "$HOME/.vim/linux-vt-setup.sh" ] && . "$HOME/.vim/linux-vt-setup.sh"
+
 command -v fzf >/dev/null 2>&1 && source <(fzf --zsh)
