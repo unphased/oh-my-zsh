@@ -20,6 +20,12 @@ PS4='+$EPOCHREALTIME> '
 # Optionally, if you set this to "random", it'll load a random theme each
 # time that oh-my-zsh is loaded.
 ZSH_THEME="lust"
+
+# Per-machine theme override (do no check ~/.zshrc.machine into git):
+# Create: ~/.zshrc.machine
+# Example: ZSH_THEME="lust"
+[[ -r "$HOME/.zshrc.machine" ]] && source "$HOME/.zshrc.machine"
+: ${ZSH_THEME:=lust}
 export LANG=en_US.UTF-8
 
 # Example aliases
@@ -329,14 +335,14 @@ color_tmux_pane() {
 # Add it to the precmd hooks, which is a robust way to handle this.
 autoload -U add-zsh-hook
 add-zsh-hook precmd handle_execution_duration
-add-zsh-hook precmd color_tmux_pane
 
-color_tmux_pane
+source ~/.vim/nvim/shell/nvim-bgcolor.zsh
+add-zsh-hook precmd __nvim_bgcolor_update
 
 echo "Finished loading my .zshrc"
 
-# load fuzzyfind bindings etc
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+# load fzf if available
+source <(fzf --zsh)
 
 emscriptenv () {
   # load emsdk env if present
@@ -438,3 +444,4 @@ case ":$PATH:" in
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 # pnpm end
+command -v fzf >/dev/null 2>&1 && source <(fzf --zsh)

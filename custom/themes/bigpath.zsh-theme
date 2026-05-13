@@ -1,0 +1,159 @@
+# prompt style and colors based on the halflife theme from the omz team:
+# https://github.com/ohmyzsh/ohmyzsh/blob/master/themes/half-life.zsh-theme
+# vcs_info modifications from Bart Trojanowski's zsh prompt:
+# http://www.jukie.net/bart/blog/pimping-out-zsh-prompt
+#
+# git untracked files modification from Brian Carper:
+# https://briancarper.net/blog/570/git-info-in-your-zsh-prompt
+
+function virtualenv_info {
+    [ $VIRTUAL_ENV ] && echo '('`basename $VIRTUAL_ENV`') '
+}
+PR_GIT_UPDATE=1
+
+setopt prompt_subst
+
+autoload -U add-zsh-hook
+autoload -Uz vcs_info
+
+# Performance knobs (set these before the theme is sourced)
+: "${BIGPATH_VCS_CHECK_FOR_CHANGES:=true}" # true/false; enables %u/%c dirty markers (can be slow)
+: "${BIGPATH_SHOW_UNTRACKED:=true}"        # true/false; adds extra ● when untracked files exist (can be slow)
+: "${BIGPATH_SHOW_AHEAD:=true}"            # true/false; adds ↑ when commits exist ahead of upstream
+: "${BIGPATH_PROMPT_PEG_LINE:=true}"        # true/false; emit CR+clear-line before prompt to reduce prompt corruption
+: "${BIGPATH_NOECHO_DURING_PRECMD:=true}"   # true/false; suppress tty echo while computing prompt (extra safety)
+
+BIGPATH_PROMPT_PREFIX=""
+if [[ "${BIGPATH_PROMPT_PEG_LINE}" == true ]]; then
+    BIGPATH_PROMPT_PREFIX=$'%{\r\e[2K%}'
+fi
+
+#use extended color palette if available
+if [[ $TERM = *256color* || $TERM = *rxvt* ]]; then
+    turquoise="%F{81}"
+    red="%F{196}"
+    orange="%F{166}"
+    purple="%F{135}"
+    hotpink="%F{161}"
+    limegreen="%F{118}"
+    gray="%F{8}"
+else
+    turquoise="$fg[cyan]"
+    orange="$fg[yellow]"
+    purple="$fg[magenta]"
+    hotpink="$fg[red]"
+    limegreen="$fg[green]"
+fi
+
+# enable VCS systems you use
+zstyle ':vcs_info:*' enable git svn
+
+# check-for-changes can be really slow.
+# you should disable it, if you work with large repositories
+zstyle ':vcs_info:*:prompt:*' check-for-changes "${BIGPATH_VCS_CHECK_FOR_CHANGES}"
+
+# set formats
+# %b - branchname
+# %u - unstagedstr (see below)
+# %c - stagedstr (see below)
+# %a - action (e.g. rebase-i)
+# %R - repository path
+# %S - path in the repository
+PR_RST="%{${reset_color}%}"
+FMT_BRANCH=" %{$turquoise%}%b%u%c${PR_RST}"
+FMT_ACTION=" performing a %{$purple%}%a${PR_RST}"
+FMT_UNSTAGED="%{$hotpink%} ●"
+FMT_STAGED="%{$purple%} ●"
+
+zstyle ':vcs_info:*:prompt:*' unstagedstr   "${FMT_UNSTAGED}"
+zstyle ':vcs_info:*:prompt:*' stagedstr     "${FMT_STAGED}"
+zstyle ':vcs_info:*:prompt:*' actionformats "${FMT_BRANCH}${FMT_ACTION}"
+zstyle ':vcs_info:*:prompt:*' formats       "${FMT_BRANCH}"
+zstyle ':vcs_info:*:prompt:*' nvcsformats   ""
+
+
+function steeef_preexec {
+    case "$2" in
+        *git*)
+            PR_GIT_UPDATE=1
+            ;;
+        *svn*)
+            PR_GIT_UPDATE=1
+            ;;
+    esac
+}
+add-zsh-hook preexec steeef_preexec
+
+function steeef_chpwd {
+    PR_GIT_UPDATE=1
+}
+add-zsh-hook chpwd steeef_chpwd
+
+function steeef_precmd {
+    emulate -L zsh
+    setopt localtraps
+
+    local stty_state=""
+    if [[ "${BIGPATH_NOECHO_DURING_PRECMD}" == true ]] && [[ -t 0 ]]; then
+        stty_state="$(stty -g 2>/dev/null)" || stty_state=""
+        if [[ -n "${stty_state}" ]]; then
+            stty -echo 2>/dev/null
+            trap 'stty "${stty_state}" 2>/dev/null' EXIT
+        fi
+    fi
+
+    BIGPATH_RUBY_PROMPT="$(ruby_prompt_info " with%{$fg[red]%} " v g "")"
+
+    if [[ -n "$PR_GIT_UPDATE" ]] ; then
+        local unpushed_indicator=""
+        local commits_ahead=""
+
+        if [[ "${BIGPATH_SHOW_AHEAD}" == true ]]; then
+            if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' &>/dev/null; then
+                commits_ahead="$(git rev-list --count '@{u}..HEAD' 2>/dev/null)"
+                if [[ -n "$commits_ahead" && "$commits_ahead" -gt 0 ]]; then
+                    unpushed_indicator=" %{$turquoise%}↑"
+                fi
+            fi
+        fi
+
+        # check for untracked files or updated submodules, since vcs_info doesn't
+        if [[ "${BIGPATH_SHOW_UNTRACKED}" == true ]] && [[ -n "$(git ls-files --other --exclude-standard 2>/dev/null)" ]]; then
+            PR_GIT_UPDATE=1
+            FMT_BRANCH=" %{$turquoise%}%b%u%c%{$turquoise%} ●${unpushed_indicator}${PR_RST}"
+        else
+            FMT_BRANCH=" %{$turquoise%}%b%u%c${unpushed_indicator}${PR_RST}"
+        fi
+        zstyle ':vcs_info:*:prompt:*' formats       "${FMT_BRANCH}"
+
+        vcs_info 'prompt'
+        BIGPATH_PROMPT_CHAR=""
+        if [[ "$vcs_info_msg_0_" != *"●"* ]]; then
+            BIGPATH_PROMPT_CHAR="$(bigpath_prompt_char)"
+        fi
+        PR_GIT_UPDATE=
+    fi
+}
+add-zsh-hook precmd steeef_precmd
+
+function bigpath_prompt_char {
+    local char='$'
+    [[ $EUID -eq 0 ]] && char='#'
+
+    local prompt_char_color="%F{#c7a6ff}"
+
+    local italic_on=""
+    local italic_off=""
+    if [[ -n ${terminfo[sitm]-} && -n ${terminfo[ritm]-} ]]; then
+        italic_on="${terminfo[sitm]}"
+        italic_off="${terminfo[ritm]}"
+    else
+        italic_on=$'\e[3m'
+        italic_off=$'\e[23m'
+    fi
+
+    print -nr -- " ${prompt_char_color}%{$italic_on%}%B${char}%b%{$italic_off%}%f"
+}
+
+PROMPT=$'${BIGPATH_PROMPT_PREFIX}%{$purple%}%n%{$limegreen%}@%m %{$hotpink%}%2~%{$reset_color%}${BIGPATH_RUBY_PROMPT}$vcs_info_msg_0_$BIGPATH_PROMPT_CHAR%{$reset_color%} '
+RPROMPT='%{$reset_color%}%D{%m/%d} %T%(?.. %B%F{88}↵ %?%f%b)%{$reset_color%}'

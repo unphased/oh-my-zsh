@@ -1,5 +1,5 @@
 # custom files
-custom/
+custom/plugins
 
 # temp files directories
 cache/
@@ -12,12 +12,9 @@ log/
 .idea
 .aider*
 
-# build directories and artifacts
-term-capture/debug/
-term-capture/release/
-term-capture/*.o
-term-capture/*.input
-term-capture/*.output
 
 # zcompile cached files
 *.zwc
+
+# place i keep scratch capture files for now
+captures/
