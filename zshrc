@@ -68,9 +68,6 @@ alias mmv='noglob zmv -W'
 # Example format: plugins=(rails git textmate ruby lighthouse)
 plugins=(git cp macos history F-Sy-H zsh-autosuggestions vi-mode lf zsh-copilot)
 
-# api env vars for auth (e.g. zsh-copilot)
-source ~/.ai-env
-
 # autocomplete configuration reduce spasticness at least starting out
 # The following zstyle settings are for zsh-autocomplete, which is not currently
 # enabled, and may be causing completion conflicts.
@@ -94,6 +91,9 @@ HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_NOT_FOUND='bg=magenta,fg=black'
 export VI_MODE_SET_CURSOR=true
 source $ZSH/oh-my-zsh.sh
 
+# Ignore leaked Kitty keyboard-protocol Ctrl-C release events.
+bindkey -M viins $'\e[99;5:3u' undefined-key
+bindkey -M vicmd $'\e[99;5:3u' undefined-key
 
 ## These are for zsh-autocomplete to remove its weird bad history menu
 # bindkey '\e[A' up-line-or-history
@@ -456,3 +456,7 @@ esac
 [ -r "$HOME/.vim/linux-vt-setup.sh" ] && . "$HOME/.vim/linux-vt-setup.sh"
 
 command -v fzf >/dev/null 2>&1 && source <(fzf --zsh)
+
+
+# Added by Antigravity CLI installer
+export PATH="/Users/slu/.local/bin:$PATH"
